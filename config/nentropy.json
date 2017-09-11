@@ -1,0 +1,7 @@
+{
+    "LogPath": "/var/log/nentropy/nentropy.log",
+    "PanicLogPath":"/var/log/nentropy/panic.log",
+    "PidFile": "/var/run/nentropy/nentropy.pid",
+    "DebugMode": false,
+    "LogLeval": 5
+}
