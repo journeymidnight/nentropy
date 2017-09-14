@@ -35,11 +35,10 @@ import (
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 
-	"github.com/dgraph-io/badger/table"
+	"github.com/dgraph-io/badger/options"
 	"github.com/journeymidnight/nentropy/worker"
 	"github.com/journeymidnight/nentropy/x"
 	"github.com/dgraph-io/badger"
-	//"github.com/prometheus/common/config"
 )
 
 var (
@@ -63,7 +62,7 @@ func (s *ServerState) initStorage() {
 	kvOpt.SyncWrites = true
 	kvOpt.Dir = Config.WALDir
 	kvOpt.ValueDir = Config.WALDir
-	kvOpt.MapTablesTo = table.MemoryMap
+	kvOpt.TableLoadingMode = options.MemoryMap
 
 	var err error
 	s.WALstore, err = badger.NewKV(&kvOpt)

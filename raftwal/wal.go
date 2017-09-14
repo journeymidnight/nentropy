@@ -37,6 +37,22 @@ func Init(walStore *badger.KV, id uint64) *Wal {
 	return &Wal{wals: walStore, id: id}
 }
 
+func getItemValue(item *badger.KVItem) (val []byte) {
+	err := item.Value(func(v []byte) error {
+		if v == nil {
+			return nil
+		}
+		val = make([]byte, len(v))
+		copy(val, v)
+		return nil
+	})
+
+	if err != nil {
+		x.Check(err)
+	}
+	return val
+}
+
 func (w *Wal) snapshotKey(gid uint32) []byte {
 	b := make([]byte, 14)
 	binary.BigEndian.PutUint64(b[0:8], w.id)
@@ -87,7 +103,7 @@ func (w *Wal) StoreSnapshot(gid uint32, s raftpb.Snapshot) error {
 	start := w.entryKey(gid, 0, 0)
 	last := w.entryKey(gid, s.Metadata.Term, s.Metadata.Index)
 	opt := badger.DefaultIteratorOptions
-	opt.FetchValues = false
+	//opt.FetchValues = false
 	itr := w.wals.NewIterator(opt)
 	defer itr.Close()
 
@@ -145,7 +161,7 @@ func (w *Wal) Store(gid uint32, h raftpb.HardState, es []raftpb.Entry) error {
 		start := w.entryKey(gid, t, i+1)
 		prefix := w.prefix(gid)
 		opt := badger.DefaultIteratorOptions
-		opt.FetchValues = false
+		//opt.FetchValues = false
 		itr := w.wals.NewIterator(opt)
 		defer itr.Close()
 
@@ -173,7 +189,8 @@ func (w *Wal) Snapshot(gid uint32) (snap raftpb.Snapshot, rerr error) {
 		rerr = x.Wrapf(err, "while fetching snapshot from wal")
 		return
 	}
-	val := item.Value()
+	val := getItemValue(&item)
+	//val := item.Value()
 	// Originally, with RocksDB, this can return an error and a non-null rdb.Slice object with Data=nil.
 	// And for this case, we do NOT return.
 	rerr = x.Wrapf(snap.Unmarshal(val), "While unmarshal snapshot")
@@ -186,7 +203,8 @@ func (w *Wal) HardState(gid uint32) (hd raftpb.HardState, rerr error) {
 		rerr = x.Wrapf(err, "while fetching hardstate from wal")
 		return
 	}
-	val := item.Value()
+	val := getItemValue(&item)
+	//val := item.Value()
 	// Originally, with RocksDB, this can return an error and a non-null rdb.Slice object with Data=nil.
 	// And for this case, we do NOT return.
 	rerr = x.Wrapf(hd.Unmarshal(val), "While unmarshal hardstate")
@@ -202,7 +220,8 @@ func (w *Wal) Entries(gid uint32, fromTerm, fromIndex uint64) (es []raftpb.Entry
 	for itr.Seek(start); itr.ValidForPrefix(prefix); itr.Next() {
 		item := itr.Item()
 		var e raftpb.Entry
-		if err := e.Unmarshal(item.Value()); err != nil {
+		val := getItemValue(item)
+		if err := e.Unmarshal(val); err != nil {
 			return es, x.Wrapf(err, "While unmarshal raftpb.Entry")
 		}
 		es = append(es, e)
