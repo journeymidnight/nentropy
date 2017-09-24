@@ -18,13 +18,10 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
-	//"strconv"
 
-	//"github.com/coreos/etcd/raft/raftpb"
 	"net"
 
-	//"github.com/journeymidnight/nentropy/worker"
-	"github.com/journeymidnight/nentropy/worker"
+	"github.com/journeymidnight/nentropy/mon"
 )
 
 // Handler for a http based key-value store backed by raft
@@ -42,11 +39,11 @@ func (h *httpKVAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		worker.ProposeMessage(key, string(v))
+		mon.ProposeMessage(key, string(v))
 
 		w.WriteHeader(http.StatusNoContent)
 	case r.Method == "GET":
-		if v, ok := worker.Lookup(key); ok {
+		if v, ok := mon.Lookup(key); ok {
 			w.Write([]byte(v))
 		} else {
 			http.Error(w, "Failed to GET", http.StatusNotFound)
@@ -63,8 +60,7 @@ func (h *httpKVAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // serveHttpKVAPI starts a key-value server with a GET/PUT API and listens.
 func serveHttpKVAPI(ln net.Listener) {
 	srv := http.Server{
-		Handler: &httpKVAPI{
-		},
+		Handler: &httpKVAPI{},
 	}
 	go func() {
 		if err := srv.Serve(ln); err != nil {

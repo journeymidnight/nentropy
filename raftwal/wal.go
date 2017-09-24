@@ -25,7 +25,7 @@ import (
 	"github.com/coreos/etcd/raft/raftpb"
 	"github.com/dgraph-io/badger"
 
-	"github.com/journeymidnight/nentropy/x"
+	"github.com/journeymidnight/nentropy/helper"
 )
 
 type Wal struct {
@@ -48,7 +48,7 @@ func getItemValue(item *badger.KVItem) (val []byte) {
 	})
 
 	if err != nil {
-		x.Check(err)
+		helper.Check(err)
 	}
 	return val
 }
@@ -92,12 +92,12 @@ func (w *Wal) StoreSnapshot(gid uint32, s raftpb.Snapshot) error {
 	}
 	data, err := s.Marshal()
 	if err != nil {
-		return x.Wrapf(err, "wal.Store: While marshal snapshot")
+		return helper.Wrapf(err, "wal.Store: While marshal snapshot")
 	}
 	if err := w.wals.Set(w.snapshotKey(gid), data, 0x00); err != nil {
 		return err
 	}
-	x.Printf("Writing snapshot to WAL: %+v\n", s)
+	helper.Logger.Printf(10, "Writing snapshot to WAL: %+v\n", s)
 
 	// Delete all entries before this snapshot to save disk space.
 	start := w.entryKey(gid, 0, 0)
@@ -120,11 +120,11 @@ func (w *Wal) StoreSnapshot(gid uint32, s raftpb.Snapshot) error {
 	// Failure to delete entries is not a fatal error, so should be
 	// ok to ignore
 	if err := w.wals.BatchSet(wb); err != nil {
-		x.Printf("Error while deleting entries %v\n", err)
+		helper.Logger.Printf(10, "Error while deleting entries %v\n", err)
 	}
 	for _, wbe := range wb {
 		if err := wbe.Error; err != nil {
-			x.Printf("Error while deleting entries %v\n", err)
+			helper.Logger.Printf(10, "Error while deleting entries %v\n", err)
 		}
 	}
 	return nil
@@ -137,7 +137,7 @@ func (w *Wal) Store(gid uint32, h raftpb.HardState, es []raftpb.Entry) error {
 	if !raft.IsEmptyHardState(h) {
 		data, err := h.Marshal()
 		if err != nil {
-			return x.Wrapf(err, "wal.Store: While marshal hardstate")
+			return helper.Wrapf(err, "wal.Store: While marshal hardstate")
 		}
 		wb = badger.EntriesSet(wb, w.hardStateKey(gid), data)
 	}
@@ -147,7 +147,7 @@ func (w *Wal) Store(gid uint32, h raftpb.HardState, es []raftpb.Entry) error {
 		t, i = e.Term, e.Index
 		data, err := e.Marshal()
 		if err != nil {
-			return x.Wrapf(err, "wal.Store: While marshal entry")
+			return helper.Wrapf(err, "wal.Store: While marshal entry")
 		}
 		k := w.entryKey(gid, e.Term, e.Index)
 		wb = badger.EntriesSet(wb, k, data)
@@ -186,28 +186,28 @@ func (w *Wal) Store(gid uint32, h raftpb.HardState, es []raftpb.Entry) error {
 func (w *Wal) Snapshot(gid uint32) (snap raftpb.Snapshot, rerr error) {
 	var item badger.KVItem
 	if err := w.wals.Get(w.snapshotKey(gid), &item); err != nil {
-		rerr = x.Wrapf(err, "while fetching snapshot from wal")
+		rerr = helper.Wrapf(err, "while fetching snapshot from wal")
 		return
 	}
 	val := getItemValue(&item)
 	//val := item.Value()
 	// Originally, with RocksDB, this can return an error and a non-null rdb.Slice object with Data=nil.
 	// And for this case, we do NOT return.
-	rerr = x.Wrapf(snap.Unmarshal(val), "While unmarshal snapshot")
+	rerr = helper.Wrapf(snap.Unmarshal(val), "While unmarshal snapshot")
 	return
 }
 
 func (w *Wal) HardState(gid uint32) (hd raftpb.HardState, rerr error) {
 	var item badger.KVItem
 	if err := w.wals.Get(w.hardStateKey(gid), &item); err != nil {
-		rerr = x.Wrapf(err, "while fetching hardstate from wal")
+		rerr = helper.Wrapf(err, "while fetching hardstate from wal")
 		return
 	}
 	val := getItemValue(&item)
 	//val := item.Value()
 	// Originally, with RocksDB, this can return an error and a non-null rdb.Slice object with Data=nil.
 	// And for this case, we do NOT return.
-	rerr = x.Wrapf(hd.Unmarshal(val), "While unmarshal hardstate")
+	rerr = helper.Wrapf(hd.Unmarshal(val), "While unmarshal hardstate")
 	return
 }
 
@@ -222,7 +222,7 @@ func (w *Wal) Entries(gid uint32, fromTerm, fromIndex uint64) (es []raftpb.Entry
 		var e raftpb.Entry
 		val := getItemValue(item)
 		if err := e.Unmarshal(val); err != nil {
-			return es, x.Wrapf(err, "While unmarshal raftpb.Entry")
+			return es, helper.Wrapf(err, "While unmarshal raftpb.Entry")
 		}
 		es = append(es, e)
 	}

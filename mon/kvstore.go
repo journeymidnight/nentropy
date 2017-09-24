@@ -12,18 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package worker
+package mon
 
 import (
 	"encoding/json"
 	"sync"
-
 )
 
 // a key-value store backed by raft
 type kvstore struct {
-	mu          sync.RWMutex
-	kvStore     map[string]string // current committed key-value pairs
+	mu      sync.RWMutex
+	kvStore map[string]string // current committed key-value pairs
 }
 
 type kv struct {

@@ -15,7 +15,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-package worker
+package mon
 
 import (
 	"bytes"
@@ -25,8 +25,8 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/journeymidnight/nentropy/helper"
 	"github.com/journeymidnight/nentropy/protos"
-	"github.com/journeymidnight/nentropy/x"
 
 	"google.golang.org/grpc"
 )
@@ -36,7 +36,7 @@ var (
 )
 
 // "pool" is used to manage the grpc client connection(s) for communicating with other
-// worker instances.  Right now it just holds one of them.
+// mon instances.  Right now it just holds one of them.
 type pool struct {
 	// A "pool" now consists of one connection.  gRPC uses HTTP2 transport to combine
 	// messages in the same TCP stream.
@@ -61,16 +61,6 @@ func init() {
 
 func pools() *poolsi {
 	return pi
-}
-
-func (p *poolsi) any() (*pool, error) {
-	p.RLock()
-	defer p.RUnlock()
-	for _, pool := range p.all {
-		pool.AddOwner()
-		return pool, nil
-	}
-	return nil, errNoConnection
 }
 
 func (p *poolsi) get(addr string) (*pool, error) {
@@ -100,7 +90,7 @@ func (p *poolsi) release(pl *pool) {
 func destroyPool(pl *pool) {
 	err := pl.conn.Close()
 	if err != nil {
-		x.Printf("Error closing cluster connection: %v\n", err.Error())
+		helper.Logger.Printf(5, "Error closing cluster connection: %v\n", err.Error())
 	}
 }
 
@@ -118,7 +108,9 @@ func (p *poolsi) connect(addr string) (*pool, bool) {
 	pool, err := newPool(addr)
 	// TODO: Rename newPool to newConn, rename pool.
 	// TODO: This can get triggered with totally bogus config.
-	x.Checkf(err, "Unable to connect to host %s", addr)
+	if err != nil {
+		helper.Logger.Fatalf(0, "Unable to connect to host %s", addr)
+	}
 
 	p.Lock()
 	existingPool, has = p.all[addr]
@@ -138,11 +130,11 @@ func (p *poolsi) connect(addr string) (*pool, bool) {
 		defer p.release(pool)
 		err = testConnection(pool)
 		if err != nil {
-			x.Printf("Connection to %q fails, got error: %v\n", addr, err)
+			helper.Logger.Printf(0, "Connection to %q fails, got error: %v\n", addr, err)
 			// Don't return -- let's still put the empty pool in the map.  Its users
 			// have to handle errors later anyway.
 		} else {
-			x.Printf("Connection with %q healthy.\n", addr)
+			helper.Logger.Printf(0, "Connection with %q healthy.\n", addr)
 		}
 	}()
 
@@ -155,15 +147,16 @@ func testConnection(p *pool) error {
 
 	query := new(protos.Payload)
 	query.Data = make([]byte, 10)
-	x.Check2(rand.Read(query.Data))
+	_, err := rand.Read(query.Data)
+	helper.Check(err)
 
-	c := protos.NewWorkerClient(conn)
+	c := protos.NewRaftNodeClient(conn)
 	resp, err := c.Echo(context.Background(), query)
 	if err != nil {
 		return err
 	}
 	// If a server is sending bad echos, do we have to freak out and die?
-	x.AssertTruef(bytes.Equal(resp.Data, query.Data),
+	helper.AssertTruef(bytes.Equal(resp.Data, query.Data),
 		"non-matching Echo response value from %v", p.Addr)
 	return nil
 }
@@ -172,8 +165,8 @@ func testConnection(p *pool) error {
 func newPool(addr string) (*pool, error) {
 	conn, err := grpc.Dial(addr,
 		grpc.WithDefaultCallOptions(
-			grpc.MaxCallRecvMsgSize(x.GrpcMaxSize),
-			grpc.MaxCallSendMsgSize(x.GrpcMaxSize)),
+			grpc.MaxCallRecvMsgSize(GrpcMaxSize),
+			grpc.MaxCallSendMsgSize(GrpcMaxSize)),
 		grpc.WithInsecure())
 	if err != nil {
 		return nil, err

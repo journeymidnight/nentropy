@@ -15,7 +15,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-package worker
+package mon
 
 import (
 	"bytes"
@@ -28,13 +28,14 @@ import (
 
 	"github.com/coreos/etcd/raft"
 	"github.com/coreos/etcd/raft/raftpb"
+	"github.com/pkg/errors"
 	"golang.org/x/net/context"
 	"golang.org/x/net/trace"
 
+	"encoding/gob"
+	"github.com/journeymidnight/nentropy/helper"
 	"github.com/journeymidnight/nentropy/protos"
 	"github.com/journeymidnight/nentropy/raftwal"
-	"github.com/journeymidnight/nentropy/x"
-	"encoding/gob"
 )
 
 const (
@@ -155,16 +156,11 @@ type sendmsg struct {
 }
 
 type node struct {
-	x.SafeMutex
+	helper.SafeMutex
 
 	// SafeMutex is for fields which can be changed after init.
 	_confState *raftpb.ConfState
 	_raft      raft.Node
-
-
-	// kvstore store key and values
-	kvStore     *kvstore
-	mu          sync.RWMutex
 
 	// Fields which are never changed after init.
 	cfg         *raft.Config
@@ -175,7 +171,7 @@ type node struct {
 	gid         uint32
 	id          uint64
 	messages    chan sendmsg
-	peersAddr    []string // raft peer URLs
+	peersAddr   []string // raft peer URLs
 	peers       peerPool
 	props       proposals
 	raftContext *protos.RaftContext
@@ -190,7 +186,7 @@ type node struct {
 func (n *node) SetRaft(r raft.Node) {
 	n.Lock()
 	defer n.Unlock()
-	x.AssertTrue(n._raft == nil)
+	helper.AssertTrue(n._raft == nil)
 	n._raft = r
 }
 
@@ -216,7 +212,7 @@ func (n *node) ConfState() *raftpb.ConfState {
 }
 
 func newNode(id uint64, myAddr string) *node {
-	x.Printf("Node with ID: %v\n", id)
+	helper.Logger.Printf(10, "Node with ID: %v\n", id)
 
 	peers := peerPool{
 		peers: make(map[uint64]peerPoolEntry),
@@ -227,8 +223,8 @@ func newNode(id uint64, myAddr string) *node {
 
 	store := raft.NewMemoryStorage()
 	rc := &protos.RaftContext{
-		Addr:  myAddr,
-		Id:    id,
+		Addr: myAddr,
+		Id:   id,
 	}
 
 	n := &node{
@@ -242,7 +238,7 @@ func newNode(id uint64, myAddr string) *node {
 			Storage:         store,
 			MaxSizePerMsg:   256 << 10,
 			MaxInflightMsgs: 256,
-			Logger:          &raft.DefaultLogger{Logger: x.Logger},
+			Logger:          &raft.DefaultLogger{Logger: helper.Logger.Logger},
 		},
 		applyCh:     make(chan raftpb.Entry, numPendingMutations),
 		peers:       peers,
@@ -252,8 +248,6 @@ func newNode(id uint64, myAddr string) *node {
 		stop:        make(chan struct{}),
 		done:        make(chan struct{}),
 	}
-
-	n.kvStore = newKVStore()
 
 	return n
 }
@@ -271,7 +265,7 @@ func (n *node) GetPeerPool(pid uint64) (*pool, error) {
 
 // addr must not be empty.
 func (n *node) SetPeer(pid uint64, addr string, poolOrNil *pool) {
-	x.AssertTruef(addr != "", "SetPeer for peer %d has empty addr.", pid)
+	helper.AssertTruef(addr != "", "SetPeer for peer %d has empty addr.", pid)
 	n.peers.set(pid, addr, poolOrNil)
 }
 
@@ -292,20 +286,20 @@ func (n *node) Connect(pid uint64, addr string) {
 	p, ok := pools().connect(addr)
 	if !ok {
 		// TODO: Note this fact in more general peer health info somehow.
-		x.Printf("Peer %d claims same host as me\n", pid)
+		helper.Logger.Printf(10, "Peer %d claims same host as me\n", pid)
 	}
 	n.SetPeer(pid, addr, p)
 }
 
 func (n *node) AddToCluster(ctx context.Context, pid uint64) error {
 	addr, ok := n.GetPeer(pid)
-	x.AssertTruef(ok, "Unable to find conn pool for peer: %d", pid)
+	helper.AssertTruef(ok, "Unable to find conn pool for peer: %d", pid)
 	rc := &protos.RaftContext{
-		Addr:  addr,
-		Id:    pid,
+		Addr: addr,
+		Id:   pid,
 	}
 	rcBytes, err := rc.Marshal()
-	x.Check(err)
+	helper.Check(err)
 	return n.Raft().ProposeConfChange(ctx, raftpb.ConfChange{
 		ID:      pid,
 		Type:    raftpb.ConfChangeAddNode,
@@ -337,7 +331,7 @@ func (h *header) Decode(in []byte) {
 
 func (n *node) ProposeAndWait(ctx context.Context, proposal *protos.Proposal) error {
 	if n.Raft() == nil {
-		return x.Errorf("RAFT isn't initialized yet")
+		return errors.Errorf("RAFT isn't initialized yet")
 	}
 
 	if ctx.Err() != nil {
@@ -367,7 +361,7 @@ func (n *node) ProposeAndWait(ctx context.Context, proposal *protos.Proposal) er
 
 	//	we don't timeout on a mutation which has already been proposed.
 	if err = n.Raft().Propose(ctx, slice[:upto]); err != nil {
-		return x.Wrapf(err, "While proposing")
+		return helper.Wrapf(err, "While proposing")
 	}
 
 	err = <-che
@@ -380,18 +374,18 @@ func (n *node) ProposeAndWait(ctx context.Context, proposal *protos.Proposal) er
 }
 
 func (n *node) send(m raftpb.Message) {
-	x.AssertTruef(n.id != m.To, "Seding message to itself")
+	helper.AssertTruef(n.id != m.To, "Seding message to itself")
 	data, err := m.Marshal()
-	x.Check(err)
+	helper.Check(err)
 	if m.Type != raftpb.MsgHeartbeat && m.Type != raftpb.MsgHeartbeatResp {
-		x.Printf("\t\tSENDING: %v %v-->%v\n", m.Type, m.From, m.To)
+		helper.Logger.Printf(5, "\t\tSENDING: %v %v-->%v\n", m.Type, m.From, m.To)
 	}
 	select {
 	case n.messages <- sendmsg{to: m.To, data: data}:
 		// pass
 	default:
 		// TODO: It's bad to fail like this.
-		x.Fatalf("Unable to push messages to channel in send")
+		helper.Logger.Fatalf(0, "Unable to push messages to channel in send")
 	}
 }
 
@@ -414,8 +408,8 @@ func (n *node) batchAndSendMessages() {
 				buf = b
 			}
 			totalSize += 4 + len(sm.data)
-			x.Check(binary.Write(buf, binary.LittleEndian, uint32(len(sm.data))))
-			x.Check2(buf.Write(sm.data))
+			helper.Check(binary.Write(buf, binary.LittleEndian, uint32(len(sm.data))))
+			helper.Check2(buf.Write(sm.data))
 
 			if totalSize > messageBatchSoftLimit {
 				// We limit the batch size, but we aren't pushing back on
@@ -448,7 +442,7 @@ func (n *node) doSendMessage(to uint64, data []byte) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 
-	addr := n.peersAddr[to - 1]
+	addr := n.peersAddr[to-1]
 	n.Connect(to, addr)
 	pool, err := n.GetPeerPool(to)
 	if err != nil {
@@ -459,7 +453,7 @@ func (n *node) doSendMessage(to uint64, data []byte) {
 	defer pools().release(pool)
 	conn := pool.Get()
 
-	c := protos.NewWorkerClient(conn)
+	c := protos.NewRaftNodeClient(conn)
 	p := &protos.Payload{Data: data}
 
 	ch := make(chan error, 1)
@@ -492,19 +486,19 @@ func (n *node) processApplyCh() {
 
 			if len(cc.Context) > 0 {
 				var rc protos.RaftContext
-				x.Check(rc.Unmarshal(cc.Context))
+				helper.Check(rc.Unmarshal(cc.Context))
 				n.Connect(rc.Id, rc.Addr)
 				n.peersAddr = append(n.peersAddr, rc.Addr)
-				x.Println("ConfChange rc.ID:", rc.Id, "rc.Addr", rc.Addr)
+				helper.Logger.Println(10, "ConfChange rc.ID:", rc.Id, "rc.Addr", rc.Addr)
 			}
 
 			cs := n.Raft().ApplyConfChange(cc)
-			x.Println("ConfChange cc.ID:", cc.ID, "cc.NodeID", cc.NodeID)
+			helper.Logger.Println(10, "ConfChange cc.ID:", cc.ID, "cc.NodeID", cc.NodeID)
 			n.SetConfState(cs)
 			continue
 		}
 
-		x.AssertTrue(e.Type == raftpb.EntryNormal)
+		helper.AssertTrue(e.Type == raftpb.EntryNormal)
 
 		// The following effort is only to apply schema in a blocking fashion.
 		// Once we have a scheduler, this should go away.
@@ -525,9 +519,12 @@ func (n *node) processApplyCh() {
 			if err := dec.Decode(&dataKv); err != nil {
 				log.Fatalf("raftexample: could not decode message (%v)", err)
 			}
-			n.kvStore.Store(dataKv.Key, dataKv.Val)
-			x.Println("key is ", dataKv.Key, "val is ", dataKv.Val)
+			getCluster().getKvStore().Store(dataKv.Key, dataKv.Val)
+			helper.Logger.Println(10, "key is ", dataKv.Key, "val is ", dataKv.Val)
 			n.props.Done(proposal.Id, nil)
+		}
+		if proposal.Dnm != nil {
+			getCluster().currDNM = *proposal.Dnm
 		}
 	}
 }
@@ -565,7 +562,7 @@ func (n *node) Run() {
 	ticker := time.NewTicker(20 * time.Millisecond)
 	defer ticker.Stop()
 	rcBytes, err := n.raftContext.Marshal()
-	x.Check(err)
+	helper.Check(err)
 	for {
 		select {
 		case <-ticker.C:
@@ -583,8 +580,8 @@ func (n *node) Run() {
 				}
 				leader = rd.RaftState == raft.StateLeader
 			}
-			x.Check(n.wal.StoreSnapshot(n.gid, rd.Snapshot))
-			x.Check(n.wal.Store(n.gid, rd.HardState, rd.Entries))
+			helper.Check(n.wal.StoreSnapshot(n.gid, rd.Snapshot))
+			helper.Check(n.wal.Store(n.gid, rd.HardState, rd.Entries))
 
 			n.saveToStorage(rd.Snapshot, rd.HardState, rd.Entries)
 
@@ -599,16 +596,17 @@ func (n *node) Run() {
 				// either the leader is trying to bring us up to state; or this is the
 				// snapshot that I created. Only the former case should be handled.
 				var rc protos.RaftContext
-				x.Check(rc.Unmarshal(rd.Snapshot.Data))
+				helper.Check(rc.Unmarshal(rd.Snapshot.Data))
 				if rc.Id != n.id {
-					x.Printf("-------> SNAPSHOT [%d] from %d\n", n.gid, rc.Id)
+					helper.Logger.Printf(10, "-------> SNAPSHOT [%d] from %d\n", n.gid, rc.Id)
 					n.retrieveSnapshot(rc.Id)
-					x.Printf("-------> SNAPSHOT [%d]. DONE.\n", n.gid)
+					helper.Logger.Printf(10, "-------> SNAPSHOT [%d]. DONE.\n", n.gid)
 				} else {
-					x.Printf("-------> SNAPSHOT [%d] from %d [SELF]. Ignoring.\n", n.gid, rc.Id)
+					helper.Logger.Printf(10, "-------> SNAPSHOT [%d] from %d [SELF]. Ignoring.\n", n.gid, rc.Id)
 				}
 			}
 			if len(rd.CommittedEntries) > 0 {
+				helper.Logger.Println(10, "Ready(): message count: ", len(rd.CommittedEntries))
 				if tr, ok := trace.FromContext(n.ctx); ok {
 					tr.LazyPrintf("Found %d committed entries", len(rd.CommittedEntries))
 				}
@@ -626,7 +624,7 @@ func (n *node) Run() {
 			}
 
 		case <-n.stop:
-			if peerId, has := cluster().Peer(Config.RaftId); has && n.AmLeader() {
+			if peerId, has := getCluster().Peer(Config.RaftId); has && n.AmLeader() {
 				n.Raft().TransferLeadership(n.ctx, Config.RaftId, peerId)
 				go func() {
 					select {
@@ -683,27 +681,27 @@ func (n *node) snapshotPeriodically() {
 
 func (n *node) snapshot(skip uint64) {
 	/*
-	water := posting.SyncMarkFor(n.gid)
-	le := water.DoneUntil()
+		water := posting.SyncMarkFor(n.gid)
+		le := water.DoneUntil()
 
-	existing, err := n.store.Snapshot()
-	x.Checkf(err, "Unable to get existing snapshot")
+		existing, err := n.store.Snapshot()
+		helper.Checkf(err, "Unable to get existing snapshot")
 
-	si := existing.Metadata.Index
-	if le <= si+skip {
-		return
-	}
-	snapshotIdx := le - skip
-	if tr, ok := trace.FromContext(n.ctx); ok {
-		tr.LazyPrintf("Taking snapshot for group: %d at watermark: %d\n", n.gid, snapshotIdx)
-	}
-	rc, err := n.raftContext.Marshal()
-	x.Check(err)
+		si := existing.Metadata.Index
+		if le <= si+skip {
+			return
+		}
+		snapshotIdx := le - skip
+		if tr, ok := trace.FromContext(n.ctx); ok {
+			tr.LazyPrintf("Taking snapshot for group: %d at watermark: %d\n", n.gid, snapshotIdx)
+		}
+		rc, err := n.raftContext.Marshal()
+		helper.Check(err)
 
-	s, err := n.store.CreateSnapshot(snapshotIdx, n.ConfState(), rc)
-	x.Checkf(err, "While creating snapshot")
-	x.Checkf(n.store.Compact(snapshotIdx), "While compacting snapshot")
-	x.Check(n.wal.StoreSnapshot(n.gid, s))
+		s, err := n.store.CreateSnapshot(snapshotIdx, n.ConfState(), rc)
+		helper.Checkf(err, "While creating snapshot")
+		helper.Checkf(n.store.Compact(snapshotIdx), "While compacting snapshot")
+		helper.Check(n.wal.StoreSnapshot(n.gid, s))
 	*/
 }
 
@@ -711,7 +709,7 @@ func (n *node) joinPeers() {
 	var id int
 	var addr string
 	for id, addr = range n.peersAddr {
-		if uint64(id + 1) != n.id {
+		if uint64(id+1) != n.id {
 			break
 		}
 	}
@@ -720,7 +718,7 @@ func (n *node) joinPeers() {
 	}
 	id = id + 1
 	n.Connect(uint64(id), addr)
-	x.Printf("joinPeers connected with: %q with peer id: %d\n", addr, id)
+	helper.Logger.Printf(10, "joinPeers connected with: %q with peer id: %d\n", addr, id)
 
 	pool, err := pools().get(addr)
 	if err != nil {
@@ -732,15 +730,15 @@ func (n *node) joinPeers() {
 	// Raft would decide whether snapshot needs to fetched or not
 	// so populateShard is not needed
 	// _, err := populateShard(n.ctx, pool, n.gid)
-	// x.Checkf(err, "Error while populating shard")
+	// helper.Checkf(err, "Error while populating shard")
 
 	conn := pool.Get()
 
-	c := protos.NewWorkerClient(conn)
-	x.Printf("Calling JoinCluster")
+	c := protos.NewRaftNodeClient(conn)
+	helper.Logger.Printf(10, "Calling JoinCluster")
 	_, err = c.JoinCluster(n.ctx, n.raftContext)
-	x.Checkf(err, "Error while joining cluster")
-	x.Printf("Done with JoinCluster call\n")
+	helper.Checkf(err, "Error while joining cluster")
+	helper.Logger.Printf(10, "Done with JoinCluster call\n")
 }
 
 func (n *node) initFromWal(wal *raftwal.Wal) (restart bool, rerr error) {
@@ -753,7 +751,7 @@ func (n *node) initFromWal(wal *raftwal.Wal) (restart bool, rerr error) {
 	}
 	var term, idx uint64
 	if !raft.IsEmptySnap(sp) {
-		x.Printf("Found Snapshot: %+v\n", sp)
+		helper.Logger.Printf(10, "Found Snapshot: %+v\n", sp)
 		restart = true
 		if rerr = n.store.ApplySnapshot(sp); rerr != nil {
 			return
@@ -768,7 +766,7 @@ func (n *node) initFromWal(wal *raftwal.Wal) (restart bool, rerr error) {
 		return
 	}
 	if !raft.IsEmptyHardState(hd) {
-		x.Printf("Found hardstate: %+v\n", sp)
+		helper.Logger.Printf(10, "Found hardstate: %+v\n", sp)
 		restart = true
 		if rerr = n.store.SetHardState(hd); rerr != nil {
 			return
@@ -780,7 +778,7 @@ func (n *node) initFromWal(wal *raftwal.Wal) (restart bool, rerr error) {
 	if rerr != nil {
 		return
 	}
-	x.Printf("Group %d found %d entries\n", n.gid, len(es))
+	helper.Logger.Printf(10, "Group %d found %d entries\n", n.gid, len(es))
 	if len(es) > 0 {
 		restart = true
 	}
@@ -791,7 +789,7 @@ func (n *node) initFromWal(wal *raftwal.Wal) (restart bool, rerr error) {
 // InitAndStartNode gets called after having at least one membership sync with the cluster.
 func (n *node) InitAndStartNode(wal *raftwal.Wal) {
 	restart, err := n.initFromWal(wal)
-	x.Check(err)
+	helper.Check(err)
 
 	rpeers := make([]raft.Peer, len(n.peersAddr))
 	for i := range rpeers {
@@ -799,11 +797,11 @@ func (n *node) InitAndStartNode(wal *raftwal.Wal) {
 	}
 
 	if restart {
-		x.Printf("Restarting node for cluster")
+		helper.Logger.Printf(10, "Restarting node for cluster")
 		n.SetRaft(raft.RestartNode(n.cfg))
 
 	} else {
-		x.Printf("New Node for cluster")
+		helper.Logger.Printf(10, "New Node for cluster")
 		if Config.Join {
 			n.joinPeers()
 			rpeers = nil
@@ -835,8 +833,8 @@ var (
 
 func applyMessage(ctx context.Context, msg raftpb.Message) error {
 	var rc protos.RaftContext
-	x.Check(rc.Unmarshal(msg.Context))
-	node := cluster().Node()
+	helper.Check(rc.Unmarshal(msg.Context))
+	node := getCluster().Node()
 	if node == nil {
 		// Maybe we went down, went back up, reconnected, and got an RPC
 		// message before we set up Raft?
@@ -855,28 +853,28 @@ func applyMessage(ctx context.Context, msg raftpb.Message) error {
 	}
 }
 
-func (w *grpcWorker) RaftMessage(ctx context.Context, query *protos.Payload) (*protos.Payload, error) {
+func (w *grpcRaftNode) RaftMessage(ctx context.Context, query *protos.Payload) (*protos.Payload, error) {
 	if ctx.Err() != nil {
 		return &protos.Payload{}, ctx.Err()
 	}
 
 	for idx := 0; idx < len(query.Data); {
-		x.AssertTruef(len(query.Data[idx:]) >= 4,
+		helper.AssertTruef(len(query.Data[idx:]) >= 4,
 			"Slice left of size: %v. Expected at least 4.", len(query.Data[idx:]))
 
 		sz := int(binary.LittleEndian.Uint32(query.Data[idx : idx+4]))
 		idx += 4
 		msg := raftpb.Message{}
 		if idx+sz > len(query.Data) {
-			return &protos.Payload{}, x.Errorf(
+			return &protos.Payload{}, helper.Errorf(
 				"Invalid query. Specified size %v overflows slice [%v,%v)\n",
 				sz, idx, len(query.Data))
 		}
 		if err := msg.Unmarshal(query.Data[idx : idx+sz]); err != nil {
-			x.Check(err)
+			helper.Check(err)
 		}
 		if msg.Type != raftpb.MsgHeartbeat && msg.Type != raftpb.MsgHeartbeatResp {
-			x.Printf("RECEIVED: %v %v-->%v\n", msg.Type, msg.From, msg.To)
+			helper.Logger.Printf(10, "RECEIVED: %v %v-->%v\n", msg.Type, msg.From, msg.To)
 		}
 		if err := applyMessage(ctx, msg); err != nil {
 			return &protos.Payload{}, err
@@ -887,7 +885,7 @@ func (w *grpcWorker) RaftMessage(ctx context.Context, query *protos.Payload) (*p
 	return &protos.Payload{}, nil
 }
 
-func (w *grpcWorker) JoinCluster(ctx context.Context, rc *protos.RaftContext) (*protos.Payload, error) {
+func (w *grpcRaftNode) JoinCluster(ctx context.Context, rc *protos.RaftContext) (*protos.Payload, error) {
 	if ctx.Err() != nil {
 		return &protos.Payload{}, ctx.Err()
 	}
@@ -895,13 +893,13 @@ func (w *grpcWorker) JoinCluster(ctx context.Context, rc *protos.RaftContext) (*
 	// TODO:
 	// Check the node if it is exist
 
-	node := cluster().Node()
+	node := getCluster().Node()
 	if node == nil {
 		return &protos.Payload{}, nil
 	}
-	x.Println("JoinCluster: id:", rc.Id, "Addr:", rc.Addr)
+	helper.Logger.Println(10, "JoinCluster: id:", rc.Id, "Addr:", rc.Addr)
 	node.Connect(rc.Id, rc.Addr)
-	x.Println("after connection")
+	helper.Logger.Println(10, "after connection")
 
 	c := make(chan error, 1)
 	go func() { c <- node.AddToCluster(ctx, rc.Id) }()

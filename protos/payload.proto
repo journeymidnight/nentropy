@@ -18,28 +18,43 @@
 syntax = "proto3";
 
 package protos;
-import "task.proto";
 
 message Payload {
 	bytes Data = 1;
 }
 
-// BackupPayload is used both as a request and a response.
-// When used in request, cluster represents the list of cluster that need to be backed up.
-// When used in response, cluster represent the list of cluster that were backed up.
-message ExportPayload {
-	uint64 req_id = 1;    // Use req_id to handle duplicate requests.
-	uint32 group_id = 2;  // Group id to back up.
-	enum Status {
-		NONE      = 0;
-		SUCCESS   = 1;
-		DUPLICATE = 2;
-		FAILED    = 3;
-	}
-	Status status = 3;
+message RaftContext {
+	fixed64 id = 1;
+	uint32 group = 2;
+	string addr = 3;
 }
 
-service Worker {
+message DataNodeDesc {
+	uint64      id     = 1;
+	string      addr   = 2;
+	uint64      weight = 3;
+	bool        up     = 4;
+	bool        in     = 5;
+}
+
+message DataNodeMap {
+	uint64      epoch                     = 1;
+	map<uint64, DataNodeDesc>  memberList = 2;
+}
+
+message Proposal {
+	uint32 id         = 1;
+	enum  Type {
+		DATA_TYPE_KV_MAP          = 0;
+		DATA_TYPE_DATA_NODE_MAP   = 1;
+		DATA_TYPE_PG_MAP          = 2;
+	}
+	Type type         = 2;
+	bytes Data        = 3;
+	DataNodeMap dnm   = 4;
+}
+
+service RaftNode {
 	// Connection testing RPC.
 	rpc Echo (Payload)             returns (Payload) {}
 

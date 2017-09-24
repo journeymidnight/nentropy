@@ -14,7 +14,11 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-package worker
+package mon
+
+import (
+	"github.com/journeymidnight/nentropy/log"
+)
 
 type Options struct {
 	WorkerPort          int
@@ -22,8 +26,14 @@ type Options struct {
 	NumPendingProposals int
 	Tracing             float64
 	PeerAddr            string
+	MyAddr              string
 	RaftId              uint64
 	MaxPendingCount     uint64
+	Logger              *log.Logger
 }
 
 var Config Options
+
+const (
+	GrpcMaxSize = 256 << 20
+)

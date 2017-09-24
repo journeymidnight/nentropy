@@ -14,23 +14,10 @@
  * limitations under the License.
  */
 
-package x
-
-// This file contains some functions for error handling. Note that we are moving
-// towards using x.Trace, i.e., rpc tracing using net/tracer. But for now, these
-// functions are useful for simple checks logged on one machine.
-// Some common use cases are:
-// (1) You receive an error from external lib, and would like to check/log fatal.
-//     For this, use x.Check, x.Checkf. These will check for err != nil, which is
-//     more common in Go. If you want to check for boolean being true, use
-//		   x.Assert, x.Assertf.
-// (2) You receive an error from external lib, and would like to pass on with some
-//     stack trace information. In this case, use x.Wrap or x.Wrapf.
-// (3) You want to generate a new error with stack trace info. Use x.Errorf.
+package helper
 
 import (
 	"fmt"
-	"log"
 
 	"github.com/pkg/errors"
 )
@@ -38,14 +25,14 @@ import (
 // Check logs fatal if err != nil.
 func Check(err error) {
 	if err != nil {
-		log.Fatalf("%+v", Wrap(err))
+		Logger.Fatalf(0, "%+v", Wrap(err))
 	}
 }
 
 // Checkf is Check with extra info.
 func Checkf(err error, format string, args ...interface{}) {
 	if err != nil {
-		log.Fatalf("%+v", Wrapf(err, format, args...))
+		Logger.Fatalf(0, "%+v", Wrapf(err, format, args...))
 	}
 }
 
@@ -57,20 +44,20 @@ func Check2(_ interface{}, err error) {
 // AssertTrue asserts that b is true. Otherwise, it would log fatal.
 func AssertTrue(b bool) {
 	if !b {
-		log.Fatalf("%+v", Errorf("Assert failed"))
+		Logger.Fatalf(0, "%+v", Errorf("Assert failed"))
 	}
 }
 
 // AssertTruef is AssertTrue with extra info.
 func AssertTruef(b bool, format string, args ...interface{}) {
 	if !b {
-		log.Fatalf("%+v", Errorf(format, args...))
+		Logger.Fatalf(0, "%+v", Errorf(format, args...))
 	}
 }
 
 // Wrap wraps errors from external lib.
 func Wrap(err error) error {
-	if !Config.DebugMode {
+	if !CONFIG.DebugMode {
 		return err
 	}
 	return errors.Wrap(err, "")
@@ -78,7 +65,7 @@ func Wrap(err error) error {
 
 // Wrapf is Wrap with extra info.
 func Wrapf(err error, format string, args ...interface{}) error {
-	if !Config.DebugMode {
+	if !CONFIG.DebugMode {
 		if err == nil {
 			return nil
 		}
@@ -89,7 +76,7 @@ func Wrapf(err error, format string, args ...interface{}) error {
 
 // Errorf creates a new error with stack trace, etc.
 func Errorf(format string, args ...interface{}) error {
-	if !Config.DebugMode {
+	if !CONFIG.DebugMode {
 		return fmt.Errorf(format, args...)
 	}
 	return errors.Errorf(format, args...)
@@ -97,5 +84,5 @@ func Errorf(format string, args ...interface{}) error {
 
 // Fatalf logs fatal.
 func Fatalf(format string, args ...interface{}) {
-	log.Fatalf("%+v", Errorf(format, args...))
+	Logger.Fatalf(0, "%+v", Errorf(format, args...))
 }

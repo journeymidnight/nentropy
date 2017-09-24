@@ -23,6 +23,7 @@ type Options struct {
 	NumPendingProposals int
 	Tracing             float64
 	PeerAddr            string
+	MyAddr              string
 	RaftId              uint64
 	MaxPendingCount     uint64
 }
@@ -37,6 +38,7 @@ var DefaultConfig = Options{
 	NumPendingProposals: 2000,
 	Tracing:             0.0,
 	PeerAddr:            "",
+	MyAddr:              "",
 	RaftId:              1,
 	MaxPendingCount:     1000,
 }
