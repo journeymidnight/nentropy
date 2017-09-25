@@ -27,7 +27,6 @@ import (
 	"os"
 	"os/signal"
 	"runtime"
-	"strings"
 	"syscall"
 	"time"
 
@@ -36,16 +35,12 @@ import (
 
 	"github.com/dgraph-io/badger"
 	"github.com/dgraph-io/badger/options"
-	"github.com/dgraph-io/dgraph/x"
 	"github.com/journeymidnight/nentropy/helper"
 	"github.com/journeymidnight/nentropy/log"
 	"github.com/journeymidnight/nentropy/mon"
 )
 
 var (
-	baseHttpPort int
-	bindall      bool
-
 	state  ServerState
 	logger *log.Logger
 )
@@ -59,11 +54,11 @@ type ServerState struct {
 
 func (s *ServerState) initStorage() {
 	// Write Ahead Log directory
-	helper.Checkf(os.MkdirAll(Config.WALDir, 0700), "Error while creating WAL dir.")
+	helper.Checkf(os.MkdirAll(helper.CONFIG.WALDir, 0700), "Error while creating WAL dir.")
 	kvOpt := badger.DefaultOptions
 	kvOpt.SyncWrites = true
-	kvOpt.Dir = Config.WALDir
-	kvOpt.ValueDir = Config.WALDir
+	kvOpt.Dir = helper.CONFIG.WALDir
+	kvOpt.ValueDir = helper.CONFIG.WALDir
 	kvOpt.TableLoadingMode = options.MemoryMap
 
 	var err error
@@ -83,52 +78,46 @@ func NewServerState() (state ServerState) {
 }
 
 func setupConfigOpts() {
-	var config Options
-	defaults := DefaultConfig
-	flag.StringVar(&config.WALDir, "w", defaults.WALDir,
+	helper.CONFIG = helper.DefaultOption
+
+	flag.StringVar(&helper.CONFIG.WALDir, "w", helper.DefaultOption.WALDir,
 		"Directory to store raft write-ahead logs.")
-
-	flag.IntVar(&config.WorkerPort, "workerport", defaults.WorkerPort,
+	flag.IntVar(&helper.CONFIG.WorkerPort, "workerport", helper.DefaultOption.WorkerPort,
 		"Port used by mon for internal communication.")
-	flag.IntVar(&config.NumPendingProposals, "pending_proposals", defaults.NumPendingProposals,
+	flag.IntVar(&helper.CONFIG.NumPendingProposals, "pending_proposals", helper.DefaultOption.NumPendingProposals,
 		"Number of pending mutation proposals. Useful for rate limiting.")
-	flag.Float64Var(&config.Tracing, "trace", defaults.Tracing,
+	flag.Float64Var(&helper.CONFIG.Tracing, "trace", helper.DefaultOption.Tracing,
 		"The ratio of queries to trace.")
-	flag.StringVar(&config.PeerAddr, "peer", defaults.PeerAddr,
+	flag.StringVar(&helper.CONFIG.PeerAddr, "peer", helper.DefaultOption.PeerAddr,
 		"IP_ADDRESS:PORT of any healthy peer.")
-	flag.Uint64Var(&config.RaftId, "idx", defaults.RaftId,
+	flag.Uint64Var(&helper.CONFIG.RaftId, "idx", helper.DefaultOption.RaftId,
 		"RAFT ID that this server will use to join RAFT cluster.")
-	flag.Uint64Var(&config.MaxPendingCount, "sc", defaults.MaxPendingCount,
+	flag.Uint64Var(&helper.CONFIG.MaxPendingCount, "sc", helper.DefaultOption.MaxPendingCount,
 		"Max number of pending entries in wal after which snapshot is taken")
-	flag.BoolVar(&config.Join, "join", false,
+	flag.BoolVar(&helper.CONFIG.Join, "join", false,
 		"add the node to the cluster.")
-	flag.StringVar(&config.MyAddr, "my", defaults.MyAddr,
+	flag.StringVar(&helper.CONFIG.MyAddr, "my", helper.DefaultOption.MyAddr,
 		"addr:port of this server, so other mon servers can talk to this.")
-
-	flag.IntVar(&baseHttpPort, "port", 8080, "Port to run HTTP service on.")
-	flag.BoolVar(&bindall, "bindall", false,
-		"Use 0.0.0.0 instead of localhost to bind to all addresses on local machine.")
+	flag.IntVar(&helper.CONFIG.HttpPort, "port", 8080, "Port to run HTTP service on.")
 
 	flag.Parse()
 	if !flag.Parsed() {
 		logger.Fatal(0, "Unable to parse flags")
 	}
 
-	Config = config
-
-	mon.Config.WorkerPort = Config.WorkerPort
-	mon.Config.NumPendingProposals = Config.NumPendingProposals
-	mon.Config.Tracing = Config.Tracing
-	mon.Config.PeerAddr = Config.PeerAddr
-	mon.Config.MyAddr = Config.MyAddr
-	mon.Config.RaftId = Config.RaftId
-	mon.Config.MaxPendingCount = Config.MaxPendingCount
-	mon.Config.Join = Config.Join
+	mon.Config.WorkerPort = helper.CONFIG.WorkerPort
+	mon.Config.NumPendingProposals = helper.CONFIG.NumPendingProposals
+	mon.Config.Tracing = helper.CONFIG.Tracing
+	mon.Config.PeerAddr = helper.CONFIG.PeerAddr
+	mon.Config.MyAddr = helper.CONFIG.MyAddr
+	mon.Config.RaftId = helper.CONFIG.RaftId
+	mon.Config.MaxPendingCount = helper.CONFIG.MaxPendingCount
+	mon.Config.Join = helper.CONFIG.Join
 
 }
 
 func httpPort() int {
-	return baseHttpPort
+	return helper.CONFIG.HttpPort
 }
 
 func shutDownHandler(w http.ResponseWriter, r *http.Request) {
@@ -186,56 +175,26 @@ func main() {
 	setupConfigOpts() // flag.Parse is called here.
 	f, err := os.OpenFile(helper.CONFIG.LogPath, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
 	if err != nil {
-		panic("Failed to open log file " + helper.CONFIG.LogPath)
+		logger = log.New(os.Stdout, "[yig]", log.LstdFlags, helper.CONFIG.LogLevel)
+		logger.Print(0, "Failed to open log file "+helper.CONFIG.LogPath)
+	} else {
+		defer f.Close()
+		logger = log.New(f, "[yig]", log.LstdFlags, helper.CONFIG.LogLevel)
 	}
-	defer f.Close()
-	logger = log.New(f, "[yig]", log.LstdFlags, helper.CONFIG.LogLevel)
 	helper.Logger = logger
 	mon.Config.Logger = logger
-	x.Init()
 
 	state = NewServerState()
 	defer state.Dispose()
 
-	// setup shutdown os signal handler
-	sdCh := make(chan os.Signal, 3)
-	var numShutDownSig int
-	defer close(sdCh)
-	// sigint : Ctrl-C, sigquit : Ctrl-\ (backslash), sigterm : kill command.
-	signal.Notify(sdCh, os.Interrupt, syscall.SIGINT, syscall.SIGQUIT, syscall.SIGTERM)
-	go func() {
-		for {
-			select {
-			case _, ok := <-sdCh:
-				if !ok {
-					return
-				}
-				numShutDownSig++
-				x.Println("Caught Ctrl-C. Terminating now (this may take a few seconds)...")
-				if numShutDownSig == 1 {
-					shutdownServer()
-				} else if numShutDownSig == 3 {
-					x.Println("Signaled thrice. Aborting!")
-					os.Exit(1)
-				}
-			}
-		}
-	}()
-	_ = numShutDownSig
-
-	// Setup external communication.
-	che := make(chan error, 1)
 	// By default Go GRPC traces all requests.
 	grpc.EnableTracing = false
-	mon.RunServer(bindall) // For internal communication.
+	mon.RunServer() // For internal communication.
 
-	go mon.StartRaftNodes(state.WALstore, bindall)
+	go mon.StartRaftNodes(state.WALstore)
 
 	// the key-value http handler will propose updates to raft
-	addr := "localhost"
-	if bindall {
-		addr = "0.0.0.0"
-	}
+	addr := "0.0.0.0"
 	laddr := fmt.Sprintf("%s:%d", addr, httpPort())
 	listener, err := net.Listen("tcp", laddr)
 	serveHttpKVAPI(listener)
@@ -245,12 +204,28 @@ func main() {
 		listener.Close()
 	}()
 
-	runServer()
+	//runServer()
 
-	//che <- err                // final close for main.
-
-	if err = <-che; !strings.Contains(err.Error(),
-		"use of closed network connection") {
-		logger.Fatal(0, err)
+	// setup shutdown os signal handler
+	sdCh := make(chan os.Signal, 3)
+	var numShutDownSig int
+	defer close(sdCh)
+	// sigint : Ctrl-C, sigquit : Ctrl-\ (backslash), sigterm : kill command.
+	signal.Notify(sdCh, os.Interrupt, syscall.SIGINT, syscall.SIGQUIT, syscall.SIGTERM)
+	for {
+		select {
+		case _, ok := <-sdCh:
+			if !ok {
+				return
+			}
+			numShutDownSig++
+			logger.Println(5, "Caught Ctrl-C. Terminating now (this may take a few seconds)...")
+			if numShutDownSig == 1 {
+				shutdownServer()
+			} else if numShutDownSig == 3 {
+				logger.Println(5, "Signaled thrice. Aborting!")
+				os.Exit(1)
+			}
+		}
 	}
 }

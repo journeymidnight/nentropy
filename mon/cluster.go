@@ -67,7 +67,7 @@ func getCluster() *cluster {
 // and either start or restart RAFT nodes.
 // This function triggers RAFT nodes to be created, and is the entrance to the RAFT
 // world from main.go.
-func StartRaftNodes(walStore *badger.KV, bindall bool) {
+func StartRaftNodes(walStore *badger.KV) {
 	clus = new(cluster)
 	clus.ctx, clus.cancel = context.WithCancel(context.Background())
 
@@ -151,11 +151,8 @@ func (w *grpcRaftNode) Echo(ctx context.Context, in *protos.Payload) (*protos.Pa
 
 // RunServer initializes a tcp server on port which listens to requests from
 // other workers for internal communication.
-func RunServer(bindall bool) {
-	laddr := "localhost"
-	if bindall {
-		laddr = "0.0.0.0"
-	}
+func RunServer() {
+	laddr := "0.0.0.0"
 	var err error
 	ln, err := net.Listen("tcp", fmt.Sprintf("%s:%d", laddr, Config.WorkerPort))
 	if err != nil {
