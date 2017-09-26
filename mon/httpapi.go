@@ -20,8 +20,6 @@ import (
 	"net/http"
 
 	"net"
-
-	"github.com/journeymidnight/nentropy/mon"
 )
 
 // Handler for a http based key-value store backed by raft
@@ -39,11 +37,11 @@ func (h *httpKVAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		mon.ProposeMessage(key, string(v))
+		ProposeMessage(key, string(v))
 
 		w.WriteHeader(http.StatusNoContent)
 	case r.Method == "GET":
-		if v, ok := mon.Lookup(key); ok {
+		if v, ok := Lookup(key); ok {
 			w.Write([]byte(v))
 		} else {
 			http.Error(w, "Failed to GET", http.StatusNotFound)

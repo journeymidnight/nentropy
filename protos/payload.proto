@@ -29,19 +29,6 @@ message RaftContext {
 	string addr = 3;
 }
 
-message DataNodeDesc {
-	uint64      id     = 1;
-	string      addr   = 2;
-	uint64      weight = 3;
-	bool        up     = 4;
-	bool        in     = 5;
-}
-
-message DataNodeMap {
-	uint64      epoch                     = 1;
-	map<uint64, DataNodeDesc>  memberList = 2;
-}
-
 message Proposal {
 	uint32 id         = 1;
 	enum  Type {
@@ -51,7 +38,6 @@ message Proposal {
 	}
 	Type type         = 2;
 	bytes Data        = 3;
-	DataNodeMap dnm   = 4;
 }
 
 service RaftNode {

@@ -22,22 +22,18 @@ import (
 	"fmt"
 	"math/rand"
 	"net"
-	"net/http"
-	_ "net/http/pprof"
 	"os"
 	"os/signal"
 	"runtime"
 	"syscall"
 	"time"
 
-	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 
 	"github.com/dgraph-io/badger"
 	"github.com/dgraph-io/badger/options"
 	"github.com/journeymidnight/nentropy/helper"
 	"github.com/journeymidnight/nentropy/log"
-	"github.com/journeymidnight/nentropy/mon"
 )
 
 var (
@@ -88,7 +84,7 @@ func setupConfigOpts() {
 		"Number of pending mutation proposals. Useful for rate limiting.")
 	flag.Float64Var(&helper.CONFIG.Tracing, "trace", helper.DefaultOption.Tracing,
 		"The ratio of queries to trace.")
-	flag.StringVar(&helper.CONFIG.PeerAddr, "peer", helper.DefaultOption.PeerAddr,
+	flag.StringVar(&helper.CONFIG.Monitors, "peer", helper.DefaultOption.Monitors,
 		"IP_ADDRESS:PORT of any healthy peer.")
 	flag.Uint64Var(&helper.CONFIG.RaftId, "idx", helper.DefaultOption.RaftId,
 		"RAFT ID that this server will use to join RAFT cluster.")
@@ -105,25 +101,19 @@ func setupConfigOpts() {
 		logger.Fatal(0, "Unable to parse flags")
 	}
 
-	mon.Config.WorkerPort = helper.CONFIG.WorkerPort
-	mon.Config.NumPendingProposals = helper.CONFIG.NumPendingProposals
-	mon.Config.Tracing = helper.CONFIG.Tracing
-	mon.Config.PeerAddr = helper.CONFIG.PeerAddr
-	mon.Config.MyAddr = helper.CONFIG.MyAddr
-	mon.Config.RaftId = helper.CONFIG.RaftId
-	mon.Config.MaxPendingCount = helper.CONFIG.MaxPendingCount
-	mon.Config.Join = helper.CONFIG.Join
+	Config.WorkerPort = helper.CONFIG.WorkerPort
+	Config.NumPendingProposals = helper.CONFIG.NumPendingProposals
+	Config.Tracing = helper.CONFIG.Tracing
+	Config.Monitors = helper.CONFIG.Monitors
+	Config.MyAddr = helper.CONFIG.MyAddr
+	Config.RaftId = helper.CONFIG.RaftId
+	Config.MaxPendingCount = helper.CONFIG.MaxPendingCount
+	Config.Join = helper.CONFIG.Join
 
 }
 
 func httpPort() int {
 	return helper.CONFIG.HttpPort
-}
-
-func shutDownHandler(w http.ResponseWriter, r *http.Request) {
-	shutdownServer()
-	w.Header().Set("Content-Type", "application/json")
-	w.Write([]byte(`{"code": "Success", "message": "Server is shutting down"}`))
 }
 
 func shutdownServer() {
@@ -141,27 +131,8 @@ func shutdownServer() {
 		<-state.FinishCh
 		<-state.FinishCh
 
-		mon.BlockingStop()
+		BlockingStop()
 	}()
-}
-
-func serveHTTP(l net.Listener) {
-	defer func() { state.FinishCh <- struct{}{} }()
-	srv := &http.Server{
-		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 600 * time.Second,
-		IdleTimeout:  2 * time.Minute,
-	}
-
-	err := srv.Serve(l)
-	logger.Printf(10, "Stopped taking more http(s) requests. Err: %s", err.Error())
-	ctx, cancel := context.WithTimeout(context.Background(), 630*time.Second)
-	defer cancel()
-	err = srv.Shutdown(ctx)
-	logger.Printf(10, "All http(s) requests finished.")
-	if err != nil {
-		logger.Printf(10, "Http(s) shutdown err: %v", err.Error())
-	}
 }
 
 func main() {
@@ -182,16 +153,16 @@ func main() {
 		logger = log.New(f, "[yig]", log.LstdFlags, helper.CONFIG.LogLevel)
 	}
 	helper.Logger = logger
-	mon.Config.Logger = logger
+	Config.Logger = logger
 
 	state = NewServerState()
 	defer state.Dispose()
 
 	// By default Go GRPC traces all requests.
 	grpc.EnableTracing = false
-	mon.RunServer() // For internal communication.
+	RunServer() // For internal communication.
 
-	go mon.StartRaftNodes(state.WALstore)
+	go StartRaftNodes(state.WALstore)
 
 	// the key-value http handler will propose updates to raft
 	addr := "0.0.0.0"

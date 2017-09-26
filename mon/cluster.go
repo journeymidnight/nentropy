@@ -15,7 +15,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-package mon
+package main
 
 import (
 	"sync"
@@ -42,7 +42,9 @@ type cluster struct {
 	node      *node
 	myAddr    string
 	peersAddr []string // raft peer URLs
-	currDNM   protos.DataNodeMap
+	osdMap    protos.OsdMap
+	poolMap   map[int][]*protos.Pool
+	pgMaps    map[int]map[int][]*protos.Pg
 
 	// kvstore store key and values
 	kvStore *kvstore
@@ -75,7 +77,7 @@ func StartRaftNodes(walStore *badger.KV) {
 
 	var wg sync.WaitGroup
 
-	peers := strings.Split(Config.PeerAddr, ",")
+	peers := strings.Split(Config.Monitors, ",")
 	clus.peersAddr = peers
 	for i, v := range peers {
 		if uint64(i+1) == Config.RaftId {
@@ -193,12 +195,14 @@ func Lookup(key string) (string, bool) {
 	return val, true
 }
 
-func ProposeDataNodeMap(dnm *protos.DataNodeMap) error {
-	proposal := protos.Proposal{Dnm: dnm}
+func ProposeDataNodeMap(osdMap *protos.OsdMap) error {
+	data, err := osdMap.Marshal()
+	helper.Check(err)
+	proposal := protos.Proposal{Data: data}
 	getCluster().Node().ProposeAndWait(context.TODO(), &proposal)
 	return nil
 }
 
-func GetCurrentDataNodeMap() (protos.DataNodeMap, error) {
-	return getCluster().currDNM, nil
+func GetCurrentDataNodeMap() (protos.OsdMap, error) {
+	return getCluster().osdMap, nil
 }

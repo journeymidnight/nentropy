@@ -44,6 +44,11 @@ message Osd{
     bool in = 5;
 }
 
+message OsdMap {
+    uint64      epoch            = 1;
+    map<uint64, Osd>  memberList = 2;
+}
+
 message OsdRequest {
     string keyRing = 1;
     Osd id = 2;

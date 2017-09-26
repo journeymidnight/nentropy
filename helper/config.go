@@ -52,13 +52,12 @@ type Options struct {
 	PidFile             string
 	DebugMode           bool
 	LogLevel            int //1-20
-	Monitors            string
 	WALDir              string
 	WorkerPort          int
 	Join                bool
 	NumPendingProposals int
 	Tracing             float64
-	PeerAddr            string
+	Monitors            string
 	MyAddr              string
 	RaftId              uint64
 	MaxPendingCount     uint64
@@ -71,13 +70,12 @@ var DefaultOption = Options{
 	PidFile:             "/var/run/nentropy/nentropy.pid",
 	DebugMode:           false,
 	LogLevel:            5,
-	Monitors:            "",
 	WALDir:              "w",
 	Join:                false,
 	WorkerPort:          12345,
 	NumPendingProposals: 2000,
 	Tracing:             0.0,
-	PeerAddr:            "",
+	Monitors:            "",
 	MyAddr:              "",
 	RaftId:              1,
 	MaxPendingCount:     1000,

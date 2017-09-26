@@ -15,7 +15,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-package mon
+package main
 
 import (
 	"bytes"
@@ -509,22 +509,28 @@ func (n *node) processApplyCh() {
 		// schema here without any locking
 		proposal := &protos.Proposal{}
 		if err := proposal.Unmarshal(e.Data); err != nil {
-			log.Fatalf("Unable to unmarshal proposal: %v %q\n", err, e.Data)
+			helper.Logger.Fatalf(0, "Unable to unmarshal proposal: %v %q\n", err, e.Data)
 		}
 
 		data := string(proposal.Data)
 		if &data != nil {
-			var dataKv kv
-			dec := gob.NewDecoder(bytes.NewBufferString(data))
-			if err := dec.Decode(&dataKv); err != nil {
-				log.Fatalf("raftexample: could not decode message (%v)", err)
+			if proposal.Type == protos.Proposal_DATA_TYPE_KV_MAP {
+				var dataKv kv
+				dec := gob.NewDecoder(bytes.NewBufferString(data))
+				if err := dec.Decode(&dataKv); err != nil {
+					helper.Logger.Fatalf(0, "raftexample: could not decode message (%v)", err)
+				}
+				getCluster().getKvStore().Store(dataKv.Key, dataKv.Val)
+				helper.Logger.Println(10, "key is ", dataKv.Key, "val is ", dataKv.Val)
+				n.props.Done(proposal.Id, nil)
+			} else if proposal.Type == protos.Proposal_DATA_TYPE_DATA_NODE_MAP {
+				var osdMap protos.OsdMap
+				if err := osdMap.Unmarshal(proposal.Data); err != nil {
+					helper.Check(err)
+				}
+				getCluster().osdMap = osdMap
 			}
-			getCluster().getKvStore().Store(dataKv.Key, dataKv.Val)
-			helper.Logger.Println(10, "key is ", dataKv.Key, "val is ", dataKv.Val)
-			n.props.Done(proposal.Id, nil)
-		}
-		if proposal.Dnm != nil {
-			getCluster().currDNM = *proposal.Dnm
+
 		}
 	}
 }
