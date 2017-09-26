@@ -22,7 +22,8 @@ package protos;
 
 service Monitor {
     rpc GetLayout (LayoutRequest) returns (LayoutReply) {}
-    rpc OsdOperation (OsdRequest) returns (OsdRequest) {}
+    rpc OsdConfig(OsdConfigRequest) returns (OsdConfigReply) {}
+
 }
 
 message LayoutRequest {
@@ -40,8 +41,10 @@ message Osd{
     int32 id = 1;
     string addr = 2;
     uint64 weight = 3;
-    bool up = 4;
-    bool in = 5;
+    string host = 4;
+    string zone = 5;
+    bool up = 6;
+    bool in = 7;
 }
 
 message OsdMap {
@@ -49,7 +52,7 @@ message OsdMap {
     map<uint64, Osd>  memberList = 2;
 }
 
-message OsdRequest {
+message OsdConfigRequest {
     string keyRing = 1;
     Osd id = 2;
     enum OpType {
@@ -63,14 +66,37 @@ message OsdRequest {
     OpType op_type = 3;
 }
 
-message OsdReply {
+message OsdConfigReply {
     int32 ret_code = 1;
+    int32 index = 2;
 }
 
 message Pool{
     int32 id = 1;
     int32 name = 2;
     int32 size = 3;
+}
+
+message PoolConfigRequest {
+    string keyRing = 1;
+    enum OpType {
+        ADD = 0;
+        DEL = 1;
+        EDT = 2;
+    }
+    OpType op_type = 2;
+    string name = 3;
+    int32 size = 4;
+    int32 pg_numbers = 5;
+    enum DistributePolicy {
+            HOST = 0;
+            ZONE = 1;
+    }
+    DistributePolicy policy = 6;
+}
+
+message PoolConfigReply {
+    int32 ret_code = 1;
 }
 
 message Pg{
