@@ -34,6 +34,7 @@ import (
 	"github.com/dgraph-io/badger/options"
 	"github.com/journeymidnight/nentropy/helper"
 	"github.com/journeymidnight/nentropy/log"
+	"github.com/journeymidnight/nentropy/memberlist"
 )
 
 var (
@@ -78,7 +79,7 @@ func setupConfigOpts() {
 
 	flag.StringVar(&helper.CONFIG.WALDir, "w", helper.DefaultOption.WALDir,
 		"Directory to store raft write-ahead logs.")
-	flag.IntVar(&helper.CONFIG.WorkerPort, "workerport", helper.DefaultOption.WorkerPort,
+	flag.IntVar(&helper.CONFIG.MonPort, "port", helper.DefaultOption.MonPort,
 		"Port used by mon for internal communication.")
 	flag.IntVar(&helper.CONFIG.NumPendingProposals, "pending_proposals", helper.DefaultOption.NumPendingProposals,
 		"Number of pending mutation proposals. Useful for rate limiting.")
@@ -90,25 +91,29 @@ func setupConfigOpts() {
 		"RAFT ID that this server will use to join RAFT cluster.")
 	flag.Uint64Var(&helper.CONFIG.MaxPendingCount, "sc", helper.DefaultOption.MaxPendingCount,
 		"Max number of pending entries in wal after which snapshot is taken")
-	flag.BoolVar(&helper.CONFIG.Join, "join", false,
-		"add the node to the cluster.")
+	flag.BoolVar(&helper.CONFIG.JoinMon, "joinMon", false,
+		"add the node to the mon cluster.")
 	flag.StringVar(&helper.CONFIG.MyAddr, "my", helper.DefaultOption.MyAddr,
 		"addr:port of this server, so other mon servers can talk to this.")
-	flag.IntVar(&helper.CONFIG.HttpPort, "port", 8080, "Port to run HTTP service on.")
+	flag.IntVar(&helper.CONFIG.HttpPort, "httpPort", 8080, "Port to run HTTP service on.")
+	flag.IntVar(&helper.CONFIG.MemberBindPort, "memberBindPort", helper.DefaultOption.MonPort,
+		"Port used by memberlist for internal communication.")
+	flag.StringVar(&helper.CONFIG.JoinMemberAddr, "joinMemberAddr", helper.DefaultOption.JoinMemberAddr,
+		"a valid member addr to join.")
 
 	flag.Parse()
 	if !flag.Parsed() {
 		logger.Fatal(0, "Unable to parse flags")
 	}
 
-	Config.WorkerPort = helper.CONFIG.WorkerPort
+	Config.MonPort = helper.CONFIG.MonPort
 	Config.NumPendingProposals = helper.CONFIG.NumPendingProposals
 	Config.Tracing = helper.CONFIG.Tracing
 	Config.Monitors = helper.CONFIG.Monitors
 	Config.MyAddr = helper.CONFIG.MyAddr
 	Config.RaftId = helper.CONFIG.RaftId
 	Config.MaxPendingCount = helper.CONFIG.MaxPendingCount
-	Config.Join = helper.CONFIG.Join
+	Config.JoinMon = helper.CONFIG.JoinMon
 
 }
 
@@ -174,6 +179,8 @@ func main() {
 		<-state.ShutdownCh
 		listener.Close()
 	}()
+
+	memberlist.Init(true, helper.CONFIG.MyAddr)
 
 	//runServer()
 

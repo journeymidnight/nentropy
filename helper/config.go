@@ -53,8 +53,8 @@ type Options struct {
 	DebugMode           bool
 	LogLevel            int //1-20
 	WALDir              string
-	WorkerPort          int
-	Join                bool
+	MonPort             int
+	JoinMon             bool
 	NumPendingProposals int
 	Tracing             float64
 	Monitors            string
@@ -62,6 +62,8 @@ type Options struct {
 	RaftId              uint64
 	MaxPendingCount     uint64
 	HttpPort            int
+	MemberBindPort      int
+	JoinMemberAddr      string
 }
 
 var DefaultOption = Options{
@@ -71,8 +73,8 @@ var DefaultOption = Options{
 	DebugMode:           false,
 	LogLevel:            5,
 	WALDir:              "w",
-	Join:                false,
-	WorkerPort:          12345,
+	JoinMon:             false,
+	MonPort:             7900,
 	NumPendingProposals: 2000,
 	Tracing:             0.0,
 	Monitors:            "",
@@ -80,6 +82,8 @@ var DefaultOption = Options{
 	RaftId:              1,
 	MaxPendingCount:     1000,
 	HttpPort:            8080,
+	MemberBindPort:      7946,
+	JoinMemberAddr:      "",
 }
 
 var CONFIG Options

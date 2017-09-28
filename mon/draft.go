@@ -808,7 +808,7 @@ func (n *node) InitAndStartNode(wal *raftwal.Wal) {
 
 	} else {
 		helper.Logger.Printf(10, "New Node for cluster")
-		if Config.Join {
+		if Config.JoinMon {
 			n.joinPeers()
 			rpeers = nil
 		}

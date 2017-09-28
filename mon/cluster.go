@@ -77,16 +77,22 @@ func StartRaftNodes(walStore *badger.KV) {
 
 	var wg sync.WaitGroup
 
-	peers := strings.Split(Config.Monitors, ",")
-	clus.peersAddr = peers
-	for i, v := range peers {
+	mons := strings.Split(Config.Monitors, ",")
+	for _, mon := range mons {
+		if strings.Contains(mon, ":") {
+			clus.peersAddr = append(clus.peersAddr, mon)
+		} else {
+			clus.peersAddr = append(clus.peersAddr, fmt.Sprintf("%s:%d", mon, Config.MonPort))
+		}
+	}
+	for i, v := range mons {
 		if uint64(i+1) == Config.RaftId {
 			clus.myAddr = v
 		}
 	}
 	node := clus.newNode(Config.RaftId, clus.myAddr)
 
-	node.peersAddr = peers
+	node.peersAddr = mons
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -156,7 +162,7 @@ func (w *grpcRaftNode) Echo(ctx context.Context, in *protos.Payload) (*protos.Pa
 func RunServer() {
 	laddr := "0.0.0.0"
 	var err error
-	ln, err := net.Listen("tcp", fmt.Sprintf("%s:%d", laddr, Config.WorkerPort))
+	ln, err := net.Listen("tcp", fmt.Sprintf("%s:%d", laddr, Config.MonPort))
 	if err != nil {
 		helper.Logger.Fatalf(0, "While running server: %v", err)
 		return
