@@ -28,7 +28,7 @@ message WriteRequest {
   bytes PGID = 1;    // value of the object
   bytes Oid = 2;      // for object id
   bytes Value = 3;    // value of the object
-  uint32 Length = 4;
+  uint64 Length = 4;
   uint64 Offset = 5;
 }
 
@@ -40,7 +40,7 @@ message WriteReply {
 message ReadRequest {
   bytes PGID = 1;    // value of the object
   bytes Oid = 2;      // for object id
-  uint32 Length = 3;
+  uint64 Length = 3;
   uint64 Offset = 4;
 }
 
