@@ -57,7 +57,7 @@ func runServer(t *testing.T, done <-chan struct{}) {
 	s.Serve(lis)
 }
 
-func TestWriteExist(t *testing.T) {
+func TestWriteThenReadKey(t *testing.T) {
 	done := make(chan struct{})
 	go runServer(t, done)
 
@@ -69,7 +69,7 @@ func TestWriteExist(t *testing.T) {
 	defer conn.Close()
 	c := pb.NewStoreClient(conn)
 
-	l := uint32(len([]byte("hello")))
+	l := uint64(len([]byte("hello")))
 	req := &pb.WriteRequest{
 		PGID:   []byte("1.0"),
 		Oid:    []byte("hello"),
@@ -99,7 +99,7 @@ func TestWriteExist(t *testing.T) {
 	done <- struct{}{}
 }
 
-func TestWriteNonExist(t *testing.T) {
+func TestReadNonExist(t *testing.T) {
 	done := make(chan struct{})
 	go runServer(t, done)
 
@@ -111,25 +111,10 @@ func TestWriteNonExist(t *testing.T) {
 	defer conn.Close()
 	c := pb.NewStoreClient(conn)
 
-	l := uint32(len([]byte("hello")))
-	req := &pb.WriteRequest{
-		PGID:   []byte("1.0"),
-		Oid:    []byte("hello"),
-		Value:  []byte("world"),
-		Length: l,
-		Offset: 0,
-	}
-
-	r, err := c.Write(context.Background(), req)
-	if err != nil {
-		t.Fatalf("could not write: %v\n", err)
-	}
-	require.Equal(t, r.RetCode, int32(0))
-
 	readreq := &pb.ReadRequest{
 		PGID:   []byte("1.0"),
 		Oid:    []byte("maynotexist"),
-		Length: l,
+		Length: 0,
 		Offset: 0,
 	}
 	_, err = c.Read(context.Background(), readreq)
@@ -152,7 +137,7 @@ func TestWriteRemoveRead(t *testing.T) {
 	defer conn.Close()
 	c := pb.NewStoreClient(conn)
 
-	l := uint32(len([]byte("hello")))
+	l := uint64(len([]byte("hello")))
 	req := &pb.WriteRequest{
 		PGID:   []byte("1.0"),
 		Oid:    []byte("hello"),

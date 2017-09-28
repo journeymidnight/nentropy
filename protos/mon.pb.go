@@ -13,9 +13,14 @@
 		LayoutReply
 		Osd
 		OsdMap
-		OsdRequest
-		OsdReply
+		OsdConfigRequest
+		OsdConfigReply
+		PoolMap
 		Pool
+		PoolConfigRequest
+		PoolConfigReply
+		PgMaps
+		PgMap
 		Pg
 		Payload
 		RaftContext
@@ -45,18 +50,39 @@ var _ = math.Inf
 // proto package needs to be updated.
 const _ = proto.ProtoPackageIsVersion2 // please upgrade the proto package
 
-type OsdRequest_OpType int32
+type DistributePolicy int32
 
 const (
-	OsdRequest_ADD  OsdRequest_OpType = 0
-	OsdRequest_DEL  OsdRequest_OpType = 1
-	OsdRequest_IN   OsdRequest_OpType = 2
-	OsdRequest_OUT  OsdRequest_OpType = 3
-	OsdRequest_UP   OsdRequest_OpType = 4
-	OsdRequest_DOWN OsdRequest_OpType = 5
+	DistributePolicy_HOST DistributePolicy = 0
+	DistributePolicy_ZONE DistributePolicy = 1
 )
 
-var OsdRequest_OpType_name = map[int32]string{
+var DistributePolicy_name = map[int32]string{
+	0: "HOST",
+	1: "ZONE",
+}
+var DistributePolicy_value = map[string]int32{
+	"HOST": 0,
+	"ZONE": 1,
+}
+
+func (x DistributePolicy) String() string {
+	return proto.EnumName(DistributePolicy_name, int32(x))
+}
+func (DistributePolicy) EnumDescriptor() ([]byte, []int) { return fileDescriptorMon, []int{0} }
+
+type OsdConfigRequest_OpType int32
+
+const (
+	OsdConfigRequest_ADD  OsdConfigRequest_OpType = 0
+	OsdConfigRequest_DEL  OsdConfigRequest_OpType = 1
+	OsdConfigRequest_IN   OsdConfigRequest_OpType = 2
+	OsdConfigRequest_OUT  OsdConfigRequest_OpType = 3
+	OsdConfigRequest_UP   OsdConfigRequest_OpType = 4
+	OsdConfigRequest_DOWN OsdConfigRequest_OpType = 5
+)
+
+var OsdConfigRequest_OpType_name = map[int32]string{
 	0: "ADD",
 	1: "DEL",
 	2: "IN",
@@ -64,7 +90,7 @@ var OsdRequest_OpType_name = map[int32]string{
 	4: "UP",
 	5: "DOWN",
 }
-var OsdRequest_OpType_value = map[string]int32{
+var OsdConfigRequest_OpType_value = map[string]int32{
 	"ADD":  0,
 	"DEL":  1,
 	"IN":   2,
@@ -73,10 +99,36 @@ var OsdRequest_OpType_value = map[string]int32{
 	"DOWN": 5,
 }
 
-func (x OsdRequest_OpType) String() string {
-	return proto.EnumName(OsdRequest_OpType_name, int32(x))
+func (x OsdConfigRequest_OpType) String() string {
+	return proto.EnumName(OsdConfigRequest_OpType_name, int32(x))
 }
-func (OsdRequest_OpType) EnumDescriptor() ([]byte, []int) { return fileDescriptorMon, []int{4, 0} }
+func (OsdConfigRequest_OpType) EnumDescriptor() ([]byte, []int) { return fileDescriptorMon, []int{4, 0} }
+
+type PoolConfigRequest_OpType int32
+
+const (
+	PoolConfigRequest_ADD PoolConfigRequest_OpType = 0
+	PoolConfigRequest_DEL PoolConfigRequest_OpType = 1
+	PoolConfigRequest_EDT PoolConfigRequest_OpType = 2
+)
+
+var PoolConfigRequest_OpType_name = map[int32]string{
+	0: "ADD",
+	1: "DEL",
+	2: "EDT",
+}
+var PoolConfigRequest_OpType_value = map[string]int32{
+	"ADD": 0,
+	"DEL": 1,
+	"EDT": 2,
+}
+
+func (x PoolConfigRequest_OpType) String() string {
+	return proto.EnumName(PoolConfigRequest_OpType_name, int32(x))
+}
+func (PoolConfigRequest_OpType) EnumDescriptor() ([]byte, []int) {
+	return fileDescriptorMon, []int{8, 0}
+}
 
 type LayoutRequest struct {
 	ObjectName string `protobuf:"bytes,1,opt,name=object_name,json=objectName,proto3" json:"object_name,omitempty"`
@@ -138,8 +190,10 @@ type Osd struct {
 	Id     int32  `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
 	Addr   string `protobuf:"bytes,2,opt,name=addr,proto3" json:"addr,omitempty"`
 	Weight uint64 `protobuf:"varint,3,opt,name=weight,proto3" json:"weight,omitempty"`
-	Up     bool   `protobuf:"varint,4,opt,name=up,proto3" json:"up,omitempty"`
-	In     bool   `protobuf:"varint,5,opt,name=in,proto3" json:"in,omitempty"`
+	Host   string `protobuf:"bytes,4,opt,name=host,proto3" json:"host,omitempty"`
+	Zone   string `protobuf:"bytes,5,opt,name=zone,proto3" json:"zone,omitempty"`
+	Up     bool   `protobuf:"varint,6,opt,name=up,proto3" json:"up,omitempty"`
+	In     bool   `protobuf:"varint,7,opt,name=in,proto3" json:"in,omitempty"`
 }
 
 func (m *Osd) Reset()                    { *m = Osd{} }
@@ -168,6 +222,20 @@ func (m *Osd) GetWeight() uint64 {
 	return 0
 }
 
+func (m *Osd) GetHost() string {
+	if m != nil {
+		return m.Host
+	}
+	return ""
+}
+
+func (m *Osd) GetZone() string {
+	if m != nil {
+		return m.Zone
+	}
+	return ""
+}
+
 func (m *Osd) GetUp() bool {
 	if m != nil {
 		return m.Up
@@ -183,8 +251,8 @@ func (m *Osd) GetIn() bool {
 }
 
 type OsdMap struct {
-	Epoch      uint64          `protobuf:"varint,1,opt,name=epoch,proto3" json:"epoch,omitempty"`
-	MemberList map[uint64]*Osd `protobuf:"bytes,2,rep,name=memberList" json:"memberList,omitempty" protobuf_key:"varint,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value"`
+	Epoch      uint64         `protobuf:"varint,1,opt,name=epoch,proto3" json:"epoch,omitempty"`
+	MemberList map[int32]*Osd `protobuf:"bytes,2,rep,name=memberList" json:"memberList,omitempty" protobuf_key:"varint,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value"`
 }
 
 func (m *OsdMap) Reset()                    { *m = OsdMap{} }
@@ -199,71 +267,105 @@ func (m *OsdMap) GetEpoch() uint64 {
 	return 0
 }
 
-func (m *OsdMap) GetMemberList() map[uint64]*Osd {
+func (m *OsdMap) GetMemberList() map[int32]*Osd {
 	if m != nil {
 		return m.MemberList
 	}
 	return nil
 }
 
-type OsdRequest struct {
-	KeyRing string            `protobuf:"bytes,1,opt,name=keyRing,proto3" json:"keyRing,omitempty"`
-	Id      *Osd              `protobuf:"bytes,2,opt,name=id" json:"id,omitempty"`
-	OpType  OsdRequest_OpType `protobuf:"varint,3,opt,name=op_type,json=opType,proto3,enum=protos.OsdRequest_OpType" json:"op_type,omitempty"`
+type OsdConfigRequest struct {
+	KeyRing string                  `protobuf:"bytes,1,opt,name=keyRing,proto3" json:"keyRing,omitempty"`
+	Osd     *Osd                    `protobuf:"bytes,2,opt,name=osd" json:"osd,omitempty"`
+	OpType  OsdConfigRequest_OpType `protobuf:"varint,3,opt,name=op_type,json=opType,proto3,enum=protos.OsdConfigRequest_OpType" json:"op_type,omitempty"`
 }
 
-func (m *OsdRequest) Reset()                    { *m = OsdRequest{} }
-func (m *OsdRequest) String() string            { return proto.CompactTextString(m) }
-func (*OsdRequest) ProtoMessage()               {}
-func (*OsdRequest) Descriptor() ([]byte, []int) { return fileDescriptorMon, []int{4} }
+func (m *OsdConfigRequest) Reset()                    { *m = OsdConfigRequest{} }
+func (m *OsdConfigRequest) String() string            { return proto.CompactTextString(m) }
+func (*OsdConfigRequest) ProtoMessage()               {}
+func (*OsdConfigRequest) Descriptor() ([]byte, []int) { return fileDescriptorMon, []int{4} }
 
-func (m *OsdRequest) GetKeyRing() string {
+func (m *OsdConfigRequest) GetKeyRing() string {
 	if m != nil {
 		return m.KeyRing
 	}
 	return ""
 }
 
-func (m *OsdRequest) GetId() *Osd {
+func (m *OsdConfigRequest) GetOsd() *Osd {
 	if m != nil {
-		return m.Id
+		return m.Osd
 	}
 	return nil
 }
 
-func (m *OsdRequest) GetOpType() OsdRequest_OpType {
+func (m *OsdConfigRequest) GetOpType() OsdConfigRequest_OpType {
 	if m != nil {
 		return m.OpType
 	}
-	return OsdRequest_ADD
+	return OsdConfigRequest_ADD
 }
 
-type OsdReply struct {
+type OsdConfigReply struct {
 	RetCode int32 `protobuf:"varint,1,opt,name=ret_code,json=retCode,proto3" json:"ret_code,omitempty"`
+	Index   int32 `protobuf:"varint,2,opt,name=index,proto3" json:"index,omitempty"`
 }
 
-func (m *OsdReply) Reset()                    { *m = OsdReply{} }
-func (m *OsdReply) String() string            { return proto.CompactTextString(m) }
-func (*OsdReply) ProtoMessage()               {}
-func (*OsdReply) Descriptor() ([]byte, []int) { return fileDescriptorMon, []int{5} }
+func (m *OsdConfigReply) Reset()                    { *m = OsdConfigReply{} }
+func (m *OsdConfigReply) String() string            { return proto.CompactTextString(m) }
+func (*OsdConfigReply) ProtoMessage()               {}
+func (*OsdConfigReply) Descriptor() ([]byte, []int) { return fileDescriptorMon, []int{5} }
 
-func (m *OsdReply) GetRetCode() int32 {
+func (m *OsdConfigReply) GetRetCode() int32 {
 	if m != nil {
 		return m.RetCode
 	}
 	return 0
 }
 
+func (m *OsdConfigReply) GetIndex() int32 {
+	if m != nil {
+		return m.Index
+	}
+	return 0
+}
+
+type PoolMap struct {
+	Epoch uint64          `protobuf:"varint,1,opt,name=epoch,proto3" json:"epoch,omitempty"`
+	Pools map[int32]*Pool `protobuf:"bytes,2,rep,name=pools" json:"pools,omitempty" protobuf_key:"varint,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value"`
+}
+
+func (m *PoolMap) Reset()                    { *m = PoolMap{} }
+func (m *PoolMap) String() string            { return proto.CompactTextString(m) }
+func (*PoolMap) ProtoMessage()               {}
+func (*PoolMap) Descriptor() ([]byte, []int) { return fileDescriptorMon, []int{6} }
+
+func (m *PoolMap) GetEpoch() uint64 {
+	if m != nil {
+		return m.Epoch
+	}
+	return 0
+}
+
+func (m *PoolMap) GetPools() map[int32]*Pool {
+	if m != nil {
+		return m.Pools
+	}
+	return nil
+}
+
 type Pool struct {
-	Id    int32 `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
-	Name  int32 `protobuf:"varint,2,opt,name=name,proto3" json:"name,omitempty"`
-	Size_ int32 `protobuf:"varint,3,opt,name=size,proto3" json:"size,omitempty"`
+	Id        int32            `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
+	Name      string           `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	Size_     int32            `protobuf:"varint,3,opt,name=size,proto3" json:"size,omitempty"`
+	PgNumbers int32            `protobuf:"varint,4,opt,name=pg_numbers,json=pgNumbers,proto3" json:"pg_numbers,omitempty"`
+	Policy    DistributePolicy `protobuf:"varint,5,opt,name=policy,proto3,enum=protos.DistributePolicy" json:"policy,omitempty"`
 }
 
 func (m *Pool) Reset()                    { *m = Pool{} }
 func (m *Pool) String() string            { return proto.CompactTextString(m) }
 func (*Pool) ProtoMessage()               {}
-func (*Pool) Descriptor() ([]byte, []int) { return fileDescriptorMon, []int{6} }
+func (*Pool) Descriptor() ([]byte, []int) { return fileDescriptorMon, []int{7} }
 
 func (m *Pool) GetId() int32 {
 	if m != nil {
@@ -272,11 +374,11 @@ func (m *Pool) GetId() int32 {
 	return 0
 }
 
-func (m *Pool) GetName() int32 {
+func (m *Pool) GetName() string {
 	if m != nil {
 		return m.Name
 	}
-	return 0
+	return ""
 }
 
 func (m *Pool) GetSize_() int32 {
@@ -286,27 +388,153 @@ func (m *Pool) GetSize_() int32 {
 	return 0
 }
 
+func (m *Pool) GetPgNumbers() int32 {
+	if m != nil {
+		return m.PgNumbers
+	}
+	return 0
+}
+
+func (m *Pool) GetPolicy() DistributePolicy {
+	if m != nil {
+		return m.Policy
+	}
+	return DistributePolicy_HOST
+}
+
+type PoolConfigRequest struct {
+	KeyRing   string                   `protobuf:"bytes,1,opt,name=keyRing,proto3" json:"keyRing,omitempty"`
+	OpType    PoolConfigRequest_OpType `protobuf:"varint,2,opt,name=op_type,json=opType,proto3,enum=protos.PoolConfigRequest_OpType" json:"op_type,omitempty"`
+	Name      string                   `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
+	Size_     int32                    `protobuf:"varint,4,opt,name=size,proto3" json:"size,omitempty"`
+	PgNumbers int32                    `protobuf:"varint,5,opt,name=pg_numbers,json=pgNumbers,proto3" json:"pg_numbers,omitempty"`
+	Policy    DistributePolicy         `protobuf:"varint,6,opt,name=policy,proto3,enum=protos.DistributePolicy" json:"policy,omitempty"`
+}
+
+func (m *PoolConfigRequest) Reset()                    { *m = PoolConfigRequest{} }
+func (m *PoolConfigRequest) String() string            { return proto.CompactTextString(m) }
+func (*PoolConfigRequest) ProtoMessage()               {}
+func (*PoolConfigRequest) Descriptor() ([]byte, []int) { return fileDescriptorMon, []int{8} }
+
+func (m *PoolConfigRequest) GetKeyRing() string {
+	if m != nil {
+		return m.KeyRing
+	}
+	return ""
+}
+
+func (m *PoolConfigRequest) GetOpType() PoolConfigRequest_OpType {
+	if m != nil {
+		return m.OpType
+	}
+	return PoolConfigRequest_ADD
+}
+
+func (m *PoolConfigRequest) GetName() string {
+	if m != nil {
+		return m.Name
+	}
+	return ""
+}
+
+func (m *PoolConfigRequest) GetSize_() int32 {
+	if m != nil {
+		return m.Size_
+	}
+	return 0
+}
+
+func (m *PoolConfigRequest) GetPgNumbers() int32 {
+	if m != nil {
+		return m.PgNumbers
+	}
+	return 0
+}
+
+func (m *PoolConfigRequest) GetPolicy() DistributePolicy {
+	if m != nil {
+		return m.Policy
+	}
+	return DistributePolicy_HOST
+}
+
+type PoolConfigReply struct {
+	RetCode int32 `protobuf:"varint,1,opt,name=ret_code,json=retCode,proto3" json:"ret_code,omitempty"`
+}
+
+func (m *PoolConfigReply) Reset()                    { *m = PoolConfigReply{} }
+func (m *PoolConfigReply) String() string            { return proto.CompactTextString(m) }
+func (*PoolConfigReply) ProtoMessage()               {}
+func (*PoolConfigReply) Descriptor() ([]byte, []int) { return fileDescriptorMon, []int{9} }
+
+func (m *PoolConfigReply) GetRetCode() int32 {
+	if m != nil {
+		return m.RetCode
+	}
+	return 0
+}
+
+type PgMaps struct {
+	Pgmaps map[int32]*PgMap `protobuf:"bytes,1,rep,name=pgmaps" json:"pgmaps,omitempty" protobuf_key:"varint,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value"`
+}
+
+func (m *PgMaps) Reset()                    { *m = PgMaps{} }
+func (m *PgMaps) String() string            { return proto.CompactTextString(m) }
+func (*PgMaps) ProtoMessage()               {}
+func (*PgMaps) Descriptor() ([]byte, []int) { return fileDescriptorMon, []int{10} }
+
+func (m *PgMaps) GetPgmaps() map[int32]*PgMap {
+	if m != nil {
+		return m.Pgmaps
+	}
+	return nil
+}
+
+type PgMap struct {
+	Epoch  uint64        `protobuf:"varint,1,opt,name=epoch,proto3" json:"epoch,omitempty"`
+	PoolId int32         `protobuf:"varint,2,opt,name=pool_id,json=poolId,proto3" json:"pool_id,omitempty"`
+	Pgmap  map[int32]*Pg `protobuf:"bytes,3,rep,name=pgmap" json:"pgmap,omitempty" protobuf_key:"varint,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value"`
+}
+
+func (m *PgMap) Reset()                    { *m = PgMap{} }
+func (m *PgMap) String() string            { return proto.CompactTextString(m) }
+func (*PgMap) ProtoMessage()               {}
+func (*PgMap) Descriptor() ([]byte, []int) { return fileDescriptorMon, []int{11} }
+
+func (m *PgMap) GetEpoch() uint64 {
+	if m != nil {
+		return m.Epoch
+	}
+	return 0
+}
+
+func (m *PgMap) GetPoolId() int32 {
+	if m != nil {
+		return m.PoolId
+	}
+	return 0
+}
+
+func (m *PgMap) GetPgmap() map[int32]*Pg {
+	if m != nil {
+		return m.Pgmap
+	}
+	return nil
+}
+
 type Pg struct {
 	Id     int32   `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
-	PoolId int32   `protobuf:"varint,2,opt,name=pool_id,json=poolId,proto3" json:"pool_id,omitempty"`
-	OsdIds []int32 `protobuf:"varint,3,rep,packed,name=osd_ids,json=osdIds" json:"osd_ids,omitempty"`
+	OsdIds []int32 `protobuf:"varint,2,rep,packed,name=osd_ids,json=osdIds" json:"osd_ids,omitempty"`
 }
 
 func (m *Pg) Reset()                    { *m = Pg{} }
 func (m *Pg) String() string            { return proto.CompactTextString(m) }
 func (*Pg) ProtoMessage()               {}
-func (*Pg) Descriptor() ([]byte, []int) { return fileDescriptorMon, []int{7} }
+func (*Pg) Descriptor() ([]byte, []int) { return fileDescriptorMon, []int{12} }
 
 func (m *Pg) GetId() int32 {
 	if m != nil {
 		return m.Id
-	}
-	return 0
-}
-
-func (m *Pg) GetPoolId() int32 {
-	if m != nil {
-		return m.PoolId
 	}
 	return 0
 }
@@ -323,11 +551,18 @@ func init() {
 	proto.RegisterType((*LayoutReply)(nil), "protos.LayoutReply")
 	proto.RegisterType((*Osd)(nil), "protos.Osd")
 	proto.RegisterType((*OsdMap)(nil), "protos.OsdMap")
-	proto.RegisterType((*OsdRequest)(nil), "protos.OsdRequest")
-	proto.RegisterType((*OsdReply)(nil), "protos.OsdReply")
+	proto.RegisterType((*OsdConfigRequest)(nil), "protos.OsdConfigRequest")
+	proto.RegisterType((*OsdConfigReply)(nil), "protos.OsdConfigReply")
+	proto.RegisterType((*PoolMap)(nil), "protos.PoolMap")
 	proto.RegisterType((*Pool)(nil), "protos.Pool")
+	proto.RegisterType((*PoolConfigRequest)(nil), "protos.PoolConfigRequest")
+	proto.RegisterType((*PoolConfigReply)(nil), "protos.PoolConfigReply")
+	proto.RegisterType((*PgMaps)(nil), "protos.PgMaps")
+	proto.RegisterType((*PgMap)(nil), "protos.PgMap")
 	proto.RegisterType((*Pg)(nil), "protos.Pg")
-	proto.RegisterEnum("protos.OsdRequest_OpType", OsdRequest_OpType_name, OsdRequest_OpType_value)
+	proto.RegisterEnum("protos.DistributePolicy", DistributePolicy_name, DistributePolicy_value)
+	proto.RegisterEnum("protos.OsdConfigRequest_OpType", OsdConfigRequest_OpType_name, OsdConfigRequest_OpType_value)
+	proto.RegisterEnum("protos.PoolConfigRequest_OpType", PoolConfigRequest_OpType_name, PoolConfigRequest_OpType_value)
 }
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -342,7 +577,8 @@ const _ = grpc.SupportPackageIsVersion4
 
 type MonitorClient interface {
 	GetLayout(ctx context.Context, in *LayoutRequest, opts ...grpc.CallOption) (*LayoutReply, error)
-	OsdOperation(ctx context.Context, in *OsdRequest, opts ...grpc.CallOption) (*OsdRequest, error)
+	OsdConfig(ctx context.Context, in *OsdConfigRequest, opts ...grpc.CallOption) (*OsdConfigReply, error)
+	PoolConfig(ctx context.Context, in *PoolConfigRequest, opts ...grpc.CallOption) (*PoolConfigReply, error)
 }
 
 type monitorClient struct {
@@ -362,9 +598,18 @@ func (c *monitorClient) GetLayout(ctx context.Context, in *LayoutRequest, opts .
 	return out, nil
 }
 
-func (c *monitorClient) OsdOperation(ctx context.Context, in *OsdRequest, opts ...grpc.CallOption) (*OsdRequest, error) {
-	out := new(OsdRequest)
-	err := grpc.Invoke(ctx, "/protos.Monitor/OsdOperation", in, out, c.cc, opts...)
+func (c *monitorClient) OsdConfig(ctx context.Context, in *OsdConfigRequest, opts ...grpc.CallOption) (*OsdConfigReply, error) {
+	out := new(OsdConfigReply)
+	err := grpc.Invoke(ctx, "/protos.Monitor/OsdConfig", in, out, c.cc, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *monitorClient) PoolConfig(ctx context.Context, in *PoolConfigRequest, opts ...grpc.CallOption) (*PoolConfigReply, error) {
+	out := new(PoolConfigReply)
+	err := grpc.Invoke(ctx, "/protos.Monitor/PoolConfig", in, out, c.cc, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -375,7 +620,8 @@ func (c *monitorClient) OsdOperation(ctx context.Context, in *OsdRequest, opts .
 
 type MonitorServer interface {
 	GetLayout(context.Context, *LayoutRequest) (*LayoutReply, error)
-	OsdOperation(context.Context, *OsdRequest) (*OsdRequest, error)
+	OsdConfig(context.Context, *OsdConfigRequest) (*OsdConfigReply, error)
+	PoolConfig(context.Context, *PoolConfigRequest) (*PoolConfigReply, error)
 }
 
 func RegisterMonitorServer(s *grpc.Server, srv MonitorServer) {
@@ -400,20 +646,38 @@ func _Monitor_GetLayout_Handler(srv interface{}, ctx context.Context, dec func(i
 	return interceptor(ctx, in, info, handler)
 }
 
-func _Monitor_OsdOperation_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(OsdRequest)
+func _Monitor_OsdConfig_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(OsdConfigRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(MonitorServer).OsdOperation(ctx, in)
+		return srv.(MonitorServer).OsdConfig(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/protos.Monitor/OsdOperation",
+		FullMethod: "/protos.Monitor/OsdConfig",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MonitorServer).OsdOperation(ctx, req.(*OsdRequest))
+		return srv.(MonitorServer).OsdConfig(ctx, req.(*OsdConfigRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Monitor_PoolConfig_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PoolConfigRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MonitorServer).PoolConfig(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/protos.Monitor/PoolConfig",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MonitorServer).PoolConfig(ctx, req.(*PoolConfigRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -427,8 +691,12 @@ var _Monitor_serviceDesc = grpc.ServiceDesc{
 			Handler:    _Monitor_GetLayout_Handler,
 		},
 		{
-			MethodName: "OsdOperation",
-			Handler:    _Monitor_OsdOperation_Handler,
+			MethodName: "OsdConfig",
+			Handler:    _Monitor_OsdConfig_Handler,
+		},
+		{
+			MethodName: "PoolConfig",
+			Handler:    _Monitor_PoolConfig_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
@@ -537,8 +805,20 @@ func (m *Osd) MarshalTo(dAtA []byte) (int, error) {
 		i++
 		i = encodeVarintMon(dAtA, i, uint64(m.Weight))
 	}
+	if len(m.Host) > 0 {
+		dAtA[i] = 0x22
+		i++
+		i = encodeVarintMon(dAtA, i, uint64(len(m.Host)))
+		i += copy(dAtA[i:], m.Host)
+	}
+	if len(m.Zone) > 0 {
+		dAtA[i] = 0x2a
+		i++
+		i = encodeVarintMon(dAtA, i, uint64(len(m.Zone)))
+		i += copy(dAtA[i:], m.Zone)
+	}
 	if m.Up {
-		dAtA[i] = 0x20
+		dAtA[i] = 0x30
 		i++
 		if m.Up {
 			dAtA[i] = 1
@@ -548,7 +828,7 @@ func (m *Osd) MarshalTo(dAtA []byte) (int, error) {
 		i++
 	}
 	if m.In {
-		dAtA[i] = 0x28
+		dAtA[i] = 0x38
 		i++
 		if m.In {
 			dAtA[i] = 1
@@ -610,7 +890,7 @@ func (m *OsdMap) MarshalTo(dAtA []byte) (int, error) {
 	return i, nil
 }
 
-func (m *OsdRequest) Marshal() (dAtA []byte, err error) {
+func (m *OsdConfigRequest) Marshal() (dAtA []byte, err error) {
 	size := m.Size()
 	dAtA = make([]byte, size)
 	n, err := m.MarshalTo(dAtA)
@@ -620,7 +900,7 @@ func (m *OsdRequest) Marshal() (dAtA []byte, err error) {
 	return dAtA[:n], nil
 }
 
-func (m *OsdRequest) MarshalTo(dAtA []byte) (int, error) {
+func (m *OsdConfigRequest) MarshalTo(dAtA []byte) (int, error) {
 	var i int
 	_ = i
 	var l int
@@ -631,11 +911,11 @@ func (m *OsdRequest) MarshalTo(dAtA []byte) (int, error) {
 		i = encodeVarintMon(dAtA, i, uint64(len(m.KeyRing)))
 		i += copy(dAtA[i:], m.KeyRing)
 	}
-	if m.Id != nil {
+	if m.Osd != nil {
 		dAtA[i] = 0x12
 		i++
-		i = encodeVarintMon(dAtA, i, uint64(m.Id.Size()))
-		n2, err := m.Id.MarshalTo(dAtA[i:])
+		i = encodeVarintMon(dAtA, i, uint64(m.Osd.Size()))
+		n2, err := m.Osd.MarshalTo(dAtA[i:])
 		if err != nil {
 			return 0, err
 		}
@@ -649,7 +929,7 @@ func (m *OsdRequest) MarshalTo(dAtA []byte) (int, error) {
 	return i, nil
 }
 
-func (m *OsdReply) Marshal() (dAtA []byte, err error) {
+func (m *OsdConfigReply) Marshal() (dAtA []byte, err error) {
 	size := m.Size()
 	dAtA = make([]byte, size)
 	n, err := m.MarshalTo(dAtA)
@@ -659,7 +939,7 @@ func (m *OsdReply) Marshal() (dAtA []byte, err error) {
 	return dAtA[:n], nil
 }
 
-func (m *OsdReply) MarshalTo(dAtA []byte) (int, error) {
+func (m *OsdConfigReply) MarshalTo(dAtA []byte) (int, error) {
 	var i int
 	_ = i
 	var l int
@@ -668,6 +948,61 @@ func (m *OsdReply) MarshalTo(dAtA []byte) (int, error) {
 		dAtA[i] = 0x8
 		i++
 		i = encodeVarintMon(dAtA, i, uint64(m.RetCode))
+	}
+	if m.Index != 0 {
+		dAtA[i] = 0x10
+		i++
+		i = encodeVarintMon(dAtA, i, uint64(m.Index))
+	}
+	return i, nil
+}
+
+func (m *PoolMap) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalTo(dAtA)
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *PoolMap) MarshalTo(dAtA []byte) (int, error) {
+	var i int
+	_ = i
+	var l int
+	_ = l
+	if m.Epoch != 0 {
+		dAtA[i] = 0x8
+		i++
+		i = encodeVarintMon(dAtA, i, uint64(m.Epoch))
+	}
+	if len(m.Pools) > 0 {
+		for k, _ := range m.Pools {
+			dAtA[i] = 0x12
+			i++
+			v := m.Pools[k]
+			msgSize := 0
+			if v != nil {
+				msgSize = v.Size()
+				msgSize += 1 + sovMon(uint64(msgSize))
+			}
+			mapSize := 1 + sovMon(uint64(k)) + msgSize
+			i = encodeVarintMon(dAtA, i, uint64(mapSize))
+			dAtA[i] = 0x8
+			i++
+			i = encodeVarintMon(dAtA, i, uint64(k))
+			if v != nil {
+				dAtA[i] = 0x12
+				i++
+				i = encodeVarintMon(dAtA, i, uint64(v.Size()))
+				n3, err := v.MarshalTo(dAtA[i:])
+				if err != nil {
+					return 0, err
+				}
+				i += n3
+			}
+		}
 	}
 	return i, nil
 }
@@ -692,15 +1027,199 @@ func (m *Pool) MarshalTo(dAtA []byte) (int, error) {
 		i++
 		i = encodeVarintMon(dAtA, i, uint64(m.Id))
 	}
-	if m.Name != 0 {
-		dAtA[i] = 0x10
+	if len(m.Name) > 0 {
+		dAtA[i] = 0x12
 		i++
-		i = encodeVarintMon(dAtA, i, uint64(m.Name))
+		i = encodeVarintMon(dAtA, i, uint64(len(m.Name)))
+		i += copy(dAtA[i:], m.Name)
 	}
 	if m.Size_ != 0 {
 		dAtA[i] = 0x18
 		i++
 		i = encodeVarintMon(dAtA, i, uint64(m.Size_))
+	}
+	if m.PgNumbers != 0 {
+		dAtA[i] = 0x20
+		i++
+		i = encodeVarintMon(dAtA, i, uint64(m.PgNumbers))
+	}
+	if m.Policy != 0 {
+		dAtA[i] = 0x28
+		i++
+		i = encodeVarintMon(dAtA, i, uint64(m.Policy))
+	}
+	return i, nil
+}
+
+func (m *PoolConfigRequest) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalTo(dAtA)
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *PoolConfigRequest) MarshalTo(dAtA []byte) (int, error) {
+	var i int
+	_ = i
+	var l int
+	_ = l
+	if len(m.KeyRing) > 0 {
+		dAtA[i] = 0xa
+		i++
+		i = encodeVarintMon(dAtA, i, uint64(len(m.KeyRing)))
+		i += copy(dAtA[i:], m.KeyRing)
+	}
+	if m.OpType != 0 {
+		dAtA[i] = 0x10
+		i++
+		i = encodeVarintMon(dAtA, i, uint64(m.OpType))
+	}
+	if len(m.Name) > 0 {
+		dAtA[i] = 0x1a
+		i++
+		i = encodeVarintMon(dAtA, i, uint64(len(m.Name)))
+		i += copy(dAtA[i:], m.Name)
+	}
+	if m.Size_ != 0 {
+		dAtA[i] = 0x20
+		i++
+		i = encodeVarintMon(dAtA, i, uint64(m.Size_))
+	}
+	if m.PgNumbers != 0 {
+		dAtA[i] = 0x28
+		i++
+		i = encodeVarintMon(dAtA, i, uint64(m.PgNumbers))
+	}
+	if m.Policy != 0 {
+		dAtA[i] = 0x30
+		i++
+		i = encodeVarintMon(dAtA, i, uint64(m.Policy))
+	}
+	return i, nil
+}
+
+func (m *PoolConfigReply) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalTo(dAtA)
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *PoolConfigReply) MarshalTo(dAtA []byte) (int, error) {
+	var i int
+	_ = i
+	var l int
+	_ = l
+	if m.RetCode != 0 {
+		dAtA[i] = 0x8
+		i++
+		i = encodeVarintMon(dAtA, i, uint64(m.RetCode))
+	}
+	return i, nil
+}
+
+func (m *PgMaps) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalTo(dAtA)
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *PgMaps) MarshalTo(dAtA []byte) (int, error) {
+	var i int
+	_ = i
+	var l int
+	_ = l
+	if len(m.Pgmaps) > 0 {
+		for k, _ := range m.Pgmaps {
+			dAtA[i] = 0xa
+			i++
+			v := m.Pgmaps[k]
+			msgSize := 0
+			if v != nil {
+				msgSize = v.Size()
+				msgSize += 1 + sovMon(uint64(msgSize))
+			}
+			mapSize := 1 + sovMon(uint64(k)) + msgSize
+			i = encodeVarintMon(dAtA, i, uint64(mapSize))
+			dAtA[i] = 0x8
+			i++
+			i = encodeVarintMon(dAtA, i, uint64(k))
+			if v != nil {
+				dAtA[i] = 0x12
+				i++
+				i = encodeVarintMon(dAtA, i, uint64(v.Size()))
+				n4, err := v.MarshalTo(dAtA[i:])
+				if err != nil {
+					return 0, err
+				}
+				i += n4
+			}
+		}
+	}
+	return i, nil
+}
+
+func (m *PgMap) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalTo(dAtA)
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *PgMap) MarshalTo(dAtA []byte) (int, error) {
+	var i int
+	_ = i
+	var l int
+	_ = l
+	if m.Epoch != 0 {
+		dAtA[i] = 0x8
+		i++
+		i = encodeVarintMon(dAtA, i, uint64(m.Epoch))
+	}
+	if m.PoolId != 0 {
+		dAtA[i] = 0x10
+		i++
+		i = encodeVarintMon(dAtA, i, uint64(m.PoolId))
+	}
+	if len(m.Pgmap) > 0 {
+		for k, _ := range m.Pgmap {
+			dAtA[i] = 0x1a
+			i++
+			v := m.Pgmap[k]
+			msgSize := 0
+			if v != nil {
+				msgSize = v.Size()
+				msgSize += 1 + sovMon(uint64(msgSize))
+			}
+			mapSize := 1 + sovMon(uint64(k)) + msgSize
+			i = encodeVarintMon(dAtA, i, uint64(mapSize))
+			dAtA[i] = 0x8
+			i++
+			i = encodeVarintMon(dAtA, i, uint64(k))
+			if v != nil {
+				dAtA[i] = 0x12
+				i++
+				i = encodeVarintMon(dAtA, i, uint64(v.Size()))
+				n5, err := v.MarshalTo(dAtA[i:])
+				if err != nil {
+					return 0, err
+				}
+				i += n5
+			}
+		}
 	}
 	return i, nil
 }
@@ -725,28 +1244,23 @@ func (m *Pg) MarshalTo(dAtA []byte) (int, error) {
 		i++
 		i = encodeVarintMon(dAtA, i, uint64(m.Id))
 	}
-	if m.PoolId != 0 {
-		dAtA[i] = 0x10
-		i++
-		i = encodeVarintMon(dAtA, i, uint64(m.PoolId))
-	}
 	if len(m.OsdIds) > 0 {
-		dAtA4 := make([]byte, len(m.OsdIds)*10)
-		var j3 int
+		dAtA7 := make([]byte, len(m.OsdIds)*10)
+		var j6 int
 		for _, num1 := range m.OsdIds {
 			num := uint64(num1)
 			for num >= 1<<7 {
-				dAtA4[j3] = uint8(uint64(num)&0x7f | 0x80)
+				dAtA7[j6] = uint8(uint64(num)&0x7f | 0x80)
 				num >>= 7
-				j3++
+				j6++
 			}
-			dAtA4[j3] = uint8(num)
-			j3++
+			dAtA7[j6] = uint8(num)
+			j6++
 		}
-		dAtA[i] = 0x1a
+		dAtA[i] = 0x12
 		i++
-		i = encodeVarintMon(dAtA, i, uint64(j3))
-		i += copy(dAtA[i:], dAtA4[:j3])
+		i = encodeVarintMon(dAtA, i, uint64(j6))
+		i += copy(dAtA[i:], dAtA7[:j6])
 	}
 	return i, nil
 }
@@ -824,6 +1338,14 @@ func (m *Osd) Size() (n int) {
 	if m.Weight != 0 {
 		n += 1 + sovMon(uint64(m.Weight))
 	}
+	l = len(m.Host)
+	if l > 0 {
+		n += 1 + l + sovMon(uint64(l))
+	}
+	l = len(m.Zone)
+	if l > 0 {
+		n += 1 + l + sovMon(uint64(l))
+	}
 	if m.Up {
 		n += 2
 	}
@@ -855,15 +1377,15 @@ func (m *OsdMap) Size() (n int) {
 	return n
 }
 
-func (m *OsdRequest) Size() (n int) {
+func (m *OsdConfigRequest) Size() (n int) {
 	var l int
 	_ = l
 	l = len(m.KeyRing)
 	if l > 0 {
 		n += 1 + l + sovMon(uint64(l))
 	}
-	if m.Id != nil {
-		l = m.Id.Size()
+	if m.Osd != nil {
+		l = m.Osd.Size()
 		n += 1 + l + sovMon(uint64(l))
 	}
 	if m.OpType != 0 {
@@ -872,11 +1394,36 @@ func (m *OsdRequest) Size() (n int) {
 	return n
 }
 
-func (m *OsdReply) Size() (n int) {
+func (m *OsdConfigReply) Size() (n int) {
 	var l int
 	_ = l
 	if m.RetCode != 0 {
 		n += 1 + sovMon(uint64(m.RetCode))
+	}
+	if m.Index != 0 {
+		n += 1 + sovMon(uint64(m.Index))
+	}
+	return n
+}
+
+func (m *PoolMap) Size() (n int) {
+	var l int
+	_ = l
+	if m.Epoch != 0 {
+		n += 1 + sovMon(uint64(m.Epoch))
+	}
+	if len(m.Pools) > 0 {
+		for k, v := range m.Pools {
+			_ = k
+			_ = v
+			l = 0
+			if v != nil {
+				l = v.Size()
+				l += 1 + sovMon(uint64(l))
+			}
+			mapEntrySize := 1 + sovMon(uint64(k)) + l
+			n += mapEntrySize + 1 + sovMon(uint64(mapEntrySize))
+		}
 	}
 	return n
 }
@@ -887,11 +1434,97 @@ func (m *Pool) Size() (n int) {
 	if m.Id != 0 {
 		n += 1 + sovMon(uint64(m.Id))
 	}
-	if m.Name != 0 {
-		n += 1 + sovMon(uint64(m.Name))
+	l = len(m.Name)
+	if l > 0 {
+		n += 1 + l + sovMon(uint64(l))
 	}
 	if m.Size_ != 0 {
 		n += 1 + sovMon(uint64(m.Size_))
+	}
+	if m.PgNumbers != 0 {
+		n += 1 + sovMon(uint64(m.PgNumbers))
+	}
+	if m.Policy != 0 {
+		n += 1 + sovMon(uint64(m.Policy))
+	}
+	return n
+}
+
+func (m *PoolConfigRequest) Size() (n int) {
+	var l int
+	_ = l
+	l = len(m.KeyRing)
+	if l > 0 {
+		n += 1 + l + sovMon(uint64(l))
+	}
+	if m.OpType != 0 {
+		n += 1 + sovMon(uint64(m.OpType))
+	}
+	l = len(m.Name)
+	if l > 0 {
+		n += 1 + l + sovMon(uint64(l))
+	}
+	if m.Size_ != 0 {
+		n += 1 + sovMon(uint64(m.Size_))
+	}
+	if m.PgNumbers != 0 {
+		n += 1 + sovMon(uint64(m.PgNumbers))
+	}
+	if m.Policy != 0 {
+		n += 1 + sovMon(uint64(m.Policy))
+	}
+	return n
+}
+
+func (m *PoolConfigReply) Size() (n int) {
+	var l int
+	_ = l
+	if m.RetCode != 0 {
+		n += 1 + sovMon(uint64(m.RetCode))
+	}
+	return n
+}
+
+func (m *PgMaps) Size() (n int) {
+	var l int
+	_ = l
+	if len(m.Pgmaps) > 0 {
+		for k, v := range m.Pgmaps {
+			_ = k
+			_ = v
+			l = 0
+			if v != nil {
+				l = v.Size()
+				l += 1 + sovMon(uint64(l))
+			}
+			mapEntrySize := 1 + sovMon(uint64(k)) + l
+			n += mapEntrySize + 1 + sovMon(uint64(mapEntrySize))
+		}
+	}
+	return n
+}
+
+func (m *PgMap) Size() (n int) {
+	var l int
+	_ = l
+	if m.Epoch != 0 {
+		n += 1 + sovMon(uint64(m.Epoch))
+	}
+	if m.PoolId != 0 {
+		n += 1 + sovMon(uint64(m.PoolId))
+	}
+	if len(m.Pgmap) > 0 {
+		for k, v := range m.Pgmap {
+			_ = k
+			_ = v
+			l = 0
+			if v != nil {
+				l = v.Size()
+				l += 1 + sovMon(uint64(l))
+			}
+			mapEntrySize := 1 + sovMon(uint64(k)) + l
+			n += mapEntrySize + 1 + sovMon(uint64(mapEntrySize))
+		}
 	}
 	return n
 }
@@ -901,9 +1534,6 @@ func (m *Pg) Size() (n int) {
 	_ = l
 	if m.Id != 0 {
 		n += 1 + sovMon(uint64(m.Id))
-	}
-	if m.PoolId != 0 {
-		n += 1 + sovMon(uint64(m.PoolId))
 	}
 	if len(m.OsdIds) > 0 {
 		l = 0
@@ -1262,6 +1892,64 @@ func (m *Osd) Unmarshal(dAtA []byte) error {
 				}
 			}
 		case 4:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Host", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMon
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= (uint64(b) & 0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthMon
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Host = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 5:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Zone", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMon
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= (uint64(b) & 0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthMon
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Zone = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 6:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field Up", wireType)
 			}
@@ -1281,7 +1969,7 @@ func (m *Osd) Unmarshal(dAtA []byte) error {
 				}
 			}
 			m.Up = bool(v != 0)
-		case 5:
+		case 7:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field In", wireType)
 			}
@@ -1397,9 +2085,9 @@ func (m *OsdMap) Unmarshal(dAtA []byte) error {
 				return io.ErrUnexpectedEOF
 			}
 			if m.MemberList == nil {
-				m.MemberList = make(map[uint64]*Osd)
+				m.MemberList = make(map[int32]*Osd)
 			}
-			var mapkey uint64
+			var mapkey int32
 			var mapvalue *Osd
 			for iNdEx < postIndex {
 				entryPreIndex := iNdEx
@@ -1429,7 +2117,7 @@ func (m *OsdMap) Unmarshal(dAtA []byte) error {
 						}
 						b := dAtA[iNdEx]
 						iNdEx++
-						mapkey |= (uint64(b) & 0x7F) << shift
+						mapkey |= (int32(b) & 0x7F) << shift
 						if b < 0x80 {
 							break
 						}
@@ -1503,7 +2191,7 @@ func (m *OsdMap) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
-func (m *OsdRequest) Unmarshal(dAtA []byte) error {
+func (m *OsdConfigRequest) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
 	for iNdEx < l {
@@ -1526,10 +2214,10 @@ func (m *OsdRequest) Unmarshal(dAtA []byte) error {
 		fieldNum := int32(wire >> 3)
 		wireType := int(wire & 0x7)
 		if wireType == 4 {
-			return fmt.Errorf("proto: OsdRequest: wiretype end group for non-group")
+			return fmt.Errorf("proto: OsdConfigRequest: wiretype end group for non-group")
 		}
 		if fieldNum <= 0 {
-			return fmt.Errorf("proto: OsdRequest: illegal tag %d (wire type %d)", fieldNum, wire)
+			return fmt.Errorf("proto: OsdConfigRequest: illegal tag %d (wire type %d)", fieldNum, wire)
 		}
 		switch fieldNum {
 		case 1:
@@ -1563,7 +2251,7 @@ func (m *OsdRequest) Unmarshal(dAtA []byte) error {
 			iNdEx = postIndex
 		case 2:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Id", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field Osd", wireType)
 			}
 			var msglen int
 			for shift := uint(0); ; shift += 7 {
@@ -1587,10 +2275,10 @@ func (m *OsdRequest) Unmarshal(dAtA []byte) error {
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			if m.Id == nil {
-				m.Id = &Osd{}
+			if m.Osd == nil {
+				m.Osd = &Osd{}
 			}
-			if err := m.Id.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+			if err := m.Osd.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
 				return err
 			}
 			iNdEx = postIndex
@@ -1608,7 +2296,7 @@ func (m *OsdRequest) Unmarshal(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				m.OpType |= (OsdRequest_OpType(b) & 0x7F) << shift
+				m.OpType |= (OsdConfigRequest_OpType(b) & 0x7F) << shift
 				if b < 0x80 {
 					break
 				}
@@ -1634,7 +2322,7 @@ func (m *OsdRequest) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
-func (m *OsdReply) Unmarshal(dAtA []byte) error {
+func (m *OsdConfigReply) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
 	for iNdEx < l {
@@ -1657,10 +2345,10 @@ func (m *OsdReply) Unmarshal(dAtA []byte) error {
 		fieldNum := int32(wire >> 3)
 		wireType := int(wire & 0x7)
 		if wireType == 4 {
-			return fmt.Errorf("proto: OsdReply: wiretype end group for non-group")
+			return fmt.Errorf("proto: OsdConfigReply: wiretype end group for non-group")
 		}
 		if fieldNum <= 0 {
-			return fmt.Errorf("proto: OsdReply: illegal tag %d (wire type %d)", fieldNum, wire)
+			return fmt.Errorf("proto: OsdConfigReply: illegal tag %d (wire type %d)", fieldNum, wire)
 		}
 		switch fieldNum {
 		case 1:
@@ -1682,6 +2370,206 @@ func (m *OsdReply) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
+		case 2:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Index", wireType)
+			}
+			m.Index = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMon
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.Index |= (int32(b) & 0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		default:
+			iNdEx = preIndex
+			skippy, err := skipMon(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if skippy < 0 {
+				return ErrInvalidLengthMon
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *PoolMap) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowMon
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= (uint64(b) & 0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: PoolMap: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: PoolMap: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Epoch", wireType)
+			}
+			m.Epoch = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMon
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.Epoch |= (uint64(b) & 0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Pools", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMon
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= (int(b) & 0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthMon
+			}
+			postIndex := iNdEx + msglen
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.Pools == nil {
+				m.Pools = make(map[int32]*Pool)
+			}
+			var mapkey int32
+			var mapvalue *Pool
+			for iNdEx < postIndex {
+				entryPreIndex := iNdEx
+				var wire uint64
+				for shift := uint(0); ; shift += 7 {
+					if shift >= 64 {
+						return ErrIntOverflowMon
+					}
+					if iNdEx >= l {
+						return io.ErrUnexpectedEOF
+					}
+					b := dAtA[iNdEx]
+					iNdEx++
+					wire |= (uint64(b) & 0x7F) << shift
+					if b < 0x80 {
+						break
+					}
+				}
+				fieldNum := int32(wire >> 3)
+				if fieldNum == 1 {
+					for shift := uint(0); ; shift += 7 {
+						if shift >= 64 {
+							return ErrIntOverflowMon
+						}
+						if iNdEx >= l {
+							return io.ErrUnexpectedEOF
+						}
+						b := dAtA[iNdEx]
+						iNdEx++
+						mapkey |= (int32(b) & 0x7F) << shift
+						if b < 0x80 {
+							break
+						}
+					}
+				} else if fieldNum == 2 {
+					var mapmsglen int
+					for shift := uint(0); ; shift += 7 {
+						if shift >= 64 {
+							return ErrIntOverflowMon
+						}
+						if iNdEx >= l {
+							return io.ErrUnexpectedEOF
+						}
+						b := dAtA[iNdEx]
+						iNdEx++
+						mapmsglen |= (int(b) & 0x7F) << shift
+						if b < 0x80 {
+							break
+						}
+					}
+					if mapmsglen < 0 {
+						return ErrInvalidLengthMon
+					}
+					postmsgIndex := iNdEx + mapmsglen
+					if mapmsglen < 0 {
+						return ErrInvalidLengthMon
+					}
+					if postmsgIndex > l {
+						return io.ErrUnexpectedEOF
+					}
+					mapvalue = &Pool{}
+					if err := mapvalue.Unmarshal(dAtA[iNdEx:postmsgIndex]); err != nil {
+						return err
+					}
+					iNdEx = postmsgIndex
+				} else {
+					iNdEx = entryPreIndex
+					skippy, err := skipMon(dAtA[iNdEx:])
+					if err != nil {
+						return err
+					}
+					if skippy < 0 {
+						return ErrInvalidLengthMon
+					}
+					if (iNdEx + skippy) > postIndex {
+						return io.ErrUnexpectedEOF
+					}
+					iNdEx += skippy
+				}
+			}
+			m.Pools[mapkey] = mapvalue
+			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
 			skippy, err := skipMon(dAtA[iNdEx:])
@@ -1752,10 +2640,10 @@ func (m *Pool) Unmarshal(dAtA []byte) error {
 				}
 			}
 		case 2:
-			if wireType != 0 {
+			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field Name", wireType)
 			}
-			m.Name = 0
+			var stringLen uint64
 			for shift := uint(0); ; shift += 7 {
 				if shift >= 64 {
 					return ErrIntOverflowMon
@@ -1765,11 +2653,21 @@ func (m *Pool) Unmarshal(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				m.Name |= (int32(b) & 0x7F) << shift
+				stringLen |= (uint64(b) & 0x7F) << shift
 				if b < 0x80 {
 					break
 				}
 			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthMon
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Name = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
 		case 3:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field Size_", wireType)
@@ -1789,6 +2687,659 @@ func (m *Pool) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
+		case 4:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field PgNumbers", wireType)
+			}
+			m.PgNumbers = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMon
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.PgNumbers |= (int32(b) & 0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 5:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Policy", wireType)
+			}
+			m.Policy = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMon
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.Policy |= (DistributePolicy(b) & 0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		default:
+			iNdEx = preIndex
+			skippy, err := skipMon(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if skippy < 0 {
+				return ErrInvalidLengthMon
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *PoolConfigRequest) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowMon
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= (uint64(b) & 0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: PoolConfigRequest: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: PoolConfigRequest: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field KeyRing", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMon
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= (uint64(b) & 0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthMon
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.KeyRing = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 2:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field OpType", wireType)
+			}
+			m.OpType = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMon
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.OpType |= (PoolConfigRequest_OpType(b) & 0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 3:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Name", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMon
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= (uint64(b) & 0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthMon
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Name = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 4:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Size_", wireType)
+			}
+			m.Size_ = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMon
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.Size_ |= (int32(b) & 0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 5:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field PgNumbers", wireType)
+			}
+			m.PgNumbers = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMon
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.PgNumbers |= (int32(b) & 0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 6:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Policy", wireType)
+			}
+			m.Policy = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMon
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.Policy |= (DistributePolicy(b) & 0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		default:
+			iNdEx = preIndex
+			skippy, err := skipMon(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if skippy < 0 {
+				return ErrInvalidLengthMon
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *PoolConfigReply) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowMon
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= (uint64(b) & 0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: PoolConfigReply: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: PoolConfigReply: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field RetCode", wireType)
+			}
+			m.RetCode = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMon
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.RetCode |= (int32(b) & 0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		default:
+			iNdEx = preIndex
+			skippy, err := skipMon(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if skippy < 0 {
+				return ErrInvalidLengthMon
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *PgMaps) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowMon
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= (uint64(b) & 0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: PgMaps: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: PgMaps: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Pgmaps", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMon
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= (int(b) & 0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthMon
+			}
+			postIndex := iNdEx + msglen
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.Pgmaps == nil {
+				m.Pgmaps = make(map[int32]*PgMap)
+			}
+			var mapkey int32
+			var mapvalue *PgMap
+			for iNdEx < postIndex {
+				entryPreIndex := iNdEx
+				var wire uint64
+				for shift := uint(0); ; shift += 7 {
+					if shift >= 64 {
+						return ErrIntOverflowMon
+					}
+					if iNdEx >= l {
+						return io.ErrUnexpectedEOF
+					}
+					b := dAtA[iNdEx]
+					iNdEx++
+					wire |= (uint64(b) & 0x7F) << shift
+					if b < 0x80 {
+						break
+					}
+				}
+				fieldNum := int32(wire >> 3)
+				if fieldNum == 1 {
+					for shift := uint(0); ; shift += 7 {
+						if shift >= 64 {
+							return ErrIntOverflowMon
+						}
+						if iNdEx >= l {
+							return io.ErrUnexpectedEOF
+						}
+						b := dAtA[iNdEx]
+						iNdEx++
+						mapkey |= (int32(b) & 0x7F) << shift
+						if b < 0x80 {
+							break
+						}
+					}
+				} else if fieldNum == 2 {
+					var mapmsglen int
+					for shift := uint(0); ; shift += 7 {
+						if shift >= 64 {
+							return ErrIntOverflowMon
+						}
+						if iNdEx >= l {
+							return io.ErrUnexpectedEOF
+						}
+						b := dAtA[iNdEx]
+						iNdEx++
+						mapmsglen |= (int(b) & 0x7F) << shift
+						if b < 0x80 {
+							break
+						}
+					}
+					if mapmsglen < 0 {
+						return ErrInvalidLengthMon
+					}
+					postmsgIndex := iNdEx + mapmsglen
+					if mapmsglen < 0 {
+						return ErrInvalidLengthMon
+					}
+					if postmsgIndex > l {
+						return io.ErrUnexpectedEOF
+					}
+					mapvalue = &PgMap{}
+					if err := mapvalue.Unmarshal(dAtA[iNdEx:postmsgIndex]); err != nil {
+						return err
+					}
+					iNdEx = postmsgIndex
+				} else {
+					iNdEx = entryPreIndex
+					skippy, err := skipMon(dAtA[iNdEx:])
+					if err != nil {
+						return err
+					}
+					if skippy < 0 {
+						return ErrInvalidLengthMon
+					}
+					if (iNdEx + skippy) > postIndex {
+						return io.ErrUnexpectedEOF
+					}
+					iNdEx += skippy
+				}
+			}
+			m.Pgmaps[mapkey] = mapvalue
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipMon(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if skippy < 0 {
+				return ErrInvalidLengthMon
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *PgMap) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowMon
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= (uint64(b) & 0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: PgMap: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: PgMap: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Epoch", wireType)
+			}
+			m.Epoch = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMon
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.Epoch |= (uint64(b) & 0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 2:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field PoolId", wireType)
+			}
+			m.PoolId = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMon
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.PoolId |= (int32(b) & 0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 3:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Pgmap", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowMon
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= (int(b) & 0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthMon
+			}
+			postIndex := iNdEx + msglen
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.Pgmap == nil {
+				m.Pgmap = make(map[int32]*Pg)
+			}
+			var mapkey int32
+			var mapvalue *Pg
+			for iNdEx < postIndex {
+				entryPreIndex := iNdEx
+				var wire uint64
+				for shift := uint(0); ; shift += 7 {
+					if shift >= 64 {
+						return ErrIntOverflowMon
+					}
+					if iNdEx >= l {
+						return io.ErrUnexpectedEOF
+					}
+					b := dAtA[iNdEx]
+					iNdEx++
+					wire |= (uint64(b) & 0x7F) << shift
+					if b < 0x80 {
+						break
+					}
+				}
+				fieldNum := int32(wire >> 3)
+				if fieldNum == 1 {
+					for shift := uint(0); ; shift += 7 {
+						if shift >= 64 {
+							return ErrIntOverflowMon
+						}
+						if iNdEx >= l {
+							return io.ErrUnexpectedEOF
+						}
+						b := dAtA[iNdEx]
+						iNdEx++
+						mapkey |= (int32(b) & 0x7F) << shift
+						if b < 0x80 {
+							break
+						}
+					}
+				} else if fieldNum == 2 {
+					var mapmsglen int
+					for shift := uint(0); ; shift += 7 {
+						if shift >= 64 {
+							return ErrIntOverflowMon
+						}
+						if iNdEx >= l {
+							return io.ErrUnexpectedEOF
+						}
+						b := dAtA[iNdEx]
+						iNdEx++
+						mapmsglen |= (int(b) & 0x7F) << shift
+						if b < 0x80 {
+							break
+						}
+					}
+					if mapmsglen < 0 {
+						return ErrInvalidLengthMon
+					}
+					postmsgIndex := iNdEx + mapmsglen
+					if mapmsglen < 0 {
+						return ErrInvalidLengthMon
+					}
+					if postmsgIndex > l {
+						return io.ErrUnexpectedEOF
+					}
+					mapvalue = &Pg{}
+					if err := mapvalue.Unmarshal(dAtA[iNdEx:postmsgIndex]); err != nil {
+						return err
+					}
+					iNdEx = postmsgIndex
+				} else {
+					iNdEx = entryPreIndex
+					skippy, err := skipMon(dAtA[iNdEx:])
+					if err != nil {
+						return err
+					}
+					if skippy < 0 {
+						return ErrInvalidLengthMon
+					}
+					if (iNdEx + skippy) > postIndex {
+						return io.ErrUnexpectedEOF
+					}
+					iNdEx += skippy
+				}
+			}
+			m.Pgmap[mapkey] = mapvalue
+			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
 			skippy, err := skipMon(dAtA[iNdEx:])
@@ -1859,25 +3410,6 @@ func (m *Pg) Unmarshal(dAtA []byte) error {
 				}
 			}
 		case 2:
-			if wireType != 0 {
-				return fmt.Errorf("proto: wrong wireType = %d for field PoolId", wireType)
-			}
-			m.PoolId = 0
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowMon
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				m.PoolId |= (int32(b) & 0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-		case 3:
 			if wireType == 0 {
 				var v int32
 				for shift := uint(0); ; shift += 7 {
@@ -2068,41 +3600,60 @@ var (
 func init() { proto.RegisterFile("mon.proto", fileDescriptorMon) }
 
 var fileDescriptorMon = []byte{
-	// 568 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0x7c, 0x53, 0xcd, 0x6e, 0x13, 0x3d,
-	0x14, 0xcd, 0xfc, 0x27, 0x37, 0xdf, 0x57, 0x46, 0xe6, 0x6f, 0xda, 0x4a, 0x69, 0x18, 0x09, 0x29,
-	0xab, 0x2c, 0xc2, 0xa6, 0x20, 0x51, 0x09, 0x48, 0x41, 0x45, 0x4d, 0x26, 0xb2, 0x5a, 0xb1, 0x8c,
-	0x26, 0xb1, 0x95, 0x0e, 0x4d, 0xc6, 0x66, 0xec, 0x80, 0x86, 0x05, 0xcf, 0xc1, 0x33, 0xf0, 0x00,
-	0x3c, 0x03, 0x4b, 0x1e, 0x01, 0x85, 0x17, 0x41, 0xb6, 0x27, 0x55, 0x48, 0x23, 0x56, 0x73, 0xef,
-	0x39, 0xf6, 0xb1, 0xe7, 0xdc, 0x63, 0x68, 0x2c, 0x58, 0xde, 0xe5, 0x05, 0x93, 0x0c, 0xf9, 0xfa,
-	0x23, 0xe2, 0x01, 0xfc, 0x7f, 0x9e, 0x96, 0x6c, 0x29, 0x31, 0xfd, 0xb0, 0xa4, 0x42, 0xa2, 0x23,
-	0x68, 0xb2, 0xc9, 0x7b, 0x3a, 0x95, 0xe3, 0x3c, 0x5d, 0xd0, 0xc8, 0x6a, 0x5b, 0x9d, 0x06, 0x06,
-	0x03, 0x0d, 0xd3, 0x05, 0x45, 0x87, 0xd0, 0xe0, 0x8c, 0xcd, 0x0d, 0x6d, 0x6b, 0xba, 0xae, 0x00,
-	0x45, 0xc6, 0x13, 0x68, 0xae, 0xe5, 0xf8, 0xbc, 0x44, 0xfb, 0x50, 0x2f, 0xa8, 0x1c, 0x4f, 0x19,
-	0x31, 0x4a, 0x1e, 0x0e, 0x0a, 0x2a, 0x5f, 0x31, 0x42, 0xd1, 0x43, 0x08, 0xf8, 0x6c, 0x53, 0xc4,
-	0xe7, 0x33, 0xad, 0x7f, 0x04, 0x2e, 0x13, 0x44, 0x44, 0x4e, 0xdb, 0xe9, 0x34, 0x7b, 0x4d, 0x73,
-	0x5f, 0xd1, 0x4d, 0x04, 0xc1, 0x9a, 0x88, 0x53, 0x70, 0x12, 0x41, 0xd0, 0x1e, 0xd8, 0x19, 0xa9,
-	0x54, 0xed, 0x8c, 0x20, 0x04, 0x6e, 0x4a, 0x48, 0x51, 0xa9, 0xe9, 0x1a, 0x3d, 0x00, 0xff, 0x13,
-	0xcd, 0x66, 0x57, 0x32, 0x72, 0xda, 0x56, 0xc7, 0xc5, 0x55, 0xa7, 0xf6, 0x2e, 0x79, 0xe4, 0xb6,
-	0xad, 0x4e, 0x1d, 0xdb, 0x4b, 0xae, 0xb5, 0xf2, 0xc8, 0x33, 0x7d, 0x96, 0xc7, 0xdf, 0x2c, 0xf0,
-	0x13, 0x41, 0x06, 0x29, 0x47, 0xf7, 0xc0, 0xa3, 0x9c, 0x4d, 0xaf, 0xf4, 0x49, 0x2e, 0x36, 0x0d,
-	0x3a, 0x01, 0x58, 0xd0, 0xc5, 0x84, 0x16, 0xe7, 0x99, 0x90, 0x91, 0xad, 0xaf, 0xda, 0xda, 0xb8,
-	0xea, 0x20, 0xe5, 0xdd, 0xc1, 0xcd, 0x82, 0xd3, 0x5c, 0x16, 0x25, 0xde, 0xd8, 0x71, 0xf0, 0x16,
-	0xee, 0x6c, 0xd1, 0x28, 0x04, 0xe7, 0x9a, 0x96, 0xd5, 0x31, 0xaa, 0x44, 0x8f, 0xc0, 0xfb, 0x98,
-	0xce, 0x97, 0xc6, 0xa0, 0x2d, 0x2b, 0x0c, 0xf3, 0xcc, 0x3e, 0xb6, 0xe2, 0xef, 0x16, 0x80, 0x82,
-	0xaa, 0x01, 0x46, 0x10, 0x5c, 0xd3, 0x12, 0x67, 0xf9, 0xac, 0x1a, 0xde, 0xba, 0x45, 0x87, 0xda,
-	0xb1, 0x1d, 0x62, 0xca, 0xbe, 0x1e, 0x04, 0x8c, 0x8f, 0x65, 0xc9, 0xa9, 0xf6, 0x6a, 0xaf, 0xb7,
-	0xbf, 0xb9, 0xc2, 0x68, 0x77, 0x13, 0x7e, 0x51, 0x72, 0x8a, 0x7d, 0xa6, 0xbf, 0xf1, 0x73, 0xf0,
-	0x0d, 0x82, 0x02, 0x70, 0x5e, 0xf4, 0xfb, 0x61, 0x4d, 0x15, 0xfd, 0xd3, 0xf3, 0xd0, 0x42, 0x3e,
-	0xd8, 0x67, 0xc3, 0xd0, 0x56, 0x40, 0x72, 0x79, 0x11, 0x3a, 0x0a, 0xb8, 0x1c, 0x85, 0x2e, 0xaa,
-	0x83, 0xdb, 0x4f, 0xde, 0x0d, 0x43, 0x2f, 0x7e, 0x0c, 0x75, 0xad, 0xfd, 0xef, 0xa4, 0xc4, 0x27,
-	0xe0, 0x8e, 0x18, 0x9b, 0xef, 0x1a, 0xf8, 0x4d, 0x7c, 0x3c, 0xac, 0x6b, 0x85, 0x89, 0xec, 0xb3,
-	0xf9, 0x05, 0x0f, 0xeb, 0x3a, 0x7e, 0x0d, 0xf6, 0x68, 0x76, 0x6b, 0xb7, 0xca, 0x9f, 0x8a, 0x71,
-	0xe5, 0x88, 0x87, 0x7d, 0xd5, 0x9e, 0x69, 0x82, 0x09, 0x32, 0xce, 0xaa, 0x08, 0x7a, 0xd8, 0x67,
-	0x82, 0x9c, 0x11, 0xd1, 0xfb, 0x02, 0xc1, 0x80, 0xe5, 0x99, 0x64, 0x05, 0x7a, 0x0a, 0x8d, 0x37,
-	0x54, 0x9a, 0xa4, 0xa3, 0xfb, 0x6b, 0xa3, 0xfe, 0x7a, 0x48, 0x07, 0x77, 0xb7, 0x61, 0x3e, 0x2f,
-	0xe3, 0x1a, 0x3a, 0x86, 0xff, 0x12, 0x41, 0x12, 0x4e, 0x8b, 0x54, 0x66, 0x2c, 0x47, 0xe8, 0xb6,
-	0xcd, 0x07, 0x3b, 0xb0, 0xb8, 0xf6, 0x32, 0xfc, 0xb1, 0x6a, 0x59, 0x3f, 0x57, 0x2d, 0xeb, 0xd7,
-	0xaa, 0x65, 0x7d, 0xfd, 0xdd, 0xaa, 0x4d, 0xcc, 0x23, 0x7e, 0xf2, 0x27, 0x00, 0x00, 0xff, 0xff,
-	0x79, 0xe5, 0x04, 0x34, 0xd8, 0x03, 0x00, 0x00,
+	// 880 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0x8c, 0x55, 0x5f, 0x8f, 0xdb, 0x44,
+	0x10, 0xbf, 0xf5, 0xdf, 0xcb, 0x84, 0x5e, 0xcd, 0x52, 0x7a, 0x6e, 0x50, 0x73, 0xc1, 0x95, 0xd0,
+	0x09, 0x41, 0x54, 0x85, 0x97, 0x16, 0x09, 0x50, 0xdb, 0x1c, 0xf4, 0xd0, 0x25, 0x8e, 0xcc, 0x55,
+	0x48, 0xbc, 0x9c, 0x9c, 0xdb, 0xc5, 0x67, 0x9a, 0x78, 0x17, 0xaf, 0x03, 0xb8, 0x1f, 0xa0, 0x12,
+	0x4f, 0xbc, 0xc2, 0x57, 0x40, 0x7c, 0x0c, 0x1e, 0xe0, 0x8d, 0x8f, 0x80, 0x8e, 0x2f, 0x82, 0x76,
+	0xd7, 0xb9, 0x38, 0xc1, 0x39, 0xfa, 0xe4, 0xd9, 0xdf, 0x8c, 0x7f, 0x3b, 0xe3, 0xf9, 0xcd, 0x18,
+	0x5a, 0x73, 0x96, 0xf5, 0x79, 0xce, 0x0a, 0x86, 0x1d, 0xf5, 0x10, 0xc1, 0x08, 0x6e, 0x9c, 0xc4,
+	0x25, 0x5b, 0x14, 0x11, 0xfd, 0x76, 0x41, 0x45, 0x81, 0x0f, 0xa0, 0xcd, 0xa6, 0xdf, 0xd0, 0xf3,
+	0xe2, 0x2c, 0x8b, 0xe7, 0xd4, 0x47, 0x3d, 0x74, 0xd8, 0x8a, 0x40, 0x43, 0xe3, 0x78, 0x4e, 0xf1,
+	0x5b, 0xd0, 0xe2, 0x8c, 0xcd, 0xb4, 0xdb, 0x50, 0xee, 0x5d, 0x09, 0x48, 0x67, 0x30, 0x85, 0xf6,
+	0x92, 0x8e, 0xcf, 0x4a, 0x7c, 0x07, 0x76, 0x73, 0x5a, 0x9c, 0x9d, 0x33, 0xa2, 0x99, 0xec, 0xc8,
+	0xcd, 0x69, 0xf1, 0x84, 0x11, 0x8a, 0xf7, 0xc1, 0xe5, 0x49, 0x9d, 0xc4, 0xe1, 0x89, 0xe2, 0x3f,
+	0x00, 0x8b, 0x09, 0x22, 0x7c, 0xb3, 0x67, 0x1e, 0xb6, 0x07, 0x6d, 0x9d, 0xaf, 0xe8, 0x87, 0x82,
+	0x44, 0xca, 0x11, 0xfc, 0x88, 0xc0, 0x0c, 0x05, 0xc1, 0x7b, 0x60, 0xa4, 0xa4, 0xa2, 0x35, 0x52,
+	0x82, 0x31, 0x58, 0x31, 0x21, 0x79, 0x45, 0xa7, 0x6c, 0x7c, 0x1b, 0x9c, 0xef, 0x69, 0x9a, 0x5c,
+	0x14, 0xbe, 0xd9, 0x43, 0x87, 0x56, 0x54, 0x9d, 0x64, 0xec, 0x05, 0x13, 0x85, 0x6f, 0xe9, 0x58,
+	0x69, 0x4b, 0xec, 0x05, 0xcb, 0xa8, 0x6f, 0x6b, 0x4c, 0xda, 0xf2, 0x8e, 0x05, 0xf7, 0x9d, 0x1e,
+	0x3a, 0xdc, 0x8d, 0x8c, 0x05, 0x57, 0x77, 0x66, 0xbe, 0xab, 0xcf, 0x69, 0x16, 0xfc, 0x8a, 0xc0,
+	0x09, 0x05, 0x19, 0xc5, 0x1c, 0xdf, 0x02, 0x9b, 0x72, 0x76, 0x7e, 0xa1, 0x32, 0xb2, 0x22, 0x7d,
+	0xc0, 0x1f, 0x03, 0xcc, 0xe9, 0x7c, 0x4a, 0xf3, 0x93, 0x54, 0x14, 0xbe, 0xa1, 0x6a, 0xea, 0xd6,
+	0x6a, 0x1a, 0xc5, 0xbc, 0x3f, 0xba, 0x0a, 0x38, 0xca, 0x8a, 0xbc, 0x8c, 0x6a, 0x6f, 0x74, 0x3e,
+	0x87, 0x9b, 0x1b, 0x6e, 0xec, 0x81, 0xf9, 0x9c, 0x96, 0x55, 0xe1, 0xd2, 0xc4, 0x6f, 0x83, 0xfd,
+	0x5d, 0x3c, 0x5b, 0xe8, 0x2f, 0xb9, 0xf1, 0xcd, 0xb4, 0xe7, 0x43, 0xe3, 0x01, 0x0a, 0x7e, 0x47,
+	0xe0, 0x85, 0x82, 0x3c, 0x61, 0xd9, 0xd7, 0x69, 0xb2, 0xec, 0xb7, 0x0f, 0xee, 0x73, 0x5a, 0x46,
+	0x69, 0x96, 0x54, 0xbd, 0x5e, 0x1e, 0xf1, 0x5d, 0x30, 0x99, 0x20, 0x4d, 0x9c, 0x12, 0xc7, 0x0f,
+	0xc0, 0x65, 0xfc, 0xac, 0x28, 0x39, 0x55, 0xdf, 0x76, 0x6f, 0x70, 0x50, 0x0b, 0x59, 0xbb, 0xa3,
+	0x1f, 0xf2, 0xd3, 0x92, 0xd3, 0xc8, 0x61, 0xea, 0x19, 0x7c, 0x04, 0x8e, 0x46, 0xb0, 0x0b, 0xe6,
+	0xa3, 0xe1, 0xd0, 0xdb, 0x91, 0xc6, 0xf0, 0xe8, 0xc4, 0x43, 0xd8, 0x01, 0xe3, 0x78, 0xec, 0x19,
+	0x12, 0x08, 0x9f, 0x9d, 0x7a, 0xa6, 0x04, 0x9e, 0x4d, 0x3c, 0x0b, 0xef, 0x82, 0x35, 0x0c, 0xbf,
+	0x1c, 0x7b, 0x76, 0xf0, 0x08, 0xf6, 0x6a, 0x37, 0xfc, 0x8f, 0xcc, 0x6e, 0x81, 0x9d, 0x66, 0x84,
+	0xfe, 0xa0, 0xca, 0xb0, 0x23, 0x7d, 0x08, 0x7e, 0x41, 0xe0, 0x4e, 0x18, 0x9b, 0x6d, 0xef, 0xdb,
+	0x7d, 0xb0, 0xa5, 0xa8, 0x45, 0xd5, 0xb2, 0xce, 0xb2, 0xb6, 0xea, 0x2d, 0xf5, 0x14, 0xba, 0x5d,
+	0x3a, 0xb0, 0xf3, 0x29, 0xc0, 0x0a, 0x6c, 0x68, 0x52, 0xb0, 0xde, 0xa4, 0xd7, 0xea, 0x8c, 0xf5,
+	0x2e, 0xfd, 0x84, 0xc0, 0x92, 0x58, 0x93, 0xbe, 0x6b, 0xe3, 0xa2, 0x6c, 0x89, 0x89, 0xf4, 0x85,
+	0xee, 0x80, 0x1d, 0x29, 0x1b, 0xdf, 0x05, 0x90, 0x93, 0xb5, 0x90, 0xaa, 0x11, 0x4a, 0xe1, 0x76,
+	0xd4, 0xe2, 0xc9, 0x58, 0x03, 0xf8, 0x3e, 0x38, 0x9c, 0xcd, 0xd2, 0xf3, 0x52, 0x09, 0x7d, 0x6f,
+	0xe0, 0x2f, 0x13, 0x19, 0xa6, 0xa2, 0xc8, 0xd3, 0xe9, 0xa2, 0xa0, 0x13, 0xe5, 0x8f, 0xaa, 0xb8,
+	0xe0, 0xa5, 0x01, 0xaf, 0xcb, 0x8c, 0x5e, 0x55, 0x38, 0x0f, 0x57, 0xca, 0x30, 0xd4, 0x15, 0xbd,
+	0x7a, 0xad, 0xd7, 0x49, 0xe3, 0xaa, 0x46, 0xb3, 0xa1, 0x46, 0x6b, 0x6b, 0x8d, 0xf6, 0xf6, 0x1a,
+	0x9d, 0x57, 0xac, 0xf1, 0xde, 0x35, 0x9a, 0x74, 0xc1, 0x3c, 0x1a, 0x9e, 0x7a, 0x46, 0xf0, 0x1e,
+	0xdc, 0xac, 0x57, 0x70, 0xbd, 0xf4, 0x82, 0x97, 0x08, 0x9c, 0x49, 0x32, 0x8a, 0xb9, 0xc0, 0x03,
+	0x70, 0x78, 0x32, 0x8f, 0xb9, 0xf0, 0xd1, 0x86, 0x9c, 0x94, 0xbf, 0x3f, 0x51, 0x4e, 0x2d, 0xa7,
+	0x2a, 0xb2, 0xf3, 0x14, 0xda, 0x35, 0xb8, 0x41, 0x50, 0xf7, 0xd6, 0x05, 0x75, 0x63, 0x8d, 0xb3,
+	0xae, 0xa8, 0xdf, 0x10, 0xd8, 0x0a, 0xdc, 0xa2, 0x75, 0xb9, 0x8a, 0xe5, 0x46, 0x4f, 0x49, 0x35,
+	0x25, 0x8e, 0x3c, 0x1e, 0x13, 0xdc, 0x07, 0x5b, 0x25, 0x53, 0xed, 0x62, 0x7f, 0xed, 0x06, 0x9d,
+	0xf4, 0x72, 0x04, 0xa4, 0xdd, 0x19, 0x02, 0xac, 0xc0, 0x86, 0x8c, 0x7b, 0xeb, 0x19, 0xc3, 0x8a,
+	0xaf, 0x9e, 0xee, 0xfb, 0x60, 0x4c, 0x92, 0xff, 0xa8, 0x7f, 0x1f, 0x5c, 0x26, 0xc8, 0x59, 0x4a,
+	0xf4, 0x48, 0xda, 0x91, 0xc3, 0x04, 0x39, 0x26, 0xe2, 0xdd, 0x77, 0xc0, 0xdb, 0xec, 0xaa, 0x5c,
+	0x16, 0x4f, 0xc3, 0x2f, 0x4e, 0xbd, 0x1d, 0x69, 0x7d, 0x15, 0x8e, 0x8f, 0x3c, 0x34, 0xf8, 0x13,
+	0x81, 0x3b, 0x62, 0x59, 0x5a, 0xb0, 0x1c, 0x3f, 0x84, 0xd6, 0x67, 0xb4, 0xd0, 0x7f, 0x2a, 0xfc,
+	0xe6, 0x32, 0x8d, 0xb5, 0x1f, 0x61, 0xe7, 0x8d, 0x4d, 0x98, 0xcf, 0xca, 0x60, 0x07, 0x7f, 0x02,
+	0xad, 0xab, 0xed, 0x83, 0xfd, 0x6d, 0x2b, 0xaf, 0x73, 0xbb, 0xc1, 0xa3, 0x09, 0x1e, 0xeb, 0x3d,
+	0x51, 0x31, 0xdc, 0xd9, 0x3a, 0x1a, 0x9d, 0xfd, 0x26, 0x97, 0xe2, 0x78, 0xec, 0xfd, 0x71, 0xd9,
+	0x45, 0x7f, 0x5d, 0x76, 0xd1, 0xdf, 0x97, 0x5d, 0xf4, 0xf3, 0x3f, 0xdd, 0x9d, 0xa9, 0xfe, 0x9f,
+	0x7f, 0xf0, 0x6f, 0x00, 0x00, 0x00, 0xff, 0xff, 0x58, 0xbe, 0x2d, 0xce, 0xe3, 0x07, 0x00, 0x00,
 }

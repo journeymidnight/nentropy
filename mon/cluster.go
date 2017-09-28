@@ -43,8 +43,8 @@ type cluster struct {
 	myAddr    string
 	peersAddr []string // raft peer URLs
 	osdMap    protos.OsdMap
-	poolMap   map[int][]*protos.Pool
-	pgMaps    map[int]map[int][]*protos.Pg
+	poolMap   protos.PoolMap
+	pgMaps    protos.PgMaps
 
 	// kvstore store key and values
 	kvStore *kvstore
