@@ -34,6 +34,7 @@ import (
 	"github.com/dgraph-io/badger/options"
 	"github.com/journeymidnight/nentropy/helper"
 	"github.com/journeymidnight/nentropy/log"
+	"github.com/journeymidnight/nentropy/consistent"
 )
 
 var (
@@ -181,6 +182,8 @@ func main() {
 	sdCh := make(chan os.Signal, 3)
 	var numShutDownSig int
 	defer close(sdCh)
+	osdMap, err := GetCurrentDataNodeMap()
+	clus.hashRing = consistent.New(&osdMap)
 	// sigint : Ctrl-C, sigquit : Ctrl-\ (backslash), sigterm : kill command.
 	signal.Notify(sdCh, os.Interrupt, syscall.SIGINT, syscall.SIGQUIT, syscall.SIGTERM)
 	for {

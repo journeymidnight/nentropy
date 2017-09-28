@@ -29,6 +29,7 @@ import (
 	"github.com/journeymidnight/nentropy/helper"
 	"github.com/journeymidnight/nentropy/protos"
 	"github.com/journeymidnight/nentropy/raftwal"
+	"github.com/journeymidnight/nentropy/consistent"
 	"google.golang.org/grpc"
 	"net"
 	"strings"
@@ -45,7 +46,7 @@ type cluster struct {
 	osdMap    protos.OsdMap
 	poolMap   protos.PoolMap
 	pgMaps    protos.PgMaps
-
+	hashRing  *consistent.Consistent
 	// kvstore store key and values
 	kvStore *kvstore
 }

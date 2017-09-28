@@ -78,6 +78,10 @@ func HandleOsdAdd(req *protos.OsdConfigRequest) error {
 	}
 	newOsdMap := clus.osdMap
 	newOsdMap.Epoch++
+	newOsdMap.MemberList = make(map[int32]*protos.Osd)
+	for k ,v := range clus.osdMap.MemberList {
+		newOsdMap.MemberList[k] = v
+	}
 	newOsdMap.MemberList[req.Osd.Id] = req.Osd
 	err := ProposeDataNodeMap(&newOsdMap)
 	if err != nil {
@@ -93,6 +97,10 @@ func HandleOsdDel(req *protos.OsdConfigRequest) error {
 
 	newOsdMap := clus.osdMap
 	newOsdMap.Epoch++
+	newOsdMap.MemberList = make(map[int32]*protos.Osd)
+	for k ,v := range clus.osdMap.MemberList {
+		newOsdMap.MemberList[k] = v
+	}
 	delete(newOsdMap.MemberList, req.Osd.Id)
 	err := ProposeDataNodeMap(&newOsdMap)
 	if err != nil {
@@ -140,6 +148,10 @@ func HandlePoolCreate(req *protos.PoolConfigRequest) error {
 	}
 	newPoolMap := clus.poolMap
 	newPoolMap.Epoch++
+	newPoolMap.Pools = make(map[int32]*protos.Pool)
+	for k ,v := range clus.poolMap.Pools {
+		newPoolMap.Pools[k] = v
+	}
 	newPoolMap.Pools[maxIndex] = &protos.Pool{maxIndex, req.Name, req.Size_, req.PgNumbers, req.Policy}
 	return nil
 }
@@ -158,6 +170,10 @@ func HandlePoolDelete(req *protos.PoolConfigRequest) error {
 	}
 	newPoolMap := clus.poolMap
 	newPoolMap.Epoch++
+	newPoolMap.Pools = make(map[int32]*protos.Pool)
+	for k ,v := range clus.poolMap.Pools {
+		newPoolMap.Pools[k] = v
+	}
 	delete(newPoolMap.Pools, key)
 	return nil
 }
@@ -166,10 +182,40 @@ func HandlePoolEdit(req *protos.PoolConfigRequest) error {
 	return nil
 }
 
-func UpdatePgMap() (*protos.PgMaps, error) {
-//	newPgMaps := protos.PgMaps{}
-//
-	return nil, nil
+func AllocatePgsTomap(poolId int32, n int) error {
+	newPgMaps := clus.pgMaps
+	newPgMaps.Pgmaps= make(map[int32]*protos.PgMap)
+	for k ,v := range clus.pgMaps.Pgmaps {
+		newPgMaps.Pgmaps[k] = v
+	}
+	if _, ok := newPgMaps.Pgmaps[poolId]; !ok {
+		newPgMaps.Pgmaps[poolId] = &protos.PgMap{}
+	}
+	targetMap := newPgMaps.Pgmaps[poolId]
+	targetMap.PoolId = poolId
+	startIndex := len(targetMap.Pgmap)
+	for i:=0; i<n; i++ {
+		id := int32(startIndex+i)
+		targetMap.Pgmap[id] = &protos.Pg{id,make([]int32, 0)}
+	}
+	err := UpdatePgMap(targetMap)
+	return err
+}
+
+func UpdatePgMap(m *protos.PgMap) error {
+	m.Epoch++
+	poolId := m.PoolId
+	for k, pg := range m.Pgmap{
+		osds, err :=clus.hashRing.GetN(fmt.Sprintf("%d.%d", poolId, pg.Id), int(clus.poolMap.Pools[poolId].Size_))
+		if err != nil {
+			return err
+		}
+		m.Pgmap[k].OsdIds = m.Pgmap[k].OsdIds[:0]
+		for index, value := range osds {
+			m.Pgmap[k].OsdIds[index] = value.Id
+		}
+	}
+	return nil
 }
 
 func runServer() {
