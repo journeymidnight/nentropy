@@ -23,6 +23,7 @@ package protos;
 service Monitor {
     rpc GetLayout (LayoutRequest) returns (LayoutReply) {}
     rpc OsdConfig(OsdConfigRequest) returns (OsdConfigReply) {}
+    rpc PoolConfig(PoolConfigRequest) returns (PoolConfigReply) {}
 
 }
 
@@ -49,12 +50,12 @@ message Osd{
 
 message OsdMap {
     uint64      epoch            = 1;
-    map<uint64, Osd>  memberList = 2;
+    map<int32, Osd>  memberList = 2;
 }
 
 message OsdConfigRequest {
     string keyRing = 1;
-    Osd id = 2;
+    Osd osd = 2;
     enum OpType {
         ADD = 0;
         DEL = 1;
@@ -71,10 +72,22 @@ message OsdConfigReply {
     int32 index = 2;
 }
 
+message PoolMap {
+    uint64      epoch            = 1;
+    map<int32, Pool>  pools = 2;
+}
+
+enum DistributePolicy {
+    HOST = 0;
+    ZONE = 1;
+}
+
 message Pool{
     int32 id = 1;
-    int32 name = 2;
+    string name = 2;
     int32 size = 3;
+    int32 pg_numbers = 4;
+    DistributePolicy policy = 5;
 }
 
 message PoolConfigRequest {
@@ -88,10 +101,7 @@ message PoolConfigRequest {
     string name = 3;
     int32 size = 4;
     int32 pg_numbers = 5;
-    enum DistributePolicy {
-            HOST = 0;
-            ZONE = 1;
-    }
+
     DistributePolicy policy = 6;
 }
 
@@ -99,8 +109,17 @@ message PoolConfigReply {
     int32 ret_code = 1;
 }
 
+message PgMaps {
+    map<int32, PgMap>  pgmaps = 1;
+}
+
+message PgMap {
+    uint64      epoch            = 1;
+    int32 pool_id = 2;
+    map<int32, Pg>  pgmap = 3;
+}
+
 message Pg{
     int32 id = 1;
-    int32 pool_id = 2;
-    repeated int32 osd_ids = 3;
+    repeated int32 osd_ids = 2;
 }
