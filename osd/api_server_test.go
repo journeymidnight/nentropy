@@ -1,30 +1,13 @@
-/*
- *
- * Copyright 2015 gRPC authors.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *
- */
-
-package store
+package osd
 
 import (
 	"net"
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
-	pb "github.com/journeymidnight/nentropy/store/protos"
+	pb "github.com/journeymidnight/nentropy/osd/protos"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
@@ -43,7 +26,7 @@ func runServer(t *testing.T, done <-chan struct{}) {
 		t.Fatalf("failed to listen: %v", err)
 	}
 	s := grpc.NewServer()
-	pb.RegisterStoreServer(s, &server{})
+	pb.RegisterStoreServer(s, &Server{})
 	reflection.Register(s)
 
 	go func() {
@@ -70,8 +53,9 @@ func TestWriteThenReadKey(t *testing.T) {
 	c := pb.NewStoreClient(conn)
 
 	l := uint64(len([]byte("hello")))
+	pgid := []byte("1.0")
 	req := &pb.WriteRequest{
-		PGID:   []byte("1.0"),
+		PGID:   pgid,
 		Oid:    []byte("hello"),
 		Value:  []byte("world"),
 		Length: l,
@@ -85,7 +69,7 @@ func TestWriteThenReadKey(t *testing.T) {
 	require.Equal(t, r.RetCode, int32(0))
 
 	readreq := &pb.ReadRequest{
-		PGID:   []byte("1.0"),
+		PGID:   pgid,
 		Oid:    []byte("hello"),
 		Length: l,
 		Offset: 0,
@@ -97,9 +81,10 @@ func TestWriteThenReadKey(t *testing.T) {
 	require.Equal(t, readret.RetCode, int32(0))
 	require.Equal(t, readret.ReadBuf, []byte("world"))
 	done <- struct{}{}
+	os.RemoveAll(string(pgid))
 }
 
-func TestReadNonExist(t *testing.T) {
+func TestReadNonExistPG(t *testing.T) {
 	done := make(chan struct{})
 	go runServer(t, done)
 
@@ -111,8 +96,51 @@ func TestReadNonExist(t *testing.T) {
 	defer conn.Close()
 	c := pb.NewStoreClient(conn)
 
+	l := uint64(len([]byte("hello")))
+	pgid := []byte("1.0")
+
 	readreq := &pb.ReadRequest{
-		PGID:   []byte("1.0"),
+		PGID:   pgid,
+		Oid:    []byte("hello"),
+		Length: l,
+		Offset: 0,
+	}
+	_, err = c.Read(context.Background(), readreq)
+	require.Contains(t, err.Error(), ErrNoSuchPG.Error())
+	done <- struct{}{}
+	os.RemoveAll(string(pgid))
+}
+
+func TestReadNonExistKey(t *testing.T) {
+	done := make(chan struct{})
+	go runServer(t, done)
+
+	// Set up a connection to the server.
+	conn, err := grpc.Dial(address, grpc.WithInsecure())
+	if err != nil {
+		t.Fatalf("did not connect: %v", err)
+	}
+	defer conn.Close()
+	c := pb.NewStoreClient(conn)
+
+	l := uint64(len([]byte("hello")))
+	pgid := []byte("1.0")
+	req := &pb.WriteRequest{
+		PGID:   pgid,
+		Oid:    []byte("hello"),
+		Value:  []byte("world"),
+		Length: l,
+		Offset: 0,
+	}
+
+	r, err := c.Write(context.Background(), req)
+	if err != nil {
+		t.Fatalf("could not write: %v\n", err)
+	}
+	require.Equal(t, r.RetCode, int32(0))
+
+	readreq := &pb.ReadRequest{
+		PGID:   pgid,
 		Oid:    []byte("maynotexist"),
 		Length: 0,
 		Offset: 0,
@@ -123,6 +151,7 @@ func TestReadNonExist(t *testing.T) {
 	//rpc error contains more string info than "no value for this key"
 	require.Contains(t, err.Error(), "no value for this key")
 	done <- struct{}{}
+	os.RemoveAll(string(pgid))
 }
 
 func TestWriteRemoveRead(t *testing.T) {
@@ -138,8 +167,9 @@ func TestWriteRemoveRead(t *testing.T) {
 	c := pb.NewStoreClient(conn)
 
 	l := uint64(len([]byte("hello")))
+	pgid := []byte("1.0")
 	req := &pb.WriteRequest{
-		PGID:   []byte("1.0"),
+		PGID:   pgid,
 		Oid:    []byte("hello"),
 		Value:  []byte("world"),
 		Length: l,
@@ -153,7 +183,7 @@ func TestWriteRemoveRead(t *testing.T) {
 	require.Equal(t, r.RetCode, int32(0))
 
 	removereq := &pb.RemoveRequest{
-		PGID: []byte("1.0"),
+		PGID: pgid,
 		Oid:  []byte("hello"),
 	}
 
@@ -165,7 +195,7 @@ func TestWriteRemoveRead(t *testing.T) {
 	}
 
 	readreq := &pb.ReadRequest{
-		PGID:   []byte("1.0"),
+		PGID:   pgid,
 		Oid:    []byte("hello"),
 		Length: l,
 		Offset: 0,
@@ -177,4 +207,5 @@ func TestWriteRemoveRead(t *testing.T) {
 	//rpc error contains more string info than "no value for this key"
 	require.Contains(t, err.Error(), "no value for this key")
 	done <- struct{}{}
+	os.RemoveAll(string(pgid))
 }
