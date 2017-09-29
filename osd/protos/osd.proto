@@ -14,7 +14,7 @@
 
 syntax = "proto3";
 
-package store;
+package osd;
 
 // The Store defines all store interfaces
 service Store {
