@@ -265,7 +265,7 @@ func BlockingStop() {
 	defer cancel()
 }
 
-func ProposeDataNodeMap(osdMap *protos.OsdMap) error {
+func ProposeOsdMap(osdMap *protos.OsdMap) error {
 	data, err := osdMap.Marshal()
 	helper.Check(err)
 	proposal := protos.Proposal{Data: data}
@@ -273,8 +273,32 @@ func ProposeDataNodeMap(osdMap *protos.OsdMap) error {
 	return nil
 }
 
-func GetCurrentDataNodeMap() (protos.OsdMap, error) {
+func GetCurrOsdMap() (protos.OsdMap, error) {
 	return clus.osdMap, nil
+}
+
+func ProposePoolMap(poolMap *protos.PoolMap) error {
+	data, err := poolMap.Marshal()
+	helper.Check(err)
+	proposal := protos.Proposal{Data: data}
+	clus.Node().ProposeAndWait(context.TODO(), &proposal)
+	return nil
+}
+
+func GetCurrPoolMap() (protos.PoolMap, error) {
+	return clus.poolMap, nil
+}
+
+func ProposePgMaps(pgMaps *protos.PgMaps) error {
+	data, err := pgMaps.Marshal()
+	helper.Check(err)
+	proposal := protos.Proposal{Data: data}
+	clus.Node().ProposeAndWait(context.TODO(), &proposal)
+	return nil
+}
+
+func GetCurrPgMaps() (protos.PgMaps, error) {
+	return clus.pgMaps, nil
 }
 
 func NotifyMemberEvent(eventType memberlist.MemberEventType, member memberlist.Member) error {

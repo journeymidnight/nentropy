@@ -172,7 +172,7 @@ func main() {
 	sdCh := make(chan os.Signal, 3)
 	var numShutDownSig int
 	defer close(sdCh)
-	osdMap, err := GetCurrentDataNodeMap()
+	osdMap, err := GetCurrOsdMap()
 	clus.hashRing = consistent.New(&osdMap)
 	// sigint : Ctrl-C, sigquit : Ctrl-\ (backslash), sigterm : kill command.
 	signal.Notify(sdCh, os.Interrupt, syscall.SIGINT, syscall.SIGQUIT, syscall.SIGTERM)
