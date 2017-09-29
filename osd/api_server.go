@@ -18,21 +18,23 @@
 
 //go:generate protoc -I protos protos/store.proto --go_out=plugins=grpc:protos
 
-package store
+package osd
 
 import (
 	"errors"
 	"os"
 
 	"github.com/dgraph-io/badger"
-	pb "github.com/journeymidnight/nentropy/store/protos"
+	pb "github.com/journeymidnight/nentropy/osd/protos"
+	"github.com/journeymidnight/nentropy/store"
 	"golang.org/x/net/context"
 )
 
-// server is used to implement store.StoreServer
-type server struct{}
+// Server is used to implement osd.StoreServer
+type Server struct{}
 
-func (s *server) Write(ctx context.Context, in *pb.WriteRequest) (*pb.WriteReply, error) {
+// Write writes a object to store
+func (s *Server) Write(ctx context.Context, in *pb.WriteRequest) (*pb.WriteReply, error) {
 	opt := badger.DefaultOptions
 	dir := string(in.GetPGID())
 
@@ -54,30 +56,20 @@ func (s *server) Write(ctx context.Context, in *pb.WriteRequest) (*pb.WriteReply
 	return &pb.WriteReply{RetCode: 0}, nil
 }
 
-func (s *server) Read(ctx context.Context, in *pb.ReadRequest) (*pb.ReadReply, error) {
-	opt := badger.DefaultOptions
+// Read reads an object from store
+func (s *Server) Read(ctx context.Context, in *pb.ReadRequest) (*pb.ReadReply, error) {
 	dir := string(in.GetPGID())
-
-	if _, err := os.Stat(dir); os.IsNotExist(err) {
-		return &pb.ReadReply{RetCode: -1}, errors.New("no such pg")
-	}
-
-	opt.Dir = dir
-	opt.ValueDir = dir
-	kv, _ := badger.NewKV(&opt)
-	defer kv.Close()
-
-	var item badger.KVItem
-	if err := kv.Get(in.GetOid(), &item); err != nil {
-		return &pb.ReadReply{RetCode: -2}, errors.New("faild to get key")
-	}
-	var val []byte
-	err := item.Value(func(v []byte) {
-		val = make([]byte, len(v))
-		copy(val, v)
-	})
+	coll, err := store.NewCollection(dir, true)
 	if err != nil {
-		return &pb.ReadReply{RetCode: -3}, errors.New("faild to copy value")
+		if err == store.ErrDirNotExists {
+			return &pb.ReadReply{RetCode: -1}, ErrNoSuchPG
+		}
+		return &pb.ReadReply{RetCode: -2}, ErrFailedOpenBadgerStore
+	}
+
+	val, err := coll.Get(in.GetOid())
+	if err != nil {
+		return &pb.ReadReply{RetCode: -3}, err
 	}
 
 	if len(val) <= 0 {
@@ -87,7 +79,8 @@ func (s *server) Read(ctx context.Context, in *pb.ReadRequest) (*pb.ReadReply, e
 	return &pb.ReadReply{RetCode: 0, ReadBuf: val}, nil
 }
 
-func (s *server) Remove(ctx context.Context, in *pb.RemoveRequest) (*pb.RemoveReply, error) {
+//Remove removes a object from store
+func (s *Server) Remove(ctx context.Context, in *pb.RemoveRequest) (*pb.RemoveReply, error) {
 	opt := badger.DefaultOptions
 	dir := string(in.GetPGID())
 

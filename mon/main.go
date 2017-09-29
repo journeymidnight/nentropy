@@ -166,14 +166,13 @@ func main() {
 	memberlist.Init(true, helper.CONFIG.MyAddr, logger.Logger)
 	memberlist.SetNotifyFunc(NotifyMemberEvent)
 
-	//runServer()
-
 	// setup shutdown os signal handler
 	sdCh := make(chan os.Signal, 3)
 	var numShutDownSig int
 	defer close(sdCh)
 	osdMap, err := GetCurrOsdMap()
 	clus.hashRing = consistent.New(&osdMap)
+	runServer()
 	// sigint : Ctrl-C, sigquit : Ctrl-\ (backslash), sigterm : kill command.
 	signal.Notify(sdCh, os.Interrupt, syscall.SIGINT, syscall.SIGQUIT, syscall.SIGTERM)
 	for {
