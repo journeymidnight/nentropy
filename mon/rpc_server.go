@@ -152,8 +152,16 @@ func HandlePoolCreate(req *protos.PoolConfigRequest) error {
 	for k ,v := range clus.poolMap.Pools {
 		newPoolMap.Pools[k] = v
 	}
-	newPoolMap.Pools[maxIndex] = &protos.Pool{maxIndex, req.Name, req.Size_, req.PgNumbers, req.Policy}
-	return nil
+	newId := maxIndex + 1
+	newPoolMap.Pools[newId] = &protos.Pool{newId, req.Name, req.Size_, req.PgNumbers, req.Policy}
+	//push pool map to raft
+
+	//
+	err := AllocatePgsTomap(newId, req.PgNumbers)
+	if err != nil {
+		helper.Logger.Print(5, "allocate new pgs failed", err)
+	}
+	return err
 }
 
 func HandlePoolDelete(req *protos.PoolConfigRequest) error {
@@ -182,7 +190,7 @@ func HandlePoolEdit(req *protos.PoolConfigRequest) error {
 	return nil
 }
 
-func AllocatePgsTomap(poolId int32, n int) error {
+func AllocatePgsTomap(poolId int32, n int32) error {
 	newPgMaps := clus.pgMaps
 	newPgMaps.Pgmaps= make(map[int32]*protos.PgMap)
 	for k ,v := range clus.pgMaps.Pgmaps {
@@ -194,11 +202,14 @@ func AllocatePgsTomap(poolId int32, n int) error {
 	targetMap := newPgMaps.Pgmaps[poolId]
 	targetMap.PoolId = poolId
 	startIndex := len(targetMap.Pgmap)
-	for i:=0; i<n; i++ {
+	for i:=0; i<int(n); i++ {
 		id := int32(startIndex+i)
 		targetMap.Pgmap[id] = &protos.Pg{id,make([]int32, 0)}
 	}
 	err := UpdatePgMap(targetMap)
+	if err != nil {
+		//save newPgMaps to raft
+	}
 	return err
 }
 
