@@ -23,6 +23,7 @@ import (
 
 	"golang.org/x/net/context"
 
+	"bytes"
 	"fmt"
 	"github.com/coreos/etcd/raft/raftpb"
 	"github.com/dgraph-io/badger"
@@ -35,6 +36,12 @@ import (
 	"net"
 	"strings"
 	"time"
+)
+
+const (
+	DATA_TYPE_OSD_MAP  uint32 = 1
+	DATA_TYPE_POOL_MAP uint32 = 2
+	DATA_TYPE_PG_MAPS  uint32 = 3
 )
 
 type cluster struct {
@@ -88,22 +95,49 @@ var (
 )
 
 func handleCommittedMsg(userData []byte) error {
-	// We derive the schema here if it's not present
-	// Since raft committed logs are serialized, we can derive
-	// schema here without any locking
 	proposal := &protos.Proposal{}
 	if err := proposal.Unmarshal(userData); err != nil {
 		helper.Logger.Fatalf(0, "Unable to unmarshal proposal: %v %q\n", err, userData)
 	}
 
-	data := string(proposal.Data)
-	if &data != nil {
-		if proposal.Type == protos.Proposal_DATA_TYPE_DATA_NODE_MAP {
-			var osdMap protos.OsdMap
-			if err := osdMap.Unmarshal(proposal.Data); err != nil {
-				helper.Check(err)
+	data := proposal.Data
+	if data != nil {
+		for idx := 0; idx < len(data); {
+			helper.AssertTruef(len(data[idx:]) >= 8,
+				"Slice left of size: %v. Expected at least 4.", len(data[idx:]))
+
+			dataType := binary.LittleEndian.Uint32(data[idx : idx+4])
+			idx += 4
+			sz := int(binary.LittleEndian.Uint32(data[idx : idx+4]))
+			idx += 4
+			if idx+sz > len(data) {
+				return helper.Errorf(
+					"Invalid query. Specified size %v overflows slice [%v,%v)\n",
+					sz, idx, len(data))
 			}
-			getCluster().osdMap = osdMap
+
+			if dataType == DATA_TYPE_OSD_MAP {
+				var osdMap protos.OsdMap
+				if err := osdMap.Unmarshal(data[idx : idx+sz]); err != nil {
+					helper.Check(err)
+				}
+				clus.osdMap = osdMap
+			} else if dataType == DATA_TYPE_POOL_MAP {
+				var poolMap protos.PoolMap
+				if err := poolMap.Unmarshal(proposal.Data); err != nil {
+					helper.Check(err)
+				}
+				clus.poolMap = poolMap
+			} else if dataType == DATA_TYPE_PG_MAPS {
+				var pgMaps protos.PgMaps
+				if err := pgMaps.Unmarshal(proposal.Data); err != nil {
+					helper.Check(err)
+				}
+				clus.pgMaps = pgMaps
+			} else {
+				return helper.Errorf("Unknown data type!")
+			}
+			idx += sz
 		}
 
 	}
@@ -265,11 +299,31 @@ func BlockingStop() {
 	defer cancel()
 }
 
+type ProposedData struct {
+	Type uint32
+	Data []byte
+}
+
+func proposeData(proposedDataArray []ProposedData) error {
+	var buf *bytes.Buffer
+	for _, val := range proposedDataArray {
+		helper.Check(binary.Write(buf, binary.LittleEndian, val.Type))
+		helper.Check(binary.Write(buf, binary.LittleEndian, uint32(len(val.Data))))
+		helper.Check2(buf.Write(val.Data))
+	}
+	if buf.Len() != 0 {
+		proposalData := make([]byte, buf.Len())
+		copy(proposalData, buf.Bytes())
+		proposal := protos.Proposal{Data: proposalData}
+		clus.Node().ProposeAndWait(context.TODO(), &proposal)
+	}
+	return nil
+}
+
 func ProposeOsdMap(osdMap *protos.OsdMap) error {
 	data, err := osdMap.Marshal()
 	helper.Check(err)
-	proposal := protos.Proposal{Data: data}
-	clus.Node().ProposeAndWait(context.TODO(), &proposal)
+	proposeData([]ProposedData{{Type: DATA_TYPE_OSD_MAP, Data: data}})
 	return nil
 }
 
@@ -280,8 +334,7 @@ func GetCurrOsdMap() (protos.OsdMap, error) {
 func ProposePoolMap(poolMap *protos.PoolMap) error {
 	data, err := poolMap.Marshal()
 	helper.Check(err)
-	proposal := protos.Proposal{Data: data}
-	clus.Node().ProposeAndWait(context.TODO(), &proposal)
+	proposeData([]ProposedData{{Type: DATA_TYPE_POOL_MAP, Data: data}})
 	return nil
 }
 
@@ -292,8 +345,7 @@ func GetCurrPoolMap() (protos.PoolMap, error) {
 func ProposePgMaps(pgMaps *protos.PgMaps) error {
 	data, err := pgMaps.Marshal()
 	helper.Check(err)
-	proposal := protos.Proposal{Data: data}
-	clus.Node().ProposeAndWait(context.TODO(), &proposal)
+	proposeData([]ProposedData{{Type: DATA_TYPE_PG_MAPS, Data: data}})
 	return nil
 }
 

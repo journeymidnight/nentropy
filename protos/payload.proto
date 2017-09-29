@@ -31,13 +31,7 @@ message RaftContext {
 
 message Proposal {
 	uint32 id         = 1;
-	enum  Type {
-		DATA_TYPE_KV_MAP          = 0;
-		DATA_TYPE_DATA_NODE_MAP   = 1;
-		DATA_TYPE_PG_MAP          = 2;
-	}
-	Type type         = 2;
-	bytes Data        = 3;
+	bytes Data        = 2;
 }
 
 service RaftNode {
