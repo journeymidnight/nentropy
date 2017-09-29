@@ -57,13 +57,11 @@ func (wb *WriteBatch) Length() int {
 }
 
 // NewCollection return a store Collection, maybe create a new one
-// if errorIfDirNotExists == true and dir not exists, raise error
-func NewCollection(dir string, errorIfDirNotExists bool) (*Collection, error) {
+// NewCollection only creates an Collection, if the dir is not exist, it will return error
+// because user should creat dir before using it
+func NewCollection(dir string) (*Collection, error) {
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
-		if errorIfDirNotExists == true {
-			return nil, ErrDirNotExists
-		}
-		os.Mkdir(dir, 0755)
+		return nil, ErrDirNotExists
 	}
 
 	opt := badger.DefaultOptions
@@ -89,6 +87,11 @@ func (coll *Collection) Get(key []byte) (value []byte, err error) {
 	}
 
 	return val, nil
+}
+
+// Delete deletes a key
+func (coll *Collection) Delete(key []byte) (err error) {
+	return coll.kv.Delete(key)
 }
 
 // Remove remove a Collection's database, this is very dangerous

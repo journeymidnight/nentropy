@@ -22,53 +22,63 @@ package osd
 
 import (
 	"errors"
+	"fmt"
 	"os"
 
-	"github.com/dgraph-io/badger"
 	pb "github.com/journeymidnight/nentropy/osd/protos"
 	"github.com/journeymidnight/nentropy/store"
 	"golang.org/x/net/context"
 )
 
-// Server is used to implement osd.StoreServer
-type Server struct{}
+// server is used to implement osd.StoreServer
+type server struct {
+	collections map[string]*store.Collection //Server holds
+}
 
 // Write writes a object to store
-func (s *Server) Write(ctx context.Context, in *pb.WriteRequest) (*pb.WriteReply, error) {
-	opt := badger.DefaultOptions
+func (s *server) Write(ctx context.Context, in *pb.WriteRequest) (*pb.WriteReply, error) {
 	dir := string(in.GetPGID())
+	var err error
 
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
-		os.Mkdir(dir, 0755)
+		return &pb.WriteReply{RetCode: -1}, ErrNoSuchPG
 	}
 
-	opt.Dir = dir
-	opt.ValueDir = dir
-	kv, _ := badger.NewKV(&opt)
-	defer kv.Close()
+	coll, err := store.NewCollection(dir)
+	if err != nil {
 
-	seterr := kv.Set(in.GetOid(), in.GetValue(), 0)
+		return &pb.WriteReply{RetCode: -2}, err
+	}
+	//(fixme) should not close
+	defer coll.Close()
 
+	seterr := coll.Put(in.GetOid(), in.GetValue())
 	if seterr != nil {
-		return &pb.WriteReply{RetCode: -1}, errors.New("faild setting key to badger")
+		return &pb.WriteReply{RetCode: -3}, errors.New("faild setting key to badger")
 	}
 
 	return &pb.WriteReply{RetCode: 0}, nil
 }
 
 // Read reads an object from store
-func (s *Server) Read(ctx context.Context, in *pb.ReadRequest) (*pb.ReadReply, error) {
+func (s *server) Read(ctx context.Context, in *pb.ReadRequest) (*pb.ReadReply, error) {
 	dir := string(in.GetPGID())
-	coll, err := store.NewCollection(dir, true)
+
+	var coll *store.Collection
+	var err error
+
+	coll, err = store.NewCollection(dir)
 	if err != nil {
 		if err == store.ErrDirNotExists {
 			return &pb.ReadReply{RetCode: -1}, ErrNoSuchPG
 		}
 		return &pb.ReadReply{RetCode: -2}, ErrFailedOpenBadgerStore
 	}
+	defer coll.Close()
 
 	val, err := coll.Get(in.GetOid())
 	if err != nil {
+		fmt.Println(err)
 		return &pb.ReadReply{RetCode: -3}, err
 	}
 
@@ -80,21 +90,63 @@ func (s *Server) Read(ctx context.Context, in *pb.ReadRequest) (*pb.ReadReply, e
 }
 
 //Remove removes a object from store
-func (s *Server) Remove(ctx context.Context, in *pb.RemoveRequest) (*pb.RemoveReply, error) {
-	opt := badger.DefaultOptions
+func (s *server) Remove(ctx context.Context, in *pb.RemoveRequest) (*pb.RemoveReply, error) {
 	dir := string(in.GetPGID())
+	var coll *store.Collection
+	var err error
 
-	if _, err := os.Stat(dir); os.IsNotExist(err) {
-		return &pb.RemoveReply{RetCode: -1}, errors.New("no such pg")
+	coll, err = store.NewCollection(dir)
+	if err != nil {
+		if err == store.ErrDirNotExists {
+			return &pb.RemoveReply{RetCode: -1}, ErrNoSuchPG
+		}
+		return &pb.RemoveReply{RetCode: -2}, ErrFailedOpenBadgerStore
 	}
+	defer coll.Close()
 
-	opt.Dir = dir
-	opt.ValueDir = dir
-	kv, _ := badger.NewKV(&opt)
-	defer kv.Close()
-	if err := kv.Delete(in.GetOid()); err != nil {
+	if err := coll.Delete(in.GetOid()); err != nil {
 		return &pb.RemoveReply{RetCode: -1}, errors.New("faild removing key to badger")
 	}
 
 	return &pb.RemoveReply{RetCode: 0}, nil
+}
+
+//CreatePG create a pg
+func (s *server) CreatePG(ctx context.Context, in *pb.CreatePgRequest) (*pb.CreatePgReply, error) {
+	dir := string(in.GetPGID())
+	_, err := os.Stat(dir)
+	if err == nil {
+		return &pb.CreatePgReply{RetCode: -1}, errors.New("pg already exists")
+	} else if os.IsNotExist(err) {
+		os.Mkdir(dir, 0755)
+		coll, err := store.NewCollection(dir)
+		if err != nil {
+			return &pb.CreatePgReply{RetCode: -2}, err
+		}
+
+		//(fixme)should not close
+		defer coll.Close()
+
+		//after create an pg, load pg to local memory
+		//collmap.collections[dir] = coll
+		return &pb.CreatePgReply{RetCode: 0}, nil
+	}
+	return &pb.CreatePgReply{RetCode: -3}, err
+}
+
+//RemovePG removes a pg
+func (s *server) RemovePG(ctx context.Context, in *pb.RemovePgRequest) (*pb.RemovePgReply, error) {
+	dir := string(in.GetPGID())
+	_, err := os.Stat(dir)
+	if err == nil {
+		coll, _ := store.NewCollection(dir)
+		coll.Close()
+		coll.Remove()
+		//delete(collmap.collections, dir)
+
+		return &pb.RemovePgReply{RetCode: 0}, nil
+	} else if os.IsNotExist(err) {
+		return &pb.RemovePgReply{RetCode: -1}, ErrNoSuchPG
+	}
+	return &pb.RemovePgReply{RetCode: -2}, err
 }

@@ -24,7 +24,7 @@ var collmap = getCollMap()
 var logger = log.New(os.Stdout, "osd::init", log.Ldate)
 
 func openMetaCollection() *store.Collection {
-	coll, err := store.NewCollection("meta", false)
+	coll, err := store.NewCollection("meta")
 	if err != nil {
 		logger.Fatal("failed to create meta collection")
 	}

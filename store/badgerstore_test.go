@@ -8,7 +8,7 @@ import (
 )
 
 func TestSimpleSetGet(t *testing.T) {
-	coll, err := NewCollection("asdf", false)
+	coll, err := NewCollection("asdf")
 	require.Equal(t, err, nil)
 
 	key := []byte("hello")
@@ -24,7 +24,7 @@ func TestSimpleSetGet(t *testing.T) {
 }
 
 func TestSimpleIterator(t *testing.T) {
-	coll, err := NewCollection("asdf", false)
+	coll, err := NewCollection("asdf")
 	require.Equal(t, err, nil)
 
 	n := 100
@@ -44,7 +44,7 @@ func TestSimpleIterator(t *testing.T) {
 }
 
 func TestIteratorSeeking(t *testing.T) {
-	coll, err := NewCollection("asdf", false)
+	coll, err := NewCollection("asdf")
 	require.Equal(t, err, nil)
 
 	n := 100
@@ -64,7 +64,7 @@ func TestIteratorSeeking(t *testing.T) {
 }
 
 func TestWriteBatch_AllPuts(t *testing.T) {
-	coll, err := NewCollection("asdf", false)
+	coll, err := NewCollection("asdf")
 	require.Equal(t, err, nil)
 
 	wb := NewWriteBatch()
@@ -88,7 +88,7 @@ func TestWriteBatch_AllPuts(t *testing.T) {
 	coll.Remove()
 }
 func TestWriteBatch_AllDeletes(t *testing.T) {
-	coll, err := NewCollection("asdf", false)
+	coll, err := NewCollection("asdf")
 	require.Equal(t, err, nil)
 
 	n := 100
@@ -115,7 +115,7 @@ func TestWriteBatch_AllDeletes(t *testing.T) {
 	coll.Remove()
 }
 func TestWriteBatch_DeleteAll(t *testing.T) {
-	coll, err := NewCollection("asdf", false)
+	coll, err := NewCollection("asdf")
 	require.Equal(t, err, nil)
 
 	wb := NewWriteBatch()
@@ -146,7 +146,7 @@ func TestWriteBatch_DeleteAll(t *testing.T) {
 }
 
 func TestWriteBatch_DeleteHalf(t *testing.T) {
-	coll, err := NewCollection("asdf", false)
+	coll, err := NewCollection("asdf")
 	require.Equal(t, err, nil)
 
 	wb := NewWriteBatch()

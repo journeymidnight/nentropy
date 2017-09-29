@@ -22,6 +22,8 @@ service Store {
   rpc Write (WriteRequest) returns (WriteReply) {}
   rpc Read (ReadRequest) returns (ReadReply) {}
   rpc Remove (RemoveRequest) returns (RemoveReply) {}
+  rpc CreatePG (CreatePgRequest) returns (CreatePgReply) {}
+  rpc RemovePG (RemovePgRequest) returns (RemovePgReply) {}
 }
 
 message WriteRequest {
@@ -55,5 +57,20 @@ message RemoveRequest {
 }
 
 message RemoveReply {
+  int32 RetCode = 1;
+}
+
+message CreatePgRequest {
+  bytes PGID = 1;    // pg to create
+}
+
+message CreatePgReply {
+  int32 RetCode = 1;
+}
+message RemovePgRequest {
+  bytes PGID = 1;    // pg to create
+}
+
+message RemovePgReply {
   int32 RetCode = 1;
 }
