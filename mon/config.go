@@ -21,8 +21,8 @@ import (
 )
 
 type Options struct {
-	WorkerPort          int
-	Join                bool
+	MonPort          int
+	JoinMon                bool
 	NumPendingProposals int
 	Tracing             float64
 	Monitors            string

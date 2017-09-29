@@ -79,11 +79,11 @@ func HandleOsdAdd(req *protos.OsdConfigRequest) error {
 	newOsdMap := clus.osdMap
 	newOsdMap.Epoch++
 	newOsdMap.MemberList = make(map[int32]*protos.Osd)
-	for k ,v := range clus.osdMap.MemberList {
+	for k, v := range clus.osdMap.MemberList {
 		newOsdMap.MemberList[k] = v
 	}
 	newOsdMap.MemberList[req.Osd.Id] = req.Osd
-	err := ProposeDataNodeMap(&newOsdMap)
+	err := ProposeOsdMap(&newOsdMap)
 	if err != nil {
 		helper.Logger.Print(5, "failed add osd:", req.Osd, err)
 	}
@@ -98,11 +98,11 @@ func HandleOsdDel(req *protos.OsdConfigRequest) error {
 	newOsdMap := clus.osdMap
 	newOsdMap.Epoch++
 	newOsdMap.MemberList = make(map[int32]*protos.Osd)
-	for k ,v := range clus.osdMap.MemberList {
+	for k, v := range clus.osdMap.MemberList {
 		newOsdMap.MemberList[k] = v
 	}
 	delete(newOsdMap.MemberList, req.Osd.Id)
-	err := ProposeDataNodeMap(&newOsdMap)
+	err := ProposeOsdMap(&newOsdMap)
 	if err != nil {
 		helper.Logger.Print(5, "failed delete osd:", req.Osd, err)
 	}
@@ -149,7 +149,7 @@ func HandlePoolCreate(req *protos.PoolConfigRequest) error {
 	newPoolMap := clus.poolMap
 	newPoolMap.Epoch++
 	newPoolMap.Pools = make(map[int32]*protos.Pool)
-	for k ,v := range clus.poolMap.Pools {
+	for k, v := range clus.poolMap.Pools {
 		newPoolMap.Pools[k] = v
 	}
 	newId := maxIndex + 1
@@ -179,7 +179,7 @@ func HandlePoolDelete(req *protos.PoolConfigRequest) error {
 	newPoolMap := clus.poolMap
 	newPoolMap.Epoch++
 	newPoolMap.Pools = make(map[int32]*protos.Pool)
-	for k ,v := range clus.poolMap.Pools {
+	for k, v := range clus.poolMap.Pools {
 		newPoolMap.Pools[k] = v
 	}
 	delete(newPoolMap.Pools, key)
@@ -192,8 +192,8 @@ func HandlePoolEdit(req *protos.PoolConfigRequest) error {
 
 func AllocatePgsTomap(poolId int32, n int32) error {
 	newPgMaps := clus.pgMaps
-	newPgMaps.Pgmaps= make(map[int32]*protos.PgMap)
-	for k ,v := range clus.pgMaps.Pgmaps {
+	newPgMaps.Pgmaps = make(map[int32]*protos.PgMap)
+	for k, v := range clus.pgMaps.Pgmaps {
 		newPgMaps.Pgmaps[k] = v
 	}
 	if _, ok := newPgMaps.Pgmaps[poolId]; !ok {
@@ -216,8 +216,8 @@ func AllocatePgsTomap(poolId int32, n int32) error {
 func UpdatePgMap(m *protos.PgMap) error {
 	m.Epoch++
 	poolId := m.PoolId
-	for k, pg := range m.Pgmap{
-		osds, err :=clus.hashRing.GetN(fmt.Sprintf("%d.%d", poolId, pg.Id), int(clus.poolMap.Pools[poolId].Size_))
+	for k, pg := range m.Pgmap {
+		osds, err := clus.hashRing.GetN(fmt.Sprintf("%d.%d", poolId, pg.Id), int(clus.poolMap.Pools[poolId].Size_))
 		if err != nil {
 			return err
 		}

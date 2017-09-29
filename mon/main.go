@@ -19,9 +19,7 @@ package main
 
 import (
 	"flag"
-	"fmt"
 	"math/rand"
-	"net"
 	"os"
 	"os/signal"
 	"runtime"
@@ -32,9 +30,10 @@ import (
 
 	"github.com/dgraph-io/badger"
 	"github.com/dgraph-io/badger/options"
+	"github.com/journeymidnight/nentropy/consistent"
 	"github.com/journeymidnight/nentropy/helper"
 	"github.com/journeymidnight/nentropy/log"
-	"github.com/journeymidnight/nentropy/consistent"
+	"github.com/journeymidnight/nentropy/memberlist"
 )
 
 var (
@@ -79,42 +78,41 @@ func setupConfigOpts() {
 
 	flag.StringVar(&helper.CONFIG.WALDir, "w", helper.DefaultOption.WALDir,
 		"Directory to store raft write-ahead logs.")
-	flag.IntVar(&helper.CONFIG.WorkerPort, "workerport", helper.DefaultOption.WorkerPort,
+	flag.IntVar(&helper.CONFIG.MonPort, "monPort", helper.DefaultOption.MonPort,
 		"Port used by mon for internal communication.")
 	flag.IntVar(&helper.CONFIG.NumPendingProposals, "pending_proposals", helper.DefaultOption.NumPendingProposals,
 		"Number of pending mutation proposals. Useful for rate limiting.")
 	flag.Float64Var(&helper.CONFIG.Tracing, "trace", helper.DefaultOption.Tracing,
 		"The ratio of queries to trace.")
-	flag.StringVar(&helper.CONFIG.Monitors, "peer", helper.DefaultOption.Monitors,
+	flag.StringVar(&helper.CONFIG.Monitors, "mons", helper.DefaultOption.Monitors,
 		"IP_ADDRESS:PORT of any healthy peer.")
 	flag.Uint64Var(&helper.CONFIG.RaftId, "idx", helper.DefaultOption.RaftId,
 		"RAFT ID that this server will use to join RAFT cluster.")
 	flag.Uint64Var(&helper.CONFIG.MaxPendingCount, "sc", helper.DefaultOption.MaxPendingCount,
 		"Max number of pending entries in wal after which snapshot is taken")
-	flag.BoolVar(&helper.CONFIG.Join, "join", false,
-		"add the node to the cluster.")
+	flag.BoolVar(&helper.CONFIG.JoinMon, "joinMon", false,
+		"add the node to the mon cluster.")
 	flag.StringVar(&helper.CONFIG.MyAddr, "my", helper.DefaultOption.MyAddr,
 		"addr:port of this server, so other mon servers can talk to this.")
-	flag.IntVar(&helper.CONFIG.HttpPort, "port", 8080, "Port to run HTTP service on.")
+	flag.IntVar(&helper.CONFIG.MemberBindPort, "memberBindPort", helper.DefaultOption.MemberBindPort,
+		"Port used by memberlist for internal communication.")
+	flag.StringVar(&helper.CONFIG.JoinMemberAddr, "joinMemberAddr", helper.DefaultOption.JoinMemberAddr,
+		"a valid member addr to join.")
 
 	flag.Parse()
 	if !flag.Parsed() {
 		logger.Fatal(0, "Unable to parse flags")
 	}
 
-	Config.WorkerPort = helper.CONFIG.WorkerPort
+	Config.MonPort = helper.CONFIG.MonPort
 	Config.NumPendingProposals = helper.CONFIG.NumPendingProposals
 	Config.Tracing = helper.CONFIG.Tracing
 	Config.Monitors = helper.CONFIG.Monitors
 	Config.MyAddr = helper.CONFIG.MyAddr
 	Config.RaftId = helper.CONFIG.RaftId
 	Config.MaxPendingCount = helper.CONFIG.MaxPendingCount
-	Config.Join = helper.CONFIG.Join
+	Config.JoinMon = helper.CONFIG.JoinMon
 
-}
-
-func httpPort() int {
-	return helper.CONFIG.HttpPort
 }
 
 func shutdownServer() {
@@ -147,11 +145,11 @@ func main() {
 	setupConfigOpts() // flag.Parse is called here.
 	f, err := os.OpenFile(helper.CONFIG.LogPath, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
 	if err != nil {
-		logger = log.New(os.Stdout, "[yig]", log.LstdFlags, helper.CONFIG.LogLevel)
+		logger = log.New(os.Stdout, "[nentropy]", log.LstdFlags, helper.CONFIG.LogLevel)
 		logger.Print(0, "Failed to open log file "+helper.CONFIG.LogPath)
 	} else {
 		defer f.Close()
-		logger = log.New(f, "[yig]", log.LstdFlags, helper.CONFIG.LogLevel)
+		logger = log.New(f, "[nentropy]", log.LstdFlags, helper.CONFIG.LogLevel)
 	}
 	helper.Logger = logger
 	Config.Logger = logger
@@ -165,16 +163,8 @@ func main() {
 
 	go StartRaftNodes(state.WALstore)
 
-	// the key-value http handler will propose updates to raft
-	addr := "0.0.0.0"
-	laddr := fmt.Sprintf("%s:%d", addr, httpPort())
-	listener, err := net.Listen("tcp", laddr)
-	serveHttpKVAPI(listener)
-
-	go func() {
-		<-state.ShutdownCh
-		listener.Close()
-	}()
+	memberlist.Init(true, helper.CONFIG.MyAddr, logger.Logger)
+	memberlist.SetNotifyFunc(NotifyMemberEvent)
 
 	//runServer()
 
@@ -182,7 +172,7 @@ func main() {
 	sdCh := make(chan os.Signal, 3)
 	var numShutDownSig int
 	defer close(sdCh)
-	osdMap, err := GetCurrentDataNodeMap()
+	osdMap, err := GetCurrOsdMap()
 	clus.hashRing = consistent.New(&osdMap)
 	// sigint : Ctrl-C, sigquit : Ctrl-\ (backslash), sigterm : kill command.
 	signal.Notify(sdCh, os.Interrupt, syscall.SIGINT, syscall.SIGQUIT, syscall.SIGTERM)
@@ -192,6 +182,7 @@ func main() {
 			if !ok {
 				return
 			}
+			os.Exit(1) // temporarily add
 			numShutDownSig++
 			logger.Println(5, "Caught Ctrl-C. Terminating now (this may take a few seconds)...")
 			if numShutDownSig == 1 {

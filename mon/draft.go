@@ -32,7 +32,6 @@ import (
 	"golang.org/x/net/context"
 	"golang.org/x/net/trace"
 
-	"encoding/gob"
 	"github.com/journeymidnight/nentropy/helper"
 	"github.com/journeymidnight/nentropy/protos"
 	"github.com/journeymidnight/nentropy/raftwal"
@@ -49,6 +48,9 @@ type peerPoolEntry struct {
 	// An owning reference to a pool for this peer (or nil if addr is sufficiently bogus).
 	poolOrNil *pool
 }
+
+type HandleCommittedMsg func(data []byte) error
+type HandleConfChange func(data []byte) error
 
 // peerPool stores the peers' addresses and our connections to them.  It has exactly one
 // entry for every peer other than ourselves.  Some of these peers might be unreachable or
@@ -179,6 +181,9 @@ type node struct {
 	wal         *raftwal.Wal
 
 	canCampaign bool
+
+	handleCommittedMsg HandleCommittedMsg
+	HandleConfChange   HandleConfChange
 }
 
 // SetRaft would set the provided raft.Node to this node.
@@ -500,37 +505,8 @@ func (n *node) processApplyCh() {
 
 		helper.AssertTrue(e.Type == raftpb.EntryNormal)
 
-		// The following effort is only to apply schema in a blocking fashion.
-		// Once we have a scheduler, this should go away.
-		// TODO: Move the following to scheduler.
-
-		// We derive the schema here if it's not present
-		// Since raft committed logs are serialized, we can derive
-		// schema here without any locking
-		proposal := &protos.Proposal{}
-		if err := proposal.Unmarshal(e.Data); err != nil {
-			helper.Logger.Fatalf(0, "Unable to unmarshal proposal: %v %q\n", err, e.Data)
-		}
-
-		data := string(proposal.Data)
-		if &data != nil {
-			if proposal.Type == protos.Proposal_DATA_TYPE_KV_MAP {
-				var dataKv kv
-				dec := gob.NewDecoder(bytes.NewBufferString(data))
-				if err := dec.Decode(&dataKv); err != nil {
-					helper.Logger.Fatalf(0, "raftexample: could not decode message (%v)", err)
-				}
-				getCluster().getKvStore().Store(dataKv.Key, dataKv.Val)
-				helper.Logger.Println(10, "key is ", dataKv.Key, "val is ", dataKv.Val)
-				n.props.Done(proposal.Id, nil)
-			} else if proposal.Type == protos.Proposal_DATA_TYPE_DATA_NODE_MAP {
-				var osdMap protos.OsdMap
-				if err := osdMap.Unmarshal(proposal.Data); err != nil {
-					helper.Check(err)
-				}
-				getCluster().osdMap = osdMap
-			}
-
+		if handleCommittedMsg != nil {
+			handleCommittedMsg(e.Data)
 		}
 	}
 }
@@ -808,7 +784,7 @@ func (n *node) InitAndStartNode(wal *raftwal.Wal) {
 
 	} else {
 		helper.Logger.Printf(10, "New Node for cluster")
-		if Config.Join {
+		if Config.JoinMon {
 			n.joinPeers()
 			rpeers = nil
 		}
@@ -831,89 +807,4 @@ func (n *node) AmLeader() bool {
 	}
 	r := n.Raft()
 	return r.Status().Lead == r.Status().ID
-}
-
-var (
-	errNoNode = fmt.Errorf("No node has been set up yet")
-)
-
-func applyMessage(ctx context.Context, msg raftpb.Message) error {
-	var rc protos.RaftContext
-	helper.Check(rc.Unmarshal(msg.Context))
-	node := getCluster().Node()
-	if node == nil {
-		// Maybe we went down, went back up, reconnected, and got an RPC
-		// message before we set up Raft?
-		return errNoNode
-	}
-	node.Connect(msg.From, rc.Addr)
-
-	c := make(chan error, 1)
-	go func() { c <- node.Step(ctx, msg) }()
-
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case err := <-c:
-		return err
-	}
-}
-
-func (w *grpcRaftNode) RaftMessage(ctx context.Context, query *protos.Payload) (*protos.Payload, error) {
-	if ctx.Err() != nil {
-		return &protos.Payload{}, ctx.Err()
-	}
-
-	for idx := 0; idx < len(query.Data); {
-		helper.AssertTruef(len(query.Data[idx:]) >= 4,
-			"Slice left of size: %v. Expected at least 4.", len(query.Data[idx:]))
-
-		sz := int(binary.LittleEndian.Uint32(query.Data[idx : idx+4]))
-		idx += 4
-		msg := raftpb.Message{}
-		if idx+sz > len(query.Data) {
-			return &protos.Payload{}, helper.Errorf(
-				"Invalid query. Specified size %v overflows slice [%v,%v)\n",
-				sz, idx, len(query.Data))
-		}
-		if err := msg.Unmarshal(query.Data[idx : idx+sz]); err != nil {
-			helper.Check(err)
-		}
-		if msg.Type != raftpb.MsgHeartbeat && msg.Type != raftpb.MsgHeartbeatResp {
-			helper.Logger.Printf(10, "RECEIVED: %v %v-->%v\n", msg.Type, msg.From, msg.To)
-		}
-		if err := applyMessage(ctx, msg); err != nil {
-			return &protos.Payload{}, err
-		}
-		idx += sz
-	}
-	// fmt.Printf("Got %d messages\n", count)
-	return &protos.Payload{}, nil
-}
-
-func (w *grpcRaftNode) JoinCluster(ctx context.Context, rc *protos.RaftContext) (*protos.Payload, error) {
-	if ctx.Err() != nil {
-		return &protos.Payload{}, ctx.Err()
-	}
-
-	// TODO:
-	// Check the node if it is exist
-
-	node := getCluster().Node()
-	if node == nil {
-		return &protos.Payload{}, nil
-	}
-	helper.Logger.Println(10, "JoinCluster: id:", rc.Id, "Addr:", rc.Addr)
-	node.Connect(rc.Id, rc.Addr)
-	helper.Logger.Println(10, "after connection")
-
-	c := make(chan error, 1)
-	go func() { c <- node.AddToCluster(ctx, rc.Id) }()
-
-	select {
-	case <-ctx.Done():
-		return &protos.Payload{}, ctx.Err()
-	case err := <-c:
-		return &protos.Payload{}, err
-	}
 }
