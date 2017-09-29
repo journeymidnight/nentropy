@@ -2,13 +2,12 @@ package memberlist
 
 import (
 	"encoding/json"
-	"fmt"
 	"github.com/hashicorp/memberlist"
 	"github.com/journeymidnight/nentropy/helper"
 	"github.com/pborman/uuid"
+	"log"
 	"net"
 	"os"
-	"strings"
 )
 
 const (
@@ -78,17 +77,25 @@ func (m *MemberDelegate) MergeRemoteState(s []byte, join bool) {
 	m.remoteState = s
 }
 
-func recvChanEvent() {
+func recvChanEvent(myName string) {
 	for {
 		select {
 		case e := <-eventCh:
 			if e.Event == memberlist.NodeJoin {
+				if myName == e.Node.Name {
+					continue
+				}
 				member := Member{Name: e.Node.Name, Meta: e.Node.Meta}
-				notifyMemberEvent(MemberJoin, member)
-				//callback
+				if notifyMemberEvent != nil {
+					notifyMemberEvent(MemberJoin, member)
+				}
+				helper.Logger.Println(0, "Node:", e.Node.Name, " Join!")
 			} else if e.Event == memberlist.NodeLeave {
 				member := Member{Name: e.Node.Name, Meta: e.Node.Meta}
-				notifyMemberEvent(MemberLeave, member)
+				if notifyMemberEvent != nil {
+					notifyMemberEvent(MemberLeave, member)
+				}
+				helper.Logger.Println(0, "Node:", e.Node.Name, " Leave!")
 			} else {
 				helper.Logger.Println(0, "The member event is not handled! event:", e.Event)
 			}
@@ -96,11 +103,13 @@ func recvChanEvent() {
 	}
 }
 
-func Init(isMon bool, myAddr string) {
+func Init(isMon bool, myAddr string, logger *log.Logger) {
 	c := memberlist.DefaultLocalConfig()
 	hostname, _ := os.Hostname()
 	c.Name = hostname + "-" + uuid.NewUUID().String()
+	logger.Println("Memberlist config name:", c.Name)
 	c.BindPort = 0 //helper.CONFIG.MemberBindPort
+	c.Logger = logger
 	if isMon {
 		eventCh = make(chan memberlist.NodeEvent, MEMBER_LIST_CHAN_EVENT_NUM)
 		c.Events = &memberlist.ChannelEventDelegate{Ch: eventCh}
@@ -119,25 +128,6 @@ func Init(isMon bool, myAddr string) {
 		if err != nil {
 			panic("Failed to join cluster: " + err.Error())
 		}
-	} else {
-		mons := strings.Split(helper.CONFIG.Monitors, ",")
-		if len(mons) > 0 {
-			var member []string
-			for _, mon := range mons {
-				addrPort := strings.Split(mon, ":")
-				monAddr := addrPort[0]
-				if monAddr == myAddr {
-					continue
-				}
-				member = append(member, fmt.Sprint("%s:%d", monAddr, helper.CONFIG.MemberBindPort))
-			}
-			_, err := list.Join(member)
-			if err != nil {
-				panic("Failed to join cluster: " + err.Error())
-			}
-		} else {
-			panic("Failed to get monitors!")
-		}
 	}
 
 	// Ask for members of the cluster
@@ -146,7 +136,7 @@ func Init(isMon bool, myAddr string) {
 	}
 
 	if isMon {
-		go recvChanEvent()
+		go recvChanEvent(c.Name)
 	}
 }
 

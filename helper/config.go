@@ -61,7 +61,6 @@ type Options struct {
 	MyAddr              string
 	RaftId              uint64
 	MaxPendingCount     uint64
-	HttpPort            int
 	MemberBindPort      int
 	JoinMemberAddr      string
 }
@@ -81,7 +80,6 @@ var DefaultOption = Options{
 	MyAddr:              "",
 	RaftId:              1,
 	MaxPendingCount:     1000,
-	HttpPort:            8080,
 	MemberBindPort:      7946,
 	JoinMemberAddr:      "",
 }
