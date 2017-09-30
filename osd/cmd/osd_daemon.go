@@ -26,7 +26,7 @@ func runRpcServer(done <-chan os.Signal) {
 		logger.Fatalf("failed to listen: %v", err)
 	}
 	s := grpc.NewServer()
-	pb.RegisterStoreServer(s, &osd.Server{})
+	pb.RegisterStoreServer(s, osd.NewServer())
 	reflection.Register(s)
 
 	go func() {

@@ -26,7 +26,7 @@ func runServer(t *testing.T, done <-chan struct{}) {
 		t.Fatalf("failed to listen: %v", err)
 	}
 	s := grpc.NewServer()
-	pb.RegisterStoreServer(s, &server{})
+	pb.RegisterStoreServer(s, NewServer())
 	reflection.Register(s)
 
 	go func() {
