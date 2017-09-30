@@ -36,6 +36,7 @@ type Server struct {
 	collections map[string]*store.Collection //Server holds
 }
 
+// NewServer creates a Server
 func NewServer() *Server {
 	return &Server{collections: make(map[string]*store.Collection)}
 }
@@ -131,18 +132,17 @@ func (s *Server) CreatePG(ctx context.Context, in *pb.CreatePgRequest) (*pb.Crea
 //RemovePG removes a pg
 func (s *Server) RemovePG(ctx context.Context, in *pb.RemovePgRequest) (*pb.RemovePgReply, error) {
 	dir := string(in.GetPGID())
-	_, err := os.Stat(dir)
-	if err == nil {
-		coll, _ := store.NewCollection(dir)
-		coll.Close()
-		s.rwlock.Lock()
-		coll.Remove()
-		delete(collmap.collections, dir)
-		s.rwlock.Unlock()
 
-		return &pb.RemovePgReply{RetCode: 0}, nil
-	} else if os.IsNotExist(err) {
+	// this pg should be cached, otherwise return error
+	coll, ok := s.collections[dir]
+	if !ok {
 		return nil, ErrNoSuchPG
 	}
-	return nil, err
+
+	s.rwlock.Lock()
+	coll.Remove()
+	delete(s.collections, dir)
+	s.rwlock.Unlock()
+
+	return &pb.RemovePgReply{RetCode: 0}, nil
 }
