@@ -85,7 +85,7 @@ func TestCreateExistingPG(t *testing.T) {
 	}
 
 	_, err = c.CreatePG(context.Background(), req)
-	require.Contains(t, err.Error(), "pg already exists")
+	require.Contains(t, err.Error(), ErrPGAlreadyExists.Error())
 
 	done <- struct{}{}
 	os.RemoveAll(string(pgid))
@@ -217,7 +217,7 @@ func TestReadNonExistKey(t *testing.T) {
 	require.NotEqual(t, err, nil)
 
 	//rpc error contains more string info than "no value for this key"
-	require.Contains(t, err.Error(), "no value for this key")
+	require.Contains(t, err.Error(), ErrNoValueForKey.Error())
 	done <- struct{}{}
 	os.RemoveAll(string(pgid))
 }
@@ -280,7 +280,7 @@ func TestWriteRemoveRead(t *testing.T) {
 	require.NotEqual(t, err, nil)
 
 	//rpc error contains more string info than "no value for this key"
-	require.Contains(t, err.Error(), "no value for this key")
+	require.Contains(t, err.Error(), ErrNoValueForKey.Error())
 	done <- struct{}{}
 	os.RemoveAll(string(pgid))
 }

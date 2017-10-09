@@ -21,7 +21,6 @@
 package osd
 
 import (
-	"errors"
 	"os"
 	"sync"
 
@@ -56,7 +55,7 @@ func (s *Server) Write(ctx context.Context, in *pb.WriteRequest) (*pb.WriteReply
 
 	seterr := coll.Put(in.GetOid(), in.GetValue())
 	if seterr != nil {
-		return nil, errors.New("faild setting key to badger")
+		return nil, ErrFailedSettingKey
 	}
 
 	return &pb.WriteReply{RetCode: 0}, nil
@@ -81,7 +80,7 @@ func (s *Server) Read(ctx context.Context, in *pb.ReadRequest) (*pb.ReadReply, e
 	}
 
 	if len(val) <= 0 {
-		return nil, errors.New("no value for this key")
+		return nil, ErrNoValueForKey
 	}
 
 	return &pb.ReadReply{RetCode: 0, ReadBuf: val}, nil
@@ -100,7 +99,7 @@ func (s *Server) Remove(ctx context.Context, in *pb.RemoveRequest) (*pb.RemoveRe
 	}
 
 	if err := coll.Delete(in.GetOid()); err != nil {
-		return nil, errors.New("faild removing key to badger")
+		return nil, ErrFailedRemovingKey
 	}
 
 	return &pb.RemoveReply{RetCode: 0}, nil
@@ -111,7 +110,7 @@ func (s *Server) CreatePG(ctx context.Context, in *pb.CreatePgRequest) (*pb.Crea
 	dir := string(in.GetPGID())
 	_, err := os.Stat(dir)
 	if err == nil {
-		return nil, errors.New("pg already exists")
+		return nil, ErrPGAlreadyExists
 	} else if os.IsNotExist(err) {
 		os.Mkdir(dir, 0755)
 		coll, err := store.NewCollection(dir)
