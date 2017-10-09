@@ -39,9 +39,9 @@ import (
 )
 
 const (
-	DATA_TYPE_OSD_MAP uint32 = 1
-	DATA_TYPE_POOL_MAP
-	DATA_TYPE_PG_MAPS
+	DATA_TYPE_OSD_MAP  uint32 = 1
+	DATA_TYPE_POOL_MAP uint32 = 2
+	DATA_TYPE_PG_MAPS  uint32 = 3
 )
 
 type cluster struct {
@@ -112,7 +112,7 @@ func handleCommittedMsg(data []byte) error {
 				"Invalid query. Specified size %v overflows slice [%v,%v)\n",
 				sz, idx, len(data))
 		}
-
+		helper.Logger.Println(5, "Committed msg type :", dataType)
 		if dataType == DATA_TYPE_OSD_MAP {
 			var osdMap protos.OsdMap
 			if err := osdMap.Unmarshal(data[idx : idx+sz]); err != nil {
@@ -127,13 +127,13 @@ func handleCommittedMsg(data []byte) error {
 			}
 		} else if dataType == DATA_TYPE_POOL_MAP {
 			var poolMap protos.PoolMap
-			if err := poolMap.Unmarshal(data); err != nil {
+			if err := poolMap.Unmarshal(data[idx : idx+sz]); err != nil {
 				helper.Check(err)
 			}
 			clus.poolMap = poolMap
 		} else if dataType == DATA_TYPE_PG_MAPS {
 			var pgMaps protos.PgMaps
-			if err := pgMaps.Unmarshal(data); err != nil {
+			if err := pgMaps.Unmarshal(data[idx : idx+sz]); err != nil {
 				helper.Check(err)
 			}
 			clus.pgMaps = pgMaps
