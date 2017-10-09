@@ -136,7 +136,6 @@ func HandlePoolCreate(req *protos.PoolConfigRequest) error {
 	if req.Size_ < 1 || req.Size_ > 3 {
 		return errors.New(fmt.Sprintf("pool size range error, should be 1-3"))
 	}
-
 	var maxIndex int32 = 0
 	for k, pool := range clus.poolMap.Pools {
 		if pool.Name == req.Name {
@@ -152,8 +151,18 @@ func HandlePoolCreate(req *protos.PoolConfigRequest) error {
 	for k, v := range clus.poolMap.Pools {
 		newPoolMap.Pools[k] = v
 	}
-	newPoolMap.Pools[maxIndex] = &protos.Pool{maxIndex, req.Name, req.Size_, req.PgNumbers, req.Policy}
-	return nil
+	newId := maxIndex + 1
+	newPoolMap.Pools[newId] = &protos.Pool{newId, req.Name, req.Size_, req.PgNumbers, req.Policy}
+	err := ProposePoolMap(&newPoolMap)
+	if err != nil {
+		helper.Logger.Print(5, "propose pool map failed", err)
+		return err
+	}
+	err = AllocatePgsTomap(newId, req.PgNumbers)
+	if err != nil {
+		helper.Logger.Print(5, "allocate new pgs failed", err)
+	}
+	return err
 }
 
 func HandlePoolDelete(req *protos.PoolConfigRequest) error {
@@ -175,6 +184,11 @@ func HandlePoolDelete(req *protos.PoolConfigRequest) error {
 		newPoolMap.Pools[k] = v
 	}
 	delete(newPoolMap.Pools, key)
+	err := ProposePoolMap(&newPoolMap)
+	if err != nil {
+		helper.Logger.Print(5, "propose pool map failed", err)
+		return err
+	}
 	return nil
 }
 
@@ -182,7 +196,7 @@ func HandlePoolEdit(req *protos.PoolConfigRequest) error {
 	return nil
 }
 
-func AllocatePgsTomap(poolId int32, n int) error {
+func AllocatePgsTomap(poolId int32, n int32) error {
 	newPgMaps := clus.pgMaps
 	newPgMaps.Pgmaps = make(map[int32]*protos.PgMap)
 	for k, v := range clus.pgMaps.Pgmaps {
@@ -194,11 +208,19 @@ func AllocatePgsTomap(poolId int32, n int) error {
 	targetMap := newPgMaps.Pgmaps[poolId]
 	targetMap.PoolId = poolId
 	startIndex := len(targetMap.Pgmap)
-	for i := 0; i < n; i++ {
+	for i := 0; i < int(n); i++ {
 		id := int32(startIndex + i)
 		targetMap.Pgmap[id] = &protos.Pg{id, make([]int32, 0)}
 	}
 	err := UpdatePgMap(targetMap)
+	if err != nil {
+		helper.Logger.Print(5, "update pg map failed", err)
+		return err
+	}
+	err = ProposePgMaps(&newPgMaps)
+	if err != nil {
+		helper.Logger.Print(5, "propose pg map failed", err)
+	}
 	return err
 }
 

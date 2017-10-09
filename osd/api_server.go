@@ -21,36 +21,41 @@
 package osd
 
 import (
-	"errors"
 	"os"
+	"sync"
 
-	"github.com/dgraph-io/badger"
 	pb "github.com/journeymidnight/nentropy/osd/protos"
 	"github.com/journeymidnight/nentropy/store"
 	"golang.org/x/net/context"
 )
 
 // Server is used to implement osd.StoreServer
-type Server struct{}
+type Server struct {
+	rwlock      sync.RWMutex
+	collections map[string]*store.Collection //Server holds
+}
+
+// NewServer creates a Server
+func NewServer() *Server {
+	return &Server{collections: make(map[string]*store.Collection)}
+}
 
 // Write writes a object to store
 func (s *Server) Write(ctx context.Context, in *pb.WriteRequest) (*pb.WriteReply, error) {
-	opt := badger.DefaultOptions
 	dir := string(in.GetPGID())
 
-	if _, err := os.Stat(dir); os.IsNotExist(err) {
-		os.Mkdir(dir, 0755)
+	s.rwlock.RLock()
+	defer s.rwlock.RUnlock()
+
+	// this pg should be cached, otherwise return error
+	coll, ok := s.collections[dir]
+	if !ok {
+		return nil, ErrNoSuchPG
 	}
 
-	opt.Dir = dir
-	opt.ValueDir = dir
-	kv, _ := badger.NewKV(&opt)
-	defer kv.Close()
-
-	seterr := kv.Set(in.GetOid(), in.GetValue(), 0)
-
+	seterr := coll.Put(in.GetOid(), in.GetValue())
 	if seterr != nil {
-		return &pb.WriteReply{RetCode: -1}, errors.New("faild setting key to badger")
+		return nil, ErrFailedSettingKey
 	}
 
 	return &pb.WriteReply{RetCode: 0}, nil
@@ -59,21 +64,23 @@ func (s *Server) Write(ctx context.Context, in *pb.WriteRequest) (*pb.WriteReply
 // Read reads an object from store
 func (s *Server) Read(ctx context.Context, in *pb.ReadRequest) (*pb.ReadReply, error) {
 	dir := string(in.GetPGID())
-	coll, err := store.NewCollection(dir, true)
-	if err != nil {
-		if err == store.ErrDirNotExists {
-			return &pb.ReadReply{RetCode: -1}, ErrNoSuchPG
-		}
-		return &pb.ReadReply{RetCode: -2}, ErrFailedOpenBadgerStore
+
+	s.rwlock.RLock()
+	defer s.rwlock.RUnlock()
+
+	// this pg should be cached, otherwise return error
+	coll, ok := s.collections[dir]
+	if !ok {
+		return nil, ErrNoSuchPG
 	}
 
 	val, err := coll.Get(in.GetOid())
 	if err != nil {
-		return &pb.ReadReply{RetCode: -3}, err
+		return nil, err
 	}
 
 	if len(val) <= 0 {
-		return &pb.ReadReply{RetCode: -4}, errors.New("no value for this key")
+		return nil, ErrNoValueForKey
 	}
 
 	return &pb.ReadReply{RetCode: 0, ReadBuf: val}, nil
@@ -81,20 +88,60 @@ func (s *Server) Read(ctx context.Context, in *pb.ReadRequest) (*pb.ReadReply, e
 
 //Remove removes a object from store
 func (s *Server) Remove(ctx context.Context, in *pb.RemoveRequest) (*pb.RemoveReply, error) {
-	opt := badger.DefaultOptions
 	dir := string(in.GetPGID())
+	s.rwlock.RLock()
+	defer s.rwlock.RUnlock()
 
-	if _, err := os.Stat(dir); os.IsNotExist(err) {
-		return &pb.RemoveReply{RetCode: -1}, errors.New("no such pg")
+	// this pg should be cached, otherwise return error
+	coll, ok := s.collections[dir]
+	if !ok {
+		return nil, ErrNoSuchPG
 	}
 
-	opt.Dir = dir
-	opt.ValueDir = dir
-	kv, _ := badger.NewKV(&opt)
-	defer kv.Close()
-	if err := kv.Delete(in.GetOid()); err != nil {
-		return &pb.RemoveReply{RetCode: -1}, errors.New("faild removing key to badger")
+	if err := coll.Delete(in.GetOid()); err != nil {
+		return nil, ErrFailedRemovingKey
 	}
 
 	return &pb.RemoveReply{RetCode: 0}, nil
+}
+
+//CreatePG create a pg
+func (s *Server) CreatePG(ctx context.Context, in *pb.CreatePgRequest) (*pb.CreatePgReply, error) {
+	dir := string(in.GetPGID())
+	_, err := os.Stat(dir)
+	if err == nil {
+		return nil, ErrPGAlreadyExists
+	} else if os.IsNotExist(err) {
+		os.Mkdir(dir, 0755)
+		coll, err := store.NewCollection(dir)
+		if err != nil {
+			return nil, err
+		}
+
+		//after create an pg, load pg to local memory
+		s.rwlock.Lock()
+		s.collections[dir] = coll
+		s.rwlock.Unlock()
+
+		return &pb.CreatePgReply{RetCode: 0}, nil
+	}
+	return nil, err
+}
+
+//RemovePG removes a pg
+func (s *Server) RemovePG(ctx context.Context, in *pb.RemovePgRequest) (*pb.RemovePgReply, error) {
+	dir := string(in.GetPGID())
+
+	// this pg should be cached, otherwise return error
+	coll, ok := s.collections[dir]
+	if !ok {
+		return nil, ErrNoSuchPG
+	}
+
+	s.rwlock.Lock()
+	coll.Remove()
+	delete(s.collections, dir)
+	s.rwlock.Unlock()
+
+	return &pb.RemovePgReply{RetCode: 0}, nil
 }

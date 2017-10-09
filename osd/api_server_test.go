@@ -26,7 +26,7 @@ func runServer(t *testing.T, done <-chan struct{}) {
 		t.Fatalf("failed to listen: %v", err)
 	}
 	s := grpc.NewServer()
-	pb.RegisterStoreServer(s, &Server{})
+	pb.RegisterStoreServer(s, NewServer())
 	reflection.Register(s)
 
 	go func() {
@@ -38,6 +38,57 @@ func runServer(t *testing.T, done <-chan struct{}) {
 	}()
 
 	s.Serve(lis)
+}
+func TestCreateNonExistPG(t *testing.T) {
+	done := make(chan struct{})
+	go runServer(t, done)
+
+	// Set up a connection to the server.
+	conn, err := grpc.Dial(address, grpc.WithInsecure())
+	if err != nil {
+		t.Fatalf("did not connect: %v", err)
+	}
+	defer conn.Close()
+	c := pb.NewStoreClient(conn)
+
+	pgid := []byte("asdf")
+
+	//remove if exists
+	os.RemoveAll(string(pgid))
+	req := &pb.CreatePgRequest{
+		PGID: pgid,
+	}
+
+	_, err = c.CreatePG(context.Background(), req)
+	require.Equal(t, err, nil)
+
+	done <- struct{}{}
+	os.RemoveAll(string(pgid))
+}
+
+func TestCreateExistingPG(t *testing.T) {
+	done := make(chan struct{})
+	go runServer(t, done)
+
+	// Set up a connection to the server.
+	conn, err := grpc.Dial(address, grpc.WithInsecure())
+	if err != nil {
+		t.Fatalf("did not connect: %v", err)
+	}
+	defer conn.Close()
+	c := pb.NewStoreClient(conn)
+
+	pgid := []byte("asdf")
+	os.Mkdir(string(pgid), 0755)
+	req := &pb.CreatePgRequest{
+		PGID: pgid,
+	}
+
+	_, err = c.CreatePG(context.Background(), req)
+	require.Contains(t, err.Error(), ErrPGAlreadyExists.Error())
+
+	done <- struct{}{}
+	os.RemoveAll(string(pgid))
 }
 
 func TestWriteThenReadKey(t *testing.T) {
@@ -54,6 +105,14 @@ func TestWriteThenReadKey(t *testing.T) {
 
 	l := uint64(len([]byte("hello")))
 	pgid := []byte("1.0")
+	os.RemoveAll(string(pgid))
+	creq := &pb.CreatePgRequest{
+		PGID: pgid,
+	}
+
+	_, err = c.CreatePG(context.Background(), creq)
+	require.Equal(t, err, nil)
+
 	req := &pb.WriteRequest{
 		PGID:   pgid,
 		Oid:    []byte("hello"),
@@ -125,6 +184,15 @@ func TestReadNonExistKey(t *testing.T) {
 
 	l := uint64(len([]byte("hello")))
 	pgid := []byte("1.0")
+
+	os.RemoveAll(string(pgid))
+	creq := &pb.CreatePgRequest{
+		PGID: pgid,
+	}
+
+	_, err = c.CreatePG(context.Background(), creq)
+	require.Equal(t, err, nil)
+
 	req := &pb.WriteRequest{
 		PGID:   pgid,
 		Oid:    []byte("hello"),
@@ -149,7 +217,7 @@ func TestReadNonExistKey(t *testing.T) {
 	require.NotEqual(t, err, nil)
 
 	//rpc error contains more string info than "no value for this key"
-	require.Contains(t, err.Error(), "no value for this key")
+	require.Contains(t, err.Error(), ErrNoValueForKey.Error())
 	done <- struct{}{}
 	os.RemoveAll(string(pgid))
 }
@@ -168,6 +236,13 @@ func TestWriteRemoveRead(t *testing.T) {
 
 	l := uint64(len([]byte("hello")))
 	pgid := []byte("1.0")
+	os.RemoveAll(string(pgid))
+	creq := &pb.CreatePgRequest{
+		PGID: pgid,
+	}
+
+	_, err = c.CreatePG(context.Background(), creq)
+	require.Equal(t, err, nil)
 	req := &pb.WriteRequest{
 		PGID:   pgid,
 		Oid:    []byte("hello"),
@@ -205,7 +280,7 @@ func TestWriteRemoveRead(t *testing.T) {
 	require.NotEqual(t, err, nil)
 
 	//rpc error contains more string info than "no value for this key"
-	require.Contains(t, err.Error(), "no value for this key")
+	require.Contains(t, err.Error(), ErrNoValueForKey.Error())
 	done <- struct{}{}
 	os.RemoveAll(string(pgid))
 }
