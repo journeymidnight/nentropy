@@ -6,7 +6,6 @@ import (
 	"github.com/journeymidnight/nentropy/helper"
 	"github.com/pborman/uuid"
 	"log"
-	"net"
 	"os"
 )
 
@@ -23,10 +22,11 @@ const (
 )
 
 type Member struct {
-	Name string
-	Addr net.IP
-	Port uint16
-	Meta []byte // Metadata from the delegate for this node.
+	IsMon bool
+	Name  string
+	Addr  string
+	Port  uint16
+	ID    uint64
 }
 
 type NotifyMemberEvent func(MemberEventType, Member) error
@@ -35,14 +35,8 @@ var notifyMemberEvent NotifyMemberEvent
 var list *memberlist.Memberlist
 var eventCh chan memberlist.NodeEvent
 
-type Meta struct {
-	IsMon bool //osd, mon
-	Ip    string
-	Port  int
-}
-
 type MemberDelegate struct {
-	meta        Meta
+	meta        []byte
 	msgs        [][]byte
 	broadcasts  [][]byte
 	state       []byte
@@ -50,11 +44,7 @@ type MemberDelegate struct {
 }
 
 func (m *MemberDelegate) NodeMeta(limit int) []byte {
-	b, err := json.Marshal(m.meta)
-	if err != nil {
-		helper.Logger.Println(0, "Failed to encode meta data!")
-	}
-	return b
+	return m.meta
 }
 
 func (m *MemberDelegate) NotifyMsg(msg []byte) {
@@ -85,17 +75,23 @@ func recvChanEvent(myName string) {
 				if myName == e.Node.Name {
 					continue
 				}
-				member := Member{Name: e.Node.Name, Meta: e.Node.Meta}
+				member := Member{}
+				if err := json.Unmarshal(e.Node.Meta, &member); err != nil {
+					helper.Logger.Fatal(0, "Failed to unmarshal meta data. err:", err)
+				}
 				if notifyMemberEvent != nil {
 					notifyMemberEvent(MemberJoin, member)
 				}
-				helper.Logger.Println(0, "Node:", e.Node.Name, " Join!")
+				helper.Logger.Println(5, "Node:", e.Node.Name, " Join!")
 			} else if e.Event == memberlist.NodeLeave {
-				member := Member{Name: e.Node.Name, Meta: e.Node.Meta}
+				member := Member{}
+				if err := json.Unmarshal(e.Node.Meta, &member); err != nil {
+					helper.Logger.Fatal(0, "Failed to unmarshal meta data. err:", err)
+				}
 				if notifyMemberEvent != nil {
 					notifyMemberEvent(MemberLeave, member)
 				}
-				helper.Logger.Println(0, "Node:", e.Node.Name, " Leave!")
+				helper.Logger.Println(5, "Node:", e.Node.Name, " Leave!")
 			} else {
 				helper.Logger.Println(0, "The member event is not handled! event:", e.Event)
 			}
@@ -103,19 +99,25 @@ func recvChanEvent(myName string) {
 	}
 }
 
-func Init(isMon bool, myAddr string, logger *log.Logger) {
+func Init(isMon bool, id uint64, myAddr string, logger *log.Logger) {
 	c := memberlist.DefaultLocalConfig()
 	hostname, _ := os.Hostname()
 	c.Name = hostname + "-" + uuid.NewUUID().String()
 	logger.Println("Memberlist config name:", c.Name)
 	c.BindPort = 0 //helper.CONFIG.MemberBindPort
 	c.Logger = logger
+	member := Member{}
+	member.IsMon = isMon
+	member.Addr = myAddr
+	member.ID = id
+	meta, err := json.Marshal(member)
+	if err != nil {
+		panic("Failed to json member. : " + err.Error())
+	}
+	c.Delegate = &MemberDelegate{meta: meta}
 	if isMon {
 		eventCh = make(chan memberlist.NodeEvent, MEMBER_LIST_CHAN_EVENT_NUM)
 		c.Events = &memberlist.ChannelEventDelegate{Ch: eventCh}
-		c.Delegate = &MemberDelegate{meta: Meta{IsMon: true}}
-	} else {
-		c.Delegate = &MemberDelegate{meta: Meta{IsMon: false}}
 	}
 
 	list, err := memberlist.Create(c)
@@ -140,10 +142,14 @@ func Init(isMon bool, myAddr string, logger *log.Logger) {
 	}
 }
 
-func GetMembers() (member []Member) {
+func GetMembers() (members []Member) {
 	nodes := list.Members()
 	for _, node := range nodes {
-		member = append(member, Member{Name: node.Name, Addr: node.Addr, Port: node.Port, Meta: node.Meta})
+		member := Member{}
+		if err := json.Unmarshal(node.Meta, &member); err != nil {
+			helper.Logger.Fatal(0, "Failed to unmarshal meta data. err:", err)
+		}
+		members = append(members, member)
 	}
 	return
 }

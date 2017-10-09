@@ -258,6 +258,11 @@ func newNode(id uint64, myAddr string) *node {
 }
 
 // Never returns ("", true)
+func (n *node) SetCommittedMsgHandler(callback HandleCommittedMsg) {
+	n.handleCommittedMsg = callback
+}
+
+// Never returns ("", true)
 func (n *node) GetPeer(pid uint64) (string, bool) {
 	return n.peers.get(pid)
 }
@@ -504,10 +509,16 @@ func (n *node) processApplyCh() {
 		}
 
 		helper.AssertTrue(e.Type == raftpb.EntryNormal)
+		helper.Logger.Println(5, "Process EntryNormal for raft!")
 
-		if handleCommittedMsg != nil {
-			handleCommittedMsg(e.Data)
+		proposal := &protos.Proposal{}
+		if err := proposal.Unmarshal(e.Data); err != nil {
+			helper.Logger.Fatalf(0, "Unable to unmarshal proposal: %v %q\n", err, e.Data)
 		}
+		if handleCommittedMsg != nil {
+			handleCommittedMsg(proposal.Data)
+		}
+		n.props.Done(proposal.Id, nil)
 	}
 }
 
@@ -556,7 +567,6 @@ func (n *node) Run() {
 					// stepped down as leader do a sync membership immediately
 					//cluster().syncMemberships()
 				} else if rd.RaftState == raft.StateLeader && !leader {
-					// TODO:wait for apply watermark ??
 					//leaseMgr().resetLease(n.gid)
 					//cluster().syncMemberships()
 				}

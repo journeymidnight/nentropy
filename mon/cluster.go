@@ -39,9 +39,9 @@ import (
 )
 
 const (
-	DATA_TYPE_OSD_MAP  uint32 = 1
-	DATA_TYPE_POOL_MAP uint32 = 2
-	DATA_TYPE_PG_MAPS  uint32 = 3
+	DATA_TYPE_OSD_MAP uint32 = 1
+	DATA_TYPE_POOL_MAP
+	DATA_TYPE_PG_MAPS
 )
 
 type cluster struct {
@@ -94,53 +94,55 @@ var (
 	errNoNode = fmt.Errorf("No node has been set up yet")
 )
 
-func handleCommittedMsg(userData []byte) error {
-	proposal := &protos.Proposal{}
-	if err := proposal.Unmarshal(userData); err != nil {
-		helper.Logger.Fatalf(0, "Unable to unmarshal proposal: %v %q\n", err, userData)
+func handleCommittedMsg(data []byte) error {
+	if data == nil {
+		return nil
 	}
 
-	data := proposal.Data
-	if data != nil {
-		for idx := 0; idx < len(data); {
-			helper.AssertTruef(len(data[idx:]) >= 8,
-				"Slice left of size: %v. Expected at least 4.", len(data[idx:]))
+	for idx := 0; idx < len(data); {
+		helper.AssertTruef(len(data[idx:]) >= 8,
+			"Slice left of size: %v. Expected at least 4.", len(data[idx:]))
 
-			dataType := binary.LittleEndian.Uint32(data[idx : idx+4])
-			idx += 4
-			sz := int(binary.LittleEndian.Uint32(data[idx : idx+4]))
-			idx += 4
-			if idx+sz > len(data) {
-				return helper.Errorf(
-					"Invalid query. Specified size %v overflows slice [%v,%v)\n",
-					sz, idx, len(data))
-			}
-
-			if dataType == DATA_TYPE_OSD_MAP {
-				var osdMap protos.OsdMap
-				if err := osdMap.Unmarshal(data[idx : idx+sz]); err != nil {
-					helper.Check(err)
-				}
-				clus.osdMap = osdMap
-			} else if dataType == DATA_TYPE_POOL_MAP {
-				var poolMap protos.PoolMap
-				if err := poolMap.Unmarshal(proposal.Data); err != nil {
-					helper.Check(err)
-				}
-				clus.poolMap = poolMap
-			} else if dataType == DATA_TYPE_PG_MAPS {
-				var pgMaps protos.PgMaps
-				if err := pgMaps.Unmarshal(proposal.Data); err != nil {
-					helper.Check(err)
-				}
-				clus.pgMaps = pgMaps
-			} else {
-				return helper.Errorf("Unknown data type!")
-			}
-			idx += sz
+		dataType := binary.LittleEndian.Uint32(data[idx : idx+4])
+		idx += 4
+		sz := int(binary.LittleEndian.Uint32(data[idx : idx+4]))
+		idx += 4
+		if idx+sz > len(data) {
+			return helper.Errorf(
+				"Invalid query. Specified size %v overflows slice [%v,%v)\n",
+				sz, idx, len(data))
 		}
 
+		if dataType == DATA_TYPE_OSD_MAP {
+			var osdMap protos.OsdMap
+			if err := osdMap.Unmarshal(data[idx : idx+sz]); err != nil {
+				helper.Check(err)
+			}
+			clus.osdMap = osdMap
+			helper.Logger.Println(5, "New osdmap committed, member in osdmap :")
+			if clus.osdMap.MemberList != nil {
+				for k, _ := range clus.osdMap.MemberList {
+					helper.Logger.Println(5, "OSD Member Id:", k)
+				}
+			}
+		} else if dataType == DATA_TYPE_POOL_MAP {
+			var poolMap protos.PoolMap
+			if err := poolMap.Unmarshal(data); err != nil {
+				helper.Check(err)
+			}
+			clus.poolMap = poolMap
+		} else if dataType == DATA_TYPE_PG_MAPS {
+			var pgMaps protos.PgMaps
+			if err := pgMaps.Unmarshal(data); err != nil {
+				helper.Check(err)
+			}
+			clus.pgMaps = pgMaps
+		} else {
+			return helper.Errorf("Unknown data type!")
+		}
+		idx += sz
 	}
+
 	return nil
 }
 
@@ -260,6 +262,7 @@ func StartRaftNodes(walStore *badger.KV) {
 	if clus.node != nil {
 		helper.AssertTruef(false, "Didn't expect a node in RAFT group mapping: %v", 0)
 	}
+	node.SetCommittedMsgHandler(handleCommittedMsg)
 	clus.node = node
 
 	node.peersAddr = mons
@@ -305,7 +308,7 @@ type ProposedData struct {
 }
 
 func proposeData(proposedDataArray []ProposedData) error {
-	var buf *bytes.Buffer
+	buf := new(bytes.Buffer)
 	for _, val := range proposedDataArray {
 		helper.Check(binary.Write(buf, binary.LittleEndian, val.Type))
 		helper.Check(binary.Write(buf, binary.LittleEndian, uint32(len(val.Data))))
@@ -354,5 +357,72 @@ func GetCurrPgMaps() (protos.PgMaps, error) {
 }
 
 func NotifyMemberEvent(eventType memberlist.MemberEventType, member memberlist.Member) error {
+	helper.Logger.Println(5, "Call NotifyMemberEvent()")
+	if !clus.node.AmLeader() {
+		return nil
+	}
+	if member.IsMon {
+		return nil
+	}
+	var exist bool
+	if _, ok := clus.osdMap.MemberList[int32(member.ID)]; ok {
+		exist = true
+	}
+	if clus.osdMap.MemberList == nil {
+		clus.osdMap.MemberList = make(map[int32]*protos.Osd)
+	}
+	helper.Logger.Println(5, "Before update osdmap, member in osdmap :")
+	if clus.osdMap.MemberList != nil {
+		for k, _ := range clus.osdMap.MemberList {
+			helper.Logger.Println(5, "OSD Member Id:", k)
+		}
+	}
+
+	if eventType == memberlist.MemberJoin {
+		if exist {
+			return nil
+		}
+		osdMap := protos.OsdMap{}
+		data, err := clus.osdMap.Marshal()
+		if err != nil {
+			helper.Logger.Println(5, "Eorror marshal osdmap!")
+			return err
+		}
+		err = osdMap.Unmarshal(data)
+		if err != nil {
+			helper.Logger.Println(5, "Eorror unmarshal osdmap!")
+			return err
+		}
+		osdMap.Epoch++
+		if osdMap.MemberList == nil {
+			osdMap.MemberList = make(map[int32]*protos.Osd)
+		}
+		osdMap.MemberList[int32(member.ID)] = &protos.Osd{Id: int32(member.ID)}
+		helper.Logger.Println(5, "New member added! id:", member.ID)
+		ProposeOsdMap(&osdMap)
+
+	} else if eventType == memberlist.MemberLeave {
+		if !exist {
+			return nil
+		}
+		osdMap := protos.OsdMap{}
+		data, err := clus.osdMap.Marshal()
+		if err != nil {
+			helper.Logger.Println(5, "Eorror marshal osdmap!")
+			return err
+		}
+		err = osdMap.Unmarshal(data)
+		if err != nil {
+			helper.Logger.Println(5, "Eorror unmarshal osdmap!")
+			return err
+		}
+		osdMap.Epoch++
+		delete(osdMap.MemberList, int32(member.ID))
+		helper.Logger.Println(0, "New member leave! id:", member.ID)
+		ProposeOsdMap(&osdMap)
+
+	} else {
+
+	}
 	return nil
 }

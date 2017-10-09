@@ -163,7 +163,7 @@ func main() {
 
 	go StartRaftNodes(state.WALstore)
 
-	memberlist.Init(true, helper.CONFIG.MyAddr, logger.Logger)
+	memberlist.Init(true, helper.CONFIG.RaftId, helper.CONFIG.MyAddr, logger.Logger)
 	memberlist.SetNotifyFunc(NotifyMemberEvent)
 
 	//runServer()
