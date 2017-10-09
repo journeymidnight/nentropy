@@ -515,10 +515,11 @@ func (n *node) processApplyCh() {
 		if err := proposal.Unmarshal(e.Data); err != nil {
 			helper.Logger.Fatalf(0, "Unable to unmarshal proposal: %v %q\n", err, e.Data)
 		}
+		var err error
 		if handleCommittedMsg != nil {
-			handleCommittedMsg(proposal.Data)
+			err = handleCommittedMsg(proposal.Data)
 		}
-		n.props.Done(proposal.Id, nil)
+		n.props.Done(proposal.Id, err)
 	}
 }
 

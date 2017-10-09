@@ -7,6 +7,7 @@ import (
 	"github.com/pborman/uuid"
 	"log"
 	"os"
+	"strings"
 )
 
 const (
@@ -104,7 +105,7 @@ func Init(isMon bool, id uint64, myAddr string, logger *log.Logger) {
 	hostname, _ := os.Hostname()
 	c.Name = hostname + "-" + uuid.NewUUID().String()
 	logger.Println("Memberlist config name:", c.Name)
-	c.BindPort = 0 //helper.CONFIG.MemberBindPort
+	c.BindPort = helper.CONFIG.MemberBindPort
 	c.Logger = logger
 	member := Member{}
 	member.IsMon = isMon
@@ -125,8 +126,9 @@ func Init(isMon bool, id uint64, myAddr string, logger *log.Logger) {
 		panic("Failed to create memberlist: " + err.Error())
 	}
 
-	if helper.CONFIG.JoinMemberAddr != "" {
-		_, err := list.Join([]string{helper.CONFIG.JoinMemberAddr})
+	if !isMon && helper.CONFIG.JoinMemberAddr != "" {
+		strs := strings.Split(helper.CONFIG.JoinMemberAddr, ",")
+		_, err := list.Join(strs)
 		if err != nil {
 			panic("Failed to join cluster: " + err.Error())
 		}
