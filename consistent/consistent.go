@@ -22,6 +22,7 @@ package consistent
 
 import (
 	"errors"
+	"github.com/journeymidnight/nentropy/helper"
 	pb "github.com/journeymidnight/nentropy/protos"
 	"hash/crc32"
 	"sort"
@@ -47,6 +48,7 @@ var ErrEmptyCircle = errors.New("empty circle")
 type Consistent struct {
 	circle          map[uint32]*pb.Osd
 	members         map[*pb.Osd]bool
+	policy          pb.DistributePolicy
 	sortedHashes    uints
 	defaultReplicas uint64
 	count           uint64
@@ -56,11 +58,12 @@ type Consistent struct {
 // New creates a new Consistent object with a default setting of 10 replicas for weight 1.
 //
 // To change the number of replicas, set NumberOfReplicas before adding entries.
-func New(osdMap *pb.OsdMap) *Consistent {
+func New(osdMap *pb.OsdMap, policy pb.DistributePolicy) *Consistent {
 	c := new(Consistent)
 	c.defaultReplicas = 10
 	c.circle = make(map[uint32]*pb.Osd)
 	c.members = make(map[*pb.Osd]bool)
+	c.policy = policy
 	c.Set(osdMap)
 	return c
 }
@@ -220,20 +223,21 @@ func (c *Consistent) GetN(name string, n int) ([]*pb.Osd, error) {
 	if len(res) == n {
 		return res, nil
 	}
-
+	helper.Logger.Println(5, "loop start", len(c.sortedHashes), c.policy)
 	for i = start + 1; i != start; i++ {
 		if i >= len(c.sortedHashes) {
 			i = 0
 		}
 		elem = c.circle[c.sortedHashes[i]]
-		if !sliceContainsMember(res, elem) {
+		if !sliceContainsMember(res, elem, c.policy) {
 			res = append(res, elem)
 		}
 		if len(res) == n {
 			break
 		}
+		helper.Logger.Println(5, "loop again, i, start=", i, start, c.policy, len(res), elem)
 	}
-
+	helper.Logger.Println(5, "loop end")
 	return res, nil
 }
 
@@ -255,10 +259,22 @@ func (c *Consistent) updateSortedHashes() {
 	c.sortedHashes = hashes
 }
 
-func sliceContainsMember(set []*pb.Osd, member *pb.Osd) bool {
+func sliceContainsMember(set []*pb.Osd, member *pb.Osd, policy pb.DistributePolicy) bool {
 	for _, m := range set {
 		if m == member {
 			return true
+		}
+		//under host policy
+		if policy == 1 {
+			if m.Host == member.Host {
+				return true
+			}
+		}
+		//under zone policy
+		if policy == 2 {
+			if m.Zone == member.Zone {
+				return true
+			}
 		}
 	}
 	return false

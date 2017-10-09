@@ -27,7 +27,6 @@ import (
 	"fmt"
 	"github.com/coreos/etcd/raft/raftpb"
 	"github.com/dgraph-io/badger"
-	"github.com/journeymidnight/nentropy/consistent"
 	"github.com/journeymidnight/nentropy/helper"
 	"github.com/journeymidnight/nentropy/memberlist"
 	"github.com/journeymidnight/nentropy/protos"
@@ -54,7 +53,6 @@ type cluster struct {
 	osdMap    protos.OsdMap
 	poolMap   protos.PoolMap
 	pgMaps    protos.PgMaps
-	hashRing  *consistent.Consistent
 }
 
 // grpcRaftNode struct implements the gRPC server interface.

@@ -24,6 +24,7 @@ service Monitor {
     rpc GetLayout (LayoutRequest) returns (LayoutReply) {}
     rpc OsdConfig(OsdConfigRequest) returns (OsdConfigReply) {}
     rpc PoolConfig(PoolConfigRequest) returns (PoolConfigReply) {}
+    rpc PgConfig(PgConfigRequest) returns (PgConfigReply) {}
 
 }
 
@@ -63,13 +64,14 @@ message OsdConfigRequest {
         OUT = 3;
         UP = 4;
         DOWN = 5;
+        LIST = 6;
     }
     OpType op_type = 3;
 }
 
 message OsdConfigReply {
     int32 ret_code = 1;
-    int32 index = 2;
+    OsdMap map = 2;
 }
 
 message PoolMap {
@@ -78,8 +80,9 @@ message PoolMap {
 }
 
 enum DistributePolicy {
-    HOST = 0;
-    ZONE = 1;
+    OSD  = 0;
+    HOST = 1;
+    ZONE = 2;
 }
 
 message Pool{
@@ -96,6 +99,7 @@ message PoolConfigRequest {
         ADD = 0;
         DEL = 1;
         EDT = 2;
+        LIST = 3;
     }
     OpType op_type = 2;
     string name = 3;
@@ -107,6 +111,7 @@ message PoolConfigRequest {
 
 message PoolConfigReply {
     int32 ret_code = 1;
+    PoolMap map = 2;
 }
 
 message PgMaps {
@@ -122,4 +127,22 @@ message PgMap {
 message Pg{
     int32 id = 1;
     repeated int32 osd_ids = 2;
+}
+
+message PgConfigRequest {
+    string keyRing = 1;
+    enum OpType {
+        ADD = 0;
+        DEL = 1;
+        EDT = 2;
+        LIST = 3;
+    }
+    OpType op_type = 2;
+    string pool = 3;
+    int32 id = 4;
+}
+
+message PgConfigReply {
+    int32 ret_code = 1;
+    PgMap map = 2;
 }
