@@ -25,6 +25,27 @@ func TestSimpleSetGet(t *testing.T) {
 	coll.Close()
 	coll.Remove()
 }
+func TestSimpleSetGet_rewrite(t *testing.T) {
+	cid := "asdf"
+	os.Mkdir(cid, 0755)
+	coll, err := NewCollection(cid)
+	require.Equal(t, err, nil)
+
+	key := []byte("hello")
+	value := []byte("world")
+	err = coll.Put(key, value)
+	require.Equal(t, err, nil)
+
+	value2 := []byte("hello")
+	err = coll.Put(key, value2)
+	require.Equal(t, err, nil)
+
+	newvalue, err := coll.Get(key)
+	require.Equal(t, newvalue, value2)
+	require.Equal(t, err, nil)
+	//coll.Close()
+	//coll.Remove()
+}
 
 func TestSimpleIterator(t *testing.T) {
 	cid := "asdf"
@@ -94,6 +115,37 @@ func TestWriteBatch_AllPuts(t *testing.T) {
 		i++
 	}
 
+	coll.Remove()
+}
+
+func TestWriteBatch_rewritekeyinabatch(t *testing.T) {
+	cid := "asdf"
+	os.Mkdir(cid, 0755)
+	coll, err := NewCollection(cid)
+	require.Equal(t, err, nil)
+
+	n := 100
+	key := []byte("helloworld")
+	for i := 0; i < n; i++ {
+		v := []byte(fmt.Sprintf("%04d", i))
+		coll.Put(key, v)
+	}
+
+	wb := NewWriteBatch()
+	err = coll.Write(wb)
+	require.Equal(t, err, nil)
+
+	itr := coll.NewIterator()
+	i := 0
+	for itr.Rewind(); itr.Valid(); itr.Next() {
+		require.Equal(t, itr.Value(), []byte(fmt.Sprintf("%04d", 99)))
+		i++
+	}
+
+	require.Equal(t, i, 1)
+
+	v, _ := coll.Get(key)
+	require.Equal(t, v, []byte(fmt.Sprintf("%04d", 99)))
 	coll.Remove()
 }
 func TestWriteBatch_AllDeletes(t *testing.T) {

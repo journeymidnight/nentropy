@@ -2,6 +2,7 @@ package store
 
 import (
 	"errors"
+	"fmt"
 	"os"
 
 	"github.com/dgraph-io/badger"
@@ -21,13 +22,6 @@ type Iterator struct {
 // WriteBatch provides Put/Delete methods like leveldb did
 type WriteBatch struct {
 	entries []*badger.Entry
-}
-
-// Onode holds the metadata of each object in osd store
-type Onode struct {
-	nid        uint64 //numeric id (locally unique)
-	size       uint64 //object size
-	stripeSize uint32 //size of each  stripe
 }
 
 // BadgerStore holds a number of Collection
@@ -54,6 +48,13 @@ func (wb *WriteBatch) Delete(key []byte) {
 // Length add an key/value pair to this batch
 func (wb *WriteBatch) Length() int {
 	return len(wb.entries)
+}
+
+// Traverse travers all entries(for debugging only)
+func (wb *WriteBatch) Traverse() {
+	for _, i := range wb.entries {
+		fmt.Printf("%+v\r\n", i)
+	}
 }
 
 // NewCollection return a store Collection, maybe create a new one
