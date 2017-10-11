@@ -2,7 +2,6 @@ package osd
 
 import (
 	"encoding/binary"
-	"fmt"
 
 	"github.com/journeymidnight/nentropy/store"
 )
@@ -41,18 +40,12 @@ func getOffset(oid, s []byte) uint64 {
 }
 
 func stripeWrite(bat *store.WriteBatch, offset uint64, n *onode, value []byte) {
-	fmt.Println("Write: before Put, current batch is: ")
-	bat.Traverse()
 	key := getDataKey(n.Oid, offset)
-	fmt.Println("stripeWrite, key is: ", key, "value is: ", value)
 	bat.Put(key, value)
-	fmt.Println("Write: after Put, current batch is: ")
-	bat.Traverse()
 }
 
 func stripeRead(coll *store.Collection, offset uint64, n *onode) ([]byte, error) {
 	key := getDataKey(n.Oid, offset)
 	value, err := coll.Get(key)
-	fmt.Println("stripeRead, key is: ", key, "value is: ", value)
 	return value, err
 }

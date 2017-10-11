@@ -66,7 +66,6 @@ func createOrGetOnonde(coll *store.Collection, oid []byte) (o *onode) {
 // Write writes a object to store
 func (s *Server) Write(ctx context.Context, in *pb.WriteRequest) (*pb.WriteReply, error) {
 	dir := string(in.GetPGID())
-	fmt.Printf("write request: %+v\r\n", in)
 
 	s.rwlock.RLock()
 	defer s.rwlock.RUnlock()
@@ -82,7 +81,6 @@ func (s *Server) Write(ctx context.Context, in *pb.WriteRequest) (*pb.WriteReply
 	oid := in.GetOid()
 	n := createOrGetOnonde(coll, oid)
 
-	fmt.Printf("Write: onode is  %+v\r\n", n)
 	batch := store.NewWriteBatch()
 	length := in.GetLength()
 	offset := in.GetOffset()
@@ -101,11 +99,9 @@ func (s *Server) Write(ctx context.Context, in *pb.WriteRequest) (*pb.WriteReply
 		// align to stripeSize
 		offsetRem := offset % stripeSize
 		endRem := (offset + length) % stripeSize
-		fmt.Println("endRem is ", endRem)
 
 		// how many stripes for remaining data
 		remainStripeNumber := length / stripeSize
-		fmt.Println("remainStripeNumber is ", remainStripeNumber)
 
 		// situation 1: aligned write, if there is a whole stripe of data, no matter rewrite or write a new one, we can safely write it
 		if offsetRem == 0 && remainStripeNumber > 0 {
@@ -161,8 +157,6 @@ func (s *Server) Write(ctx context.Context, in *pb.WriteRequest) (*pb.WriteReply
 
 		fmt.Printf("using %d bytes for this stripe \r\n", use)
 		buf = append(buf, value[valueLocator:use+valueLocator]...)
-		fmt.Println("Write: buf is ", buf)
-		valueLocator += use
 
 		if endRem > 0 && remainStripeNumber == 0 {
 			// situation 5: at the end of the stripe, reusing original bytes if we don't modify it
@@ -172,10 +166,10 @@ func (s *Server) Write(ctx context.Context, in *pb.WriteRequest) (*pb.WriteReply
 				fmt.Printf("resue trailing %d bytes \r\n", l)
 			}
 		}
-		fmt.Println("Write: final write buf is ", buf, "offset is ", stripeOff)
 		stripeWrite(batch, stripeOff, n, buf)
 		offset += use
 		length -= use
+		valueLocator += use
 	}
 
 	if offset > n.Size {
@@ -208,9 +202,7 @@ func syncThread(done <-chan struct{}) {
 		case bat := <-syncChan:
 			err := bat.coll.Write(bat.batch)
 			bat.persist <- err
-			fmt.Println("finished process batch for object ", string(bat.oid))
 		case <-done:
-			fmt.Println("quiting sync thread")
 			return
 		}
 	}
@@ -227,7 +219,6 @@ func min(a, b uint64) (c uint64) {
 
 // Read reads an object from store
 func (s *Server) Read(ctx context.Context, in *pb.ReadRequest) (*pb.ReadReply, error) {
-	fmt.Printf("read request: %+v\r\n", in)
 	dir := string(in.GetPGID())
 
 	s.rwlock.RLock()
@@ -266,7 +257,6 @@ func (s *Server) Read(ctx context.Context, in *pb.ReadRequest) (*pb.ReadReply, e
 		stripebuf, _ := stripeRead(coll, offset-stripeOff, &n)
 		buflen := uint64(len(stripebuf))
 		fmt.Printf("got %d bytes for offset %d\r\n", buflen, offset-stripeOff)
-		fmt.Println("stripebuf is ", stripebuf)
 
 		swant := min(stripeSize-stripeOff, length)
 		if buflen > 0 {
@@ -297,7 +287,6 @@ func (s *Server) Read(ctx context.Context, in *pb.ReadRequest) (*pb.ReadReply, e
 		offset += swant
 		length -= swant
 		stripeOff = 0
-		fmt.Println("READ: current buf is ", buf)
 	}
 
 	return &pb.ReadReply{RetCode: 0, ReadBuf: buf}, nil

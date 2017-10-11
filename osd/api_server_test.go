@@ -1,7 +1,6 @@
 package osd
 
 import (
-	"fmt"
 	"net"
 	"os"
 	"testing"
@@ -391,8 +390,6 @@ func TestAlignedWriteAndRead_alignto64_comparewholevalue(t *testing.T) {
 	}
 	buf = append(buf, value...)
 
-	fmt.Println("buffer is ", buf)
-	fmt.Println("readbuffer is ", readret.ReadBuf)
 	require.Equal(t, readret.ReadBuf, buf)
 	removereq := &pb.RemovePgRequest{
 		PGID: pgid,
@@ -656,8 +653,6 @@ func TestUnAlignedWriteAndRead_sameoffset(t *testing.T) {
 	if err != nil {
 		t.Fatalf("could not read: %v", err)
 	}
-	fmt.Println(value)
-	fmt.Println(readret.ReadBuf)
 	require.Equal(t, readret.RetCode, int32(0))
 	require.Equal(t, readret.ReadBuf, value)
 	removereq := &pb.RemovePgRequest{
@@ -716,8 +711,6 @@ func TestUnAlignedWriteAndRead_differentoffset(t *testing.T) {
 	if err != nil {
 		t.Fatalf("could not read: %v", err)
 	}
-	fmt.Println(value)
-	fmt.Println(readret.ReadBuf)
 	require.Equal(t, readret.RetCode, int32(0))
 	require.Equal(t, readret.ReadBuf, []byte("d"))
 	removereq := &pb.RemovePgRequest{
@@ -776,8 +769,6 @@ func TestUnAlignedWriteAndRead_crossstripe(t *testing.T) {
 	if err != nil {
 		t.Fatalf("could not read: %v", err)
 	}
-	fmt.Println(value)
-	fmt.Println(readret.ReadBuf)
 	require.Equal(t, readret.RetCode, int32(0))
 	require.Equal(t, readret.ReadBuf, value)
 	removereq := &pb.RemovePgRequest{
@@ -904,7 +895,6 @@ func TestUnAlignedWriteAndRead_rewritewhole_crossstripe(t *testing.T) {
 	}
 	require.Equal(t, r.RetCode, int32(0))
 
-	fmt.Println("we are going to rewrite")
 	req = &pb.WriteRequest{
 		PGID:   pgid,
 		Oid:    []byte("hello"),
@@ -981,7 +971,6 @@ func TestUnAlignedWriteAndRead_rewritepart_crossstripe(t *testing.T) {
 	}
 	require.Equal(t, r.RetCode, int32(0))
 
-	fmt.Println("we are going to rewrite")
 	req = &pb.WriteRequest{
 		PGID:   pgid,
 		Oid:    []byte("hello"),
@@ -1059,7 +1048,6 @@ func TestUnAlignedWriteAndRead_rewritepart_crossstripe_differentoffset(t *testin
 	}
 	require.Equal(t, r.RetCode, int32(0))
 
-	fmt.Println("we are going to rewrite")
 	req = &pb.WriteRequest{
 		PGID:   pgid,
 		Oid:    []byte("hello"),
