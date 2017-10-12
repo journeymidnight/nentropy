@@ -356,3 +356,31 @@ func (s *Server) RemovePG(ctx context.Context, in *pb.RemovePgRequest) (*pb.Remo
 
 	return &pb.RemovePgReply{RetCode: 0}, nil
 }
+
+// ObjectStat replies object stat
+func (s *Server) ObjectStat(ctx context.Context, in *pb.ObjectStatRequest) (*pb.ObjectStatReply, error) {
+	dir := string(in.GetPGID())
+
+	s.rwlock.RLock()
+	defer s.rwlock.RUnlock()
+
+	// this pg should be cached, otherwise return error
+	coll, ok := s.collections[dir]
+	if !ok {
+		return nil, ErrNoSuchPG
+	}
+
+	//(fixme)find the onode first, should use cache
+	val, err := coll.Get(in.GetOid())
+	if err != nil {
+		return nil, err
+	}
+
+	if val == nil {
+		return nil, ErrNoValueForKey
+	}
+
+	var n onode
+	bson.Unmarshal(val, &n)
+	return &pb.ObjectStatReply{Size: n.Size}, nil
+}

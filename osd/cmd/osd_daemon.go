@@ -16,7 +16,7 @@ import (
 // osd_daemon runs as a daemon to server client requests
 
 const (
-	port = ":50051"
+	port = ":50052"
 )
 
 func runRpcServer(done <-chan os.Signal) {

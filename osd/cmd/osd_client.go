@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	address = "localhost:50051"
+	address = "localhost:50052"
 )
 
 var action = flag.String("action", "", "action to osd, support: createpg, removepg, writeobj, readobj, removeobj")

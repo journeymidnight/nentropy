@@ -24,6 +24,7 @@ service Store {
   rpc Remove (RemoveRequest) returns (RemoveReply) {}
   rpc CreatePG (CreatePgRequest) returns (CreatePgReply) {}
   rpc RemovePG (RemovePgRequest) returns (RemovePgReply) {}
+  rpc ObjectStat (ObjectStatRequest) returns (ObjectStatReply) {}
 }
 
 message WriteRequest {
@@ -73,4 +74,13 @@ message RemovePgRequest {
 
 message RemovePgReply {
   int32 RetCode = 1;
+}
+
+message ObjectStatRequest {
+  bytes PGID = 1;     // pgid
+  bytes Oid = 2;      // object id
+}
+
+message ObjectStatReply{
+  uint64 Size = 1;
 }

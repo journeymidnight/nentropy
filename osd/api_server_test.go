@@ -1363,3 +1363,122 @@ func TestWriteRemoveRead(t *testing.T) {
 	require.Equal(t, err, nil)
 	done <- struct{}{}
 }
+
+func TestWriteAndGetObjectStat_zerooffset(t *testing.T) {
+	DefaultStripeSize = 8 // smaller stripe size for simple test
+	done := make(chan struct{})
+	go runServer(t, done)
+
+	// Set up a connection to the server.
+	conn, err := grpc.Dial(address, grpc.WithInsecure())
+	if err != nil {
+		t.Fatalf("did not connect: %v", err)
+	}
+	defer conn.Close()
+	c := pb.NewStoreClient(conn)
+
+	var value []byte
+	for i := 0; i < 1024; i++ {
+		value = append(value, 'p')
+	}
+
+	l := uint64(len(value))
+	pgid := []byte("1.0")
+	os.RemoveAll(string(pgid))
+	creq := &pb.CreatePgRequest{
+		PGID: pgid,
+	}
+
+	_, err = c.CreatePG(context.Background(), creq)
+	require.Equal(t, err, nil)
+
+	req := &pb.WriteRequest{
+		PGID:   pgid,
+		Oid:    []byte("hello"),
+		Value:  value,
+		Length: l,
+		Offset: 0,
+	}
+
+	r, err := c.Write(context.Background(), req)
+	if err != nil {
+		t.Fatalf("could not write: %v\n", err)
+	}
+	require.Equal(t, r.RetCode, int32(0))
+
+	statreq := &pb.ObjectStatRequest{
+		PGID: pgid,
+		Oid:  []byte("hello"),
+	}
+	statret, err := c.ObjectStat(context.Background(), statreq)
+	if err != nil {
+		t.Fatalf("could not read: %v", err)
+	}
+	require.Equal(t, statret.Size, l)
+	removereq := &pb.RemovePgRequest{
+		PGID: pgid,
+	}
+	_, err = c.RemovePG(context.Background(), removereq)
+	require.Equal(t, err, nil)
+	done <- struct{}{}
+}
+
+func TestWriteAndGetObjectStat_haveoffset(t *testing.T) {
+	DefaultStripeSize = 8 // smaller stripe size for simple test
+	done := make(chan struct{})
+	go runServer(t, done)
+
+	// Set up a connection to the server.
+	conn, err := grpc.Dial(address, grpc.WithInsecure())
+	if err != nil {
+		t.Fatalf("did not connect: %v", err)
+	}
+	defer conn.Close()
+	c := pb.NewStoreClient(conn)
+
+	var value []byte
+	offset := uint64(110)
+	for i := 0; i < 1024; i++ {
+		value = append(value, 'p')
+	}
+
+	l := uint64(len(value))
+	pgid := []byte("1.0")
+	os.RemoveAll(string(pgid))
+	creq := &pb.CreatePgRequest{
+		PGID: pgid,
+	}
+
+	_, err = c.CreatePG(context.Background(), creq)
+	require.Equal(t, err, nil)
+
+	req := &pb.WriteRequest{
+		PGID:   pgid,
+		Oid:    []byte("hello"),
+		Value:  value,
+		Length: l,
+		Offset: offset,
+	}
+
+	r, err := c.Write(context.Background(), req)
+	if err != nil {
+		t.Fatalf("could not write: %v\n", err)
+	}
+	require.Equal(t, r.RetCode, int32(0))
+
+	statreq := &pb.ObjectStatRequest{
+		PGID: pgid,
+		Oid:  []byte("hello"),
+	}
+	statret, err := c.ObjectStat(context.Background(), statreq)
+	if err != nil {
+		t.Fatalf("could not read: %v", err)
+	}
+	require.Equal(t, statret.Size, l+offset)
+	removereq := &pb.RemovePgRequest{
+		PGID: pgid,
+	}
+	_, err = c.RemovePG(context.Background(), removereq)
+	require.Equal(t, err, nil)
+	done <- struct{}{}
+}
