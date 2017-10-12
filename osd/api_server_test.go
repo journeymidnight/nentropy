@@ -1082,6 +1082,82 @@ func TestUnAlignedWriteAndRead_rewritepart_crossstripe_differentoffset(t *testin
 	done <- struct{}{}
 }
 
+func TestUnAlignedWriteAndRead_rewritepart_crossstripe_differentoffset_badstripesize(t *testing.T) {
+	defaultStripeSize = 7 // smaller stripe size for simple test
+	done := make(chan struct{})
+	go runServer(t, done)
+
+	// Set up a connection to the server.
+	conn, err := grpc.Dial(address, grpc.WithInsecure())
+	if err != nil {
+		t.Fatalf("did not connect: %v", err)
+	}
+	defer conn.Close()
+	c := pb.NewStoreClient(conn)
+
+	value := []byte("abcdefghijklmnopqrstuvwxyz")
+	value2 := []byte("BCDEFGHIJKLMNOPQRSTUVWXY")
+	value3 := []byte("aBCDEFGHIJKLMNOPQRSTUVWXYz")
+	l := uint64(len(value))
+	l2 := uint64(len(value2))
+	pgid := []byte("1.0")
+
+	//remove if exists
+	os.RemoveAll(string(pgid))
+	creq := &pb.CreatePgRequest{
+		PGID: pgid,
+	}
+
+	_, err = c.CreatePG(context.Background(), creq)
+	require.Equal(t, err, nil)
+
+	req := &pb.WriteRequest{
+		PGID:   pgid,
+		Oid:    []byte("hello"),
+		Value:  value,
+		Length: l,
+		Offset: 1,
+	}
+
+	r, err := c.Write(context.Background(), req)
+	if err != nil {
+		t.Fatalf("could not write: %v\n", err)
+	}
+	require.Equal(t, r.RetCode, int32(0))
+
+	req = &pb.WriteRequest{
+		PGID:   pgid,
+		Oid:    []byte("hello"),
+		Value:  value2,
+		Length: l2,
+		Offset: 2,
+	}
+	r, err = c.Write(context.Background(), req)
+	if err != nil {
+		t.Fatalf("could not write: %v\n", err)
+	}
+	require.Equal(t, r.RetCode, int32(0))
+
+	readreq := &pb.ReadRequest{
+		PGID:   pgid,
+		Oid:    []byte("hello"),
+		Length: l, //read the whole thing, which is same length of value1
+		Offset: 1,
+	}
+	readret, err := c.Read(context.Background(), readreq)
+	if err != nil {
+		t.Fatalf("could not read: %v", err)
+	}
+
+	removereq := &pb.RemovePgRequest{
+		PGID: pgid,
+	}
+	_, err = c.RemovePG(context.Background(), removereq)
+	require.Equal(t, err, nil)
+	require.Equal(t, readret.RetCode, int32(0))
+	require.Equal(t, readret.ReadBuf, value3)
+	done <- struct{}{}
+}
 func TestWriteThenReadKey(t *testing.T) {
 	done := make(chan struct{})
 	go runServer(t, done)
