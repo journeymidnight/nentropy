@@ -110,7 +110,7 @@ func main() {
 		if err != nil {
 			fmt.Printf("objct write failed, error is  %s\r\n", err.Error())
 		} else {
-			fmt.Printf("objct write successfully, value is: %X", readret.ReadBuf)
+			fmt.Printf("objct write successfully, value is: %X(%s)", readret.ReadBuf, readret.ReadBuf)
 		}
 	case "removeobj":
 		if *oid == "" {

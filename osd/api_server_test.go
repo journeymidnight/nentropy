@@ -1,9 +1,11 @@
 package osd
 
 import (
+	"fmt"
 	"net"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -26,7 +28,8 @@ func runServer(t *testing.T, done <-chan struct{}) {
 		t.Fatalf("failed to listen: %v", err)
 	}
 	s := grpc.NewServer()
-	pb.RegisterStoreServer(s, NewServer())
+	osdserver := NewServer()
+	pb.RegisterStoreServer(s, osdserver)
 	reflection.Register(s)
 
 	syncdone := make(chan struct{})
@@ -36,8 +39,13 @@ func runServer(t *testing.T, done <-chan struct{}) {
 		select {
 		case <-done:
 			syncdone <- struct{}{}
+
+			//stop outer server first to stop serving request
 			go s.GracefulStop()
 			go lis.Close()
+			fmt.Println(time.Now())
+			osdserver.Close()
+			fmt.Println(time.Now())
 		}
 	}()
 
@@ -45,6 +53,11 @@ func runServer(t *testing.T, done <-chan struct{}) {
 }
 func TestCreateNonExistPG(t *testing.T) {
 	done := make(chan struct{})
+	pgid := []byte("asdf")
+
+	//remove if exists
+	os.RemoveAll(string(pgid))
+	os.RemoveAll(Metadir)
 	go runServer(t, done)
 
 	// Set up a connection to the server.
@@ -55,10 +68,6 @@ func TestCreateNonExistPG(t *testing.T) {
 	defer conn.Close()
 	c := pb.NewStoreClient(conn)
 
-	pgid := []byte("asdf")
-
-	//remove if exists
-	os.RemoveAll(string(pgid))
 	req := &pb.CreatePgRequest{
 		PGID: pgid,
 	}
@@ -73,10 +82,14 @@ func TestCreateNonExistPG(t *testing.T) {
 	require.Equal(t, err, nil)
 
 	done <- struct{}{}
+	time.Sleep(time.Second * 2)
 }
 
 func TestCreateExistingPG(t *testing.T) {
 	done := make(chan struct{})
+	pgid := []byte("asdf")
+	os.RemoveAll(Metadir)
+	os.RemoveAll(string(pgid))
 	go runServer(t, done)
 
 	// Set up a connection to the server.
@@ -87,7 +100,6 @@ func TestCreateExistingPG(t *testing.T) {
 	defer conn.Close()
 	c := pb.NewStoreClient(conn)
 
-	pgid := []byte("asdf")
 	os.Mkdir(string(pgid), 0755)
 	req := &pb.CreatePgRequest{
 		PGID: pgid,
@@ -103,6 +115,9 @@ func TestCreateExistingPG(t *testing.T) {
 func TestAlignedWriteAndRead_fullstripe(t *testing.T) {
 	DefaultStripeSize = 8 // smaller stripe size for simple test
 	done := make(chan struct{})
+	pgid := []byte("1.0")
+	os.RemoveAll(string(pgid))
+	os.RemoveAll(Metadir)
 	go runServer(t, done)
 
 	// Set up a connection to the server.
@@ -115,8 +130,6 @@ func TestAlignedWriteAndRead_fullstripe(t *testing.T) {
 
 	value := []byte("hellohah")
 	l := uint64(len(value))
-	pgid := []byte("1.0")
-	os.RemoveAll(string(pgid))
 	creq := &pb.CreatePgRequest{
 		PGID: pgid,
 	}
@@ -157,11 +170,15 @@ func TestAlignedWriteAndRead_fullstripe(t *testing.T) {
 	_, err = c.RemovePG(context.Background(), removereq)
 	require.Equal(t, err, nil)
 	done <- struct{}{}
+	time.Sleep(time.Second * 2)
 }
 
 func TestAlignedWriteAndRead_notfullstripe(t *testing.T) {
 	DefaultStripeSize = 8 // smaller stripe size for simple test
 	done := make(chan struct{})
+	pgid := []byte("1.0")
+	os.RemoveAll(string(pgid))
+	os.RemoveAll(Metadir)
 	go runServer(t, done)
 
 	// Set up a connection to the server.
@@ -174,8 +191,6 @@ func TestAlignedWriteAndRead_notfullstripe(t *testing.T) {
 
 	value := []byte("helloha")
 	l := uint64(len(value))
-	pgid := []byte("1.0")
-	os.RemoveAll(string(pgid))
 	creq := &pb.CreatePgRequest{
 		PGID: pgid,
 	}
@@ -216,11 +231,15 @@ func TestAlignedWriteAndRead_notfullstripe(t *testing.T) {
 	_, err = c.RemovePG(context.Background(), removereq)
 	require.Equal(t, err, nil)
 	done <- struct{}{}
+	time.Sleep(time.Second * 2)
 }
 
 func TestAlignedWriteAndRead_readatlonglength(t *testing.T) {
 	DefaultStripeSize = 8 // smaller stripe size for simple test
 	done := make(chan struct{})
+	pgid := []byte("1.0")
+	os.RemoveAll(string(pgid))
+	os.RemoveAll(Metadir)
 	go runServer(t, done)
 
 	// Set up a connection to the server.
@@ -233,8 +252,6 @@ func TestAlignedWriteAndRead_readatlonglength(t *testing.T) {
 
 	value := []byte("helloha")
 	l := uint64(len(value))
-	pgid := []byte("1.0")
-	os.RemoveAll(string(pgid))
 	creq := &pb.CreatePgRequest{
 		PGID: pgid,
 	}
@@ -274,11 +291,15 @@ func TestAlignedWriteAndRead_readatlonglength(t *testing.T) {
 	_, err = c.RemovePG(context.Background(), removereq)
 	require.Equal(t, err, nil)
 	done <- struct{}{}
+	time.Sleep(time.Second * 2)
 }
 
 func TestAlignedWriteAndRead_alignto16(t *testing.T) {
 	DefaultStripeSize = 8 // smaller stripe size for simple test
 	done := make(chan struct{})
+	pgid := []byte("1.0")
+	os.RemoveAll(string(pgid))
+	os.RemoveAll(Metadir)
 	go runServer(t, done)
 
 	// Set up a connection to the server.
@@ -291,8 +312,6 @@ func TestAlignedWriteAndRead_alignto16(t *testing.T) {
 
 	value := []byte("helloha")
 	l := uint64(len(value))
-	pgid := []byte("1.0")
-	os.RemoveAll(string(pgid))
 	creq := &pb.CreatePgRequest{
 		PGID: pgid,
 	}
@@ -333,10 +352,14 @@ func TestAlignedWriteAndRead_alignto16(t *testing.T) {
 	_, err = c.RemovePG(context.Background(), removereq)
 	require.Equal(t, err, nil)
 	done <- struct{}{}
+	time.Sleep(time.Second * 2)
 }
 func TestAlignedWriteAndRead_alignto64_comparewholevalue(t *testing.T) {
 	DefaultStripeSize = 8 // smaller stripe size for simple test
 	done := make(chan struct{})
+	pgid := []byte("1.0")
+	os.RemoveAll(string(pgid))
+	os.RemoveAll(Metadir)
 	go runServer(t, done)
 
 	// Set up a connection to the server.
@@ -349,8 +372,6 @@ func TestAlignedWriteAndRead_alignto64_comparewholevalue(t *testing.T) {
 
 	value := []byte("helloha")
 	l := uint64(len(value))
-	pgid := []byte("1.0")
-	os.RemoveAll(string(pgid))
 	creq := &pb.CreatePgRequest{
 		PGID: pgid,
 	}
@@ -397,12 +418,16 @@ func TestAlignedWriteAndRead_alignto64_comparewholevalue(t *testing.T) {
 	_, err = c.RemovePG(context.Background(), removereq)
 	require.Equal(t, err, nil)
 	done <- struct{}{}
+	time.Sleep(time.Second * 2)
 }
 
 //rewrite the original stripe
 func TestAlignedWriteAndRead_rewritewhole(t *testing.T) {
 	DefaultStripeSize = 8 // smaller stripe size for simple test
 	done := make(chan struct{})
+	pgid := []byte("1.0")
+	os.RemoveAll(string(pgid))
+	os.RemoveAll(Metadir)
 	go runServer(t, done)
 
 	// Set up a connection to the server.
@@ -417,8 +442,6 @@ func TestAlignedWriteAndRead_rewritewhole(t *testing.T) {
 	value2 := []byte("ABCDEFG")
 	l := uint64(len(value))
 	l2 := uint64(len(value2))
-	pgid := []byte("1.0")
-	os.RemoveAll(string(pgid))
 	creq := &pb.CreatePgRequest{
 		PGID: pgid,
 	}
@@ -471,11 +494,15 @@ func TestAlignedWriteAndRead_rewritewhole(t *testing.T) {
 	_, err = c.RemovePG(context.Background(), removereq)
 	require.Equal(t, err, nil)
 	done <- struct{}{}
+	time.Sleep(time.Second * 2)
 }
 
 func TestAlignedWriteAndRead_rewritepart(t *testing.T) {
 	DefaultStripeSize = 8 // smaller stripe size for simple test
 	done := make(chan struct{})
+	pgid := []byte("1.0")
+	os.RemoveAll(string(pgid))
+	os.RemoveAll(Metadir)
 	go runServer(t, done)
 
 	// Set up a connection to the server.
@@ -491,8 +518,6 @@ func TestAlignedWriteAndRead_rewritepart(t *testing.T) {
 	value3 := []byte("worldha")
 	l := uint64(len(value))
 	l2 := uint64(len(value2))
-	pgid := []byte("1.0")
-	os.RemoveAll(string(pgid))
 	creq := &pb.CreatePgRequest{
 		PGID: pgid,
 	}
@@ -546,11 +571,15 @@ func TestAlignedWriteAndRead_rewritepart(t *testing.T) {
 	_, err = c.RemovePG(context.Background(), removereq)
 	require.Equal(t, err, nil)
 	done <- struct{}{}
+	time.Sleep(time.Second * 2)
 }
 
 func TestAlignedWriteAndRead_crossstripe(t *testing.T) {
 	DefaultStripeSize = 8 // smaller stripe size for simple test
 	done := make(chan struct{})
+	pgid := []byte("1.0")
+	os.RemoveAll(string(pgid))
+	os.RemoveAll(Metadir)
 	go runServer(t, done)
 
 	// Set up a connection to the server.
@@ -563,8 +592,6 @@ func TestAlignedWriteAndRead_crossstripe(t *testing.T) {
 
 	value := []byte("hellohahasdfasdfasdfasdfasdf")
 	l := uint64(len(value))
-	pgid := []byte("1.0")
-	os.RemoveAll(string(pgid))
 	creq := &pb.CreatePgRequest{
 		PGID: pgid,
 	}
@@ -604,10 +631,14 @@ func TestAlignedWriteAndRead_crossstripe(t *testing.T) {
 	_, err = c.RemovePG(context.Background(), removereq)
 	require.Equal(t, err, nil)
 	done <- struct{}{}
+	time.Sleep(time.Second * 2)
 }
 func TestUnAlignedWriteAndRead_sameoffset(t *testing.T) {
 	DefaultStripeSize = 8 // smaller stripe size for simple test
 	done := make(chan struct{})
+	pgid := []byte("1.0")
+	os.RemoveAll(string(pgid))
+	os.RemoveAll(Metadir)
 	go runServer(t, done)
 
 	// Set up a connection to the server.
@@ -620,8 +651,6 @@ func TestUnAlignedWriteAndRead_sameoffset(t *testing.T) {
 
 	value := []byte("helloha")
 	l := uint64(len(value))
-	pgid := []byte("1.0")
-	os.RemoveAll(string(pgid))
 	creq := &pb.CreatePgRequest{
 		PGID: pgid,
 	}
@@ -661,11 +690,15 @@ func TestUnAlignedWriteAndRead_sameoffset(t *testing.T) {
 	_, err = c.RemovePG(context.Background(), removereq)
 	require.Equal(t, err, nil)
 	done <- struct{}{}
+	time.Sleep(time.Second * 2)
 }
 
 func TestUnAlignedWriteAndRead_differentoffset(t *testing.T) {
 	DefaultStripeSize = 8 // smaller stripe size for simple test
 	done := make(chan struct{})
+	pgid := []byte("1.0")
+	os.RemoveAll(string(pgid))
+	os.RemoveAll(Metadir)
 	go runServer(t, done)
 
 	// Set up a connection to the server.
@@ -678,8 +711,6 @@ func TestUnAlignedWriteAndRead_differentoffset(t *testing.T) {
 
 	value := []byte("asdfasd")
 	l := uint64(len(value))
-	pgid := []byte("1.0")
-	os.RemoveAll(string(pgid))
 	creq := &pb.CreatePgRequest{
 		PGID: pgid,
 	}
@@ -719,11 +750,15 @@ func TestUnAlignedWriteAndRead_differentoffset(t *testing.T) {
 	_, err = c.RemovePG(context.Background(), removereq)
 	require.Equal(t, err, nil)
 	done <- struct{}{}
+	time.Sleep(time.Second * 2)
 }
 
 func TestUnAlignedWriteAndRead_crossstripe(t *testing.T) {
 	DefaultStripeSize = 8 // smaller stripe size for simple test
 	done := make(chan struct{})
+	pgid := []byte("1.0")
+	os.RemoveAll(string(pgid))
+	os.RemoveAll(Metadir)
 	go runServer(t, done)
 
 	// Set up a connection to the server.
@@ -736,8 +771,6 @@ func TestUnAlignedWriteAndRead_crossstripe(t *testing.T) {
 
 	value := []byte("asdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdf")
 	l := uint64(len(value))
-	pgid := []byte("1.0")
-	os.RemoveAll(string(pgid))
 	creq := &pb.CreatePgRequest{
 		PGID: pgid,
 	}
@@ -777,11 +810,15 @@ func TestUnAlignedWriteAndRead_crossstripe(t *testing.T) {
 	_, err = c.RemovePG(context.Background(), removereq)
 	require.Equal(t, err, nil)
 	done <- struct{}{}
+	time.Sleep(time.Second * 2)
 }
 
 func TestUnAlignedWriteAndRead_rewritewhole_notcrossstripe(t *testing.T) {
 	DefaultStripeSize = 8 // smaller stripe size for simple test
 	done := make(chan struct{})
+	pgid := []byte("1.0")
+	os.RemoveAll(string(pgid))
+	os.RemoveAll(Metadir)
 	go runServer(t, done)
 
 	// Set up a connection to the server.
@@ -796,8 +833,6 @@ func TestUnAlignedWriteAndRead_rewritewhole_notcrossstripe(t *testing.T) {
 	value2 := []byte("sdfasd")
 	l := uint64(len(value))
 	l2 := uint64(len(value2))
-	pgid := []byte("1.0")
-	os.RemoveAll(string(pgid))
 	creq := &pb.CreatePgRequest{
 		PGID: pgid,
 	}
@@ -851,11 +886,17 @@ func TestUnAlignedWriteAndRead_rewritewhole_notcrossstripe(t *testing.T) {
 	_, err = c.RemovePG(context.Background(), removereq)
 	require.Equal(t, err, nil)
 	done <- struct{}{}
+	time.Sleep(time.Second * 2)
 }
 
 func TestUnAlignedWriteAndRead_rewritewhole_crossstripe(t *testing.T) {
 	DefaultStripeSize = 8 // smaller stripe size for simple test
 	done := make(chan struct{})
+	pgid := []byte("1.0")
+
+	//remove if exists
+	os.RemoveAll(string(pgid))
+	os.RemoveAll(Metadir)
 	go runServer(t, done)
 
 	// Set up a connection to the server.
@@ -870,10 +911,6 @@ func TestUnAlignedWriteAndRead_rewritewhole_crossstripe(t *testing.T) {
 	value2 := []byte("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
 	l := uint64(len(value))
 	l2 := uint64(len(value2))
-	pgid := []byte("1.0")
-
-	//remove if exists
-	os.RemoveAll(string(pgid))
 	creq := &pb.CreatePgRequest{
 		PGID: pgid,
 	}
@@ -927,10 +964,16 @@ func TestUnAlignedWriteAndRead_rewritewhole_crossstripe(t *testing.T) {
 	require.Equal(t, readret.RetCode, int32(0))
 	require.Equal(t, readret.ReadBuf, value2)
 	done <- struct{}{}
+	time.Sleep(time.Second * 2)
 }
 func TestUnAlignedWriteAndRead_rewritepart_crossstripe(t *testing.T) {
 	DefaultStripeSize = 8 // smaller stripe size for simple test
 	done := make(chan struct{})
+	pgid := []byte("1.0")
+
+	//remove if exists
+	os.RemoveAll(string(pgid))
+	os.RemoveAll(Metadir)
 	go runServer(t, done)
 
 	// Set up a connection to the server.
@@ -946,10 +989,6 @@ func TestUnAlignedWriteAndRead_rewritepart_crossstripe(t *testing.T) {
 	value3 := []byte("BCDEFGHIJKLMNOPQRSTUVWXYyz")
 	l := uint64(len(value))
 	l2 := uint64(len(value2))
-	pgid := []byte("1.0")
-
-	//remove if exists
-	os.RemoveAll(string(pgid))
 	creq := &pb.CreatePgRequest{
 		PGID: pgid,
 	}
@@ -1003,11 +1042,17 @@ func TestUnAlignedWriteAndRead_rewritepart_crossstripe(t *testing.T) {
 	require.Equal(t, readret.RetCode, int32(0))
 	require.Equal(t, readret.ReadBuf, value3)
 	done <- struct{}{}
+	time.Sleep(time.Second * 2)
 }
 
 func TestUnAlignedWriteAndRead_rewritepart_crossstripe_differentoffset(t *testing.T) {
 	DefaultStripeSize = 8 // smaller stripe size for simple test
 	done := make(chan struct{})
+	pgid := []byte("1.0")
+
+	//remove if exists
+	os.RemoveAll(string(pgid))
+	os.RemoveAll(Metadir)
 	go runServer(t, done)
 
 	// Set up a connection to the server.
@@ -1023,10 +1068,6 @@ func TestUnAlignedWriteAndRead_rewritepart_crossstripe_differentoffset(t *testin
 	value3 := []byte("aBCDEFGHIJKLMNOPQRSTUVWXYz")
 	l := uint64(len(value))
 	l2 := uint64(len(value2))
-	pgid := []byte("1.0")
-
-	//remove if exists
-	os.RemoveAll(string(pgid))
 	creq := &pb.CreatePgRequest{
 		PGID: pgid,
 	}
@@ -1080,11 +1121,17 @@ func TestUnAlignedWriteAndRead_rewritepart_crossstripe_differentoffset(t *testin
 	require.Equal(t, readret.RetCode, int32(0))
 	require.Equal(t, readret.ReadBuf, value3)
 	done <- struct{}{}
+	time.Sleep(time.Second * 2)
 }
 
 func TestUnAlignedWriteAndRead_rewritepart_crossstripe_differentoffset_badstripesize(t *testing.T) {
 	DefaultStripeSize = 7 // smaller stripe size for simple test
 	done := make(chan struct{})
+	pgid := []byte("1.0")
+
+	//remove if exists
+	os.RemoveAll(string(pgid))
+	os.RemoveAll(Metadir)
 	go runServer(t, done)
 
 	// Set up a connection to the server.
@@ -1100,10 +1147,6 @@ func TestUnAlignedWriteAndRead_rewritepart_crossstripe_differentoffset_badstripe
 	value3 := []byte("aBCDEFGHIJKLMNOPQRSTUVWXYz")
 	l := uint64(len(value))
 	l2 := uint64(len(value2))
-	pgid := []byte("1.0")
-
-	//remove if exists
-	os.RemoveAll(string(pgid))
 	creq := &pb.CreatePgRequest{
 		PGID: pgid,
 	}
@@ -1157,9 +1200,13 @@ func TestUnAlignedWriteAndRead_rewritepart_crossstripe_differentoffset_badstripe
 	require.Equal(t, readret.RetCode, int32(0))
 	require.Equal(t, readret.ReadBuf, value3)
 	done <- struct{}{}
+	time.Sleep(time.Second * 2)
 }
 func TestWriteThenReadKey(t *testing.T) {
 	done := make(chan struct{})
+	pgid := []byte("1.0")
+	os.RemoveAll(string(pgid))
+	os.RemoveAll(Metadir)
 	go runServer(t, done)
 
 	// Set up a connection to the server.
@@ -1171,8 +1218,6 @@ func TestWriteThenReadKey(t *testing.T) {
 	c := pb.NewStoreClient(conn)
 
 	l := uint64(len([]byte("hello")))
-	pgid := []byte("1.0")
-	os.RemoveAll(string(pgid))
 	creq := &pb.CreatePgRequest{
 		PGID: pgid,
 	}
@@ -1212,10 +1257,12 @@ func TestWriteThenReadKey(t *testing.T) {
 	_, err = c.RemovePG(context.Background(), removereq)
 	require.Equal(t, err, nil)
 	done <- struct{}{}
+	time.Sleep(time.Second * 2)
 }
 
 func TestReadNonExistPG(t *testing.T) {
 	done := make(chan struct{})
+	os.RemoveAll(Metadir)
 	go runServer(t, done)
 
 	// Set up a connection to the server.
@@ -1238,10 +1285,15 @@ func TestReadNonExistPG(t *testing.T) {
 	_, err = c.Read(context.Background(), readreq)
 	require.Contains(t, err.Error(), ErrNoSuchPG.Error())
 	done <- struct{}{}
+	time.Sleep(time.Second * 2)
 }
 
 func TestReadNonExistKey(t *testing.T) {
 	done := make(chan struct{})
+	pgid := []byte("1.0")
+
+	os.RemoveAll(string(pgid))
+	os.RemoveAll(Metadir)
 	go runServer(t, done)
 
 	// Set up a connection to the server.
@@ -1253,9 +1305,6 @@ func TestReadNonExistKey(t *testing.T) {
 	c := pb.NewStoreClient(conn)
 
 	l := uint64(len([]byte("hello")))
-	pgid := []byte("1.0")
-
-	os.RemoveAll(string(pgid))
 	creq := &pb.CreatePgRequest{
 		PGID: pgid,
 	}
@@ -1294,10 +1343,14 @@ func TestReadNonExistKey(t *testing.T) {
 	_, err = c.RemovePG(context.Background(), removereq)
 	require.Equal(t, err, nil)
 	done <- struct{}{}
+	time.Sleep(time.Second * 2)
 }
 
 func TestWriteRemoveRead(t *testing.T) {
 	done := make(chan struct{})
+	pgid := []byte("1.0")
+	os.RemoveAll(string(pgid))
+	os.RemoveAll(Metadir)
 	go runServer(t, done)
 
 	// Set up a connection to the server.
@@ -1309,8 +1362,6 @@ func TestWriteRemoveRead(t *testing.T) {
 	c := pb.NewStoreClient(conn)
 
 	l := uint64(len([]byte("hello")))
-	pgid := []byte("1.0")
-	os.RemoveAll(string(pgid))
 	creq := &pb.CreatePgRequest{
 		PGID: pgid,
 	}
@@ -1362,11 +1413,15 @@ func TestWriteRemoveRead(t *testing.T) {
 	_, err = c.RemovePG(context.Background(), pgremovereq)
 	require.Equal(t, err, nil)
 	done <- struct{}{}
+	time.Sleep(time.Second * 2)
 }
 
 func TestWriteAndGetObjectStat_zerooffset(t *testing.T) {
 	DefaultStripeSize = 8 // smaller stripe size for simple test
 	done := make(chan struct{})
+	pgid := []byte("1.0")
+	os.RemoveAll(string(pgid))
+	os.RemoveAll(Metadir)
 	go runServer(t, done)
 
 	// Set up a connection to the server.
@@ -1383,8 +1438,6 @@ func TestWriteAndGetObjectStat_zerooffset(t *testing.T) {
 	}
 
 	l := uint64(len(value))
-	pgid := []byte("1.0")
-	os.RemoveAll(string(pgid))
 	creq := &pb.CreatePgRequest{
 		PGID: pgid,
 	}
@@ -1421,11 +1474,15 @@ func TestWriteAndGetObjectStat_zerooffset(t *testing.T) {
 	_, err = c.RemovePG(context.Background(), removereq)
 	require.Equal(t, err, nil)
 	done <- struct{}{}
+	time.Sleep(time.Second * 2)
 }
 
 func TestWriteAndGetObjectStat_haveoffset(t *testing.T) {
 	DefaultStripeSize = 8 // smaller stripe size for simple test
 	done := make(chan struct{})
+	pgid := []byte("1.0")
+	os.RemoveAll(string(pgid))
+	os.RemoveAll(Metadir)
 	go runServer(t, done)
 
 	// Set up a connection to the server.
@@ -1443,8 +1500,6 @@ func TestWriteAndGetObjectStat_haveoffset(t *testing.T) {
 	}
 
 	l := uint64(len(value))
-	pgid := []byte("1.0")
-	os.RemoveAll(string(pgid))
 	creq := &pb.CreatePgRequest{
 		PGID: pgid,
 	}
@@ -1481,4 +1536,219 @@ func TestWriteAndGetObjectStat_haveoffset(t *testing.T) {
 	_, err = c.RemovePG(context.Background(), removereq)
 	require.Equal(t, err, nil)
 	done <- struct{}{}
+	time.Sleep(time.Second * 2)
+}
+
+func TestLoadFromExistingData_onepg(t *testing.T) {
+	done := make(chan struct{})
+	pgid := []byte("1.0")
+	os.RemoveAll(string(pgid))
+	os.RemoveAll(Metadir)
+	go runServer(t, done)
+
+	// Set up a connection to the server.
+	conn, err := grpc.Dial(address, grpc.WithInsecure())
+	if err != nil {
+		t.Fatalf("did not connect: %v", err)
+	}
+	c := pb.NewStoreClient(conn)
+
+	l := uint64(len([]byte("hello")))
+	creq := &pb.CreatePgRequest{
+		PGID: pgid,
+	}
+
+	_, err = c.CreatePG(context.Background(), creq)
+	require.Equal(t, err, nil)
+
+	req := &pb.WriteRequest{
+		PGID:   pgid,
+		Oid:    []byte("hello"),
+		Value:  []byte("world"),
+		Length: l,
+		Offset: 0,
+	}
+
+	r, err := c.Write(context.Background(), req)
+	if err != nil {
+		t.Fatalf("could not write: %v\n", err)
+	}
+	require.Equal(t, r.RetCode, int32(0))
+
+	//close this server
+	done <- struct{}{}
+	conn.Close()
+	close(done)
+
+	//closing collections maybe time-consuming, wait 2 seconds here
+	time.Sleep(time.Second * 2)
+	fmt.Println("recreating new")
+
+	//start a new pair of server/client
+	done = make(chan struct{})
+	go runServer(t, done)
+
+	// Set up a connection to the server.
+	conn, err = grpc.Dial(address, grpc.WithInsecure())
+	if err != nil {
+		t.Fatalf("did not connect: %v", err)
+	}
+	c = pb.NewStoreClient(conn)
+
+	readreq := &pb.ReadRequest{
+		PGID:   pgid,
+		Oid:    []byte("hello"),
+		Length: l,
+		Offset: 0,
+	}
+	readret, err := c.Read(context.Background(), readreq)
+	if err != nil {
+		t.Fatalf("could not read: %v", err)
+	}
+	require.Equal(t, readret.RetCode, int32(0))
+	require.Equal(t, readret.ReadBuf, []byte("world"))
+	done <- struct{}{}
+	conn.Close()
+	close(done)
+
+	//closing collections maybe time-consuming, wait 2 second
+	time.Sleep(time.Second)
+
+	//finally we are going to remove the pg
+	done = make(chan struct{})
+	go runServer(t, done)
+
+	// Set up a connection to the server.
+	conn, err = grpc.Dial(address, grpc.WithInsecure())
+	if err != nil {
+		t.Fatalf("did not connect: %v", err)
+	}
+	c = pb.NewStoreClient(conn)
+	removereq := &pb.RemovePgRequest{
+		PGID: pgid,
+	}
+	_, err = c.RemovePG(context.Background(), removereq)
+	require.Equal(t, err, nil)
+
+	conn.Close()
+	close(done)
+
+	//wait for closing data and meta collections
+	time.Sleep(time.Second * 2)
+	os.RemoveAll(Metadir)
+}
+
+func TestLoadFromExistingData_100pgs(t *testing.T) {
+	done := make(chan struct{})
+
+	os.RemoveAll(Metadir)
+	var pgs [][]byte
+	for i := 0; i < 100; i++ {
+		pgid := []byte(fmt.Sprintf("%04d", i))
+		pgs = append(pgs, pgid)
+		os.RemoveAll(string(pgid))
+	}
+
+	go runServer(t, done)
+
+	// Set up a connection to the server.
+	conn, err := grpc.Dial(address, grpc.WithInsecure())
+	if err != nil {
+		t.Fatalf("did not connect: %v", err)
+	}
+	c := pb.NewStoreClient(conn)
+
+	l := uint64(len([]byte("hello")))
+
+	for _, pgid := range pgs {
+		creq := &pb.CreatePgRequest{
+			PGID: pgid,
+		}
+
+		_, err = c.CreatePG(context.Background(), creq)
+		require.Equal(t, err, nil)
+
+		req := &pb.WriteRequest{
+			PGID:   pgid,
+			Oid:    []byte("hello"),
+			Value:  []byte("world"),
+			Length: l,
+			Offset: 0,
+		}
+
+		r, err := c.Write(context.Background(), req)
+		if err != nil {
+			t.Fatalf("could not write: %v\n", err)
+		}
+		require.Equal(t, r.RetCode, int32(0))
+	}
+
+	//close this server
+	done <- struct{}{}
+	conn.Close()
+	close(done)
+
+	//closing 100 collections maybe time-consuming, wait 10 seconds here
+	time.Sleep(time.Second * 10)
+	fmt.Println("recreating new")
+
+	//start a new pair of server/client
+	done = make(chan struct{})
+
+	//load all 100 pgs here
+	go runServer(t, done)
+
+	// Set up a connection to the server.
+	conn, err = grpc.Dial(address, grpc.WithInsecure())
+	if err != nil {
+		t.Fatalf("did not connect: %v", err)
+	}
+	c = pb.NewStoreClient(conn)
+
+	for _, pgid := range pgs {
+		readreq := &pb.ReadRequest{
+			PGID:   pgid,
+			Oid:    []byte("hello"),
+			Length: l,
+			Offset: 0,
+		}
+		readret, err := c.Read(context.Background(), readreq)
+		if err != nil {
+			t.Fatalf("could not read: %v", err)
+		}
+		require.Equal(t, readret.RetCode, int32(0))
+		require.Equal(t, readret.ReadBuf, []byte("world"))
+	}
+	done <- struct{}{}
+	conn.Close()
+	close(done)
+
+	//closing 100 collections maybe time-consuming, wait 10 second
+	time.Sleep(time.Second * 1)
+
+	//finally we are going to remove the pg
+	done = make(chan struct{})
+	go runServer(t, done)
+
+	// Set up a connection to the server.
+	conn, err = grpc.Dial(address, grpc.WithInsecure())
+	if err != nil {
+		t.Fatalf("did not connect: %v", err)
+	}
+	c = pb.NewStoreClient(conn)
+
+	for _, pgid := range pgs {
+		removereq := &pb.RemovePgRequest{
+			PGID: pgid,
+		}
+		_, err = c.RemovePG(context.Background(), removereq)
+		require.Equal(t, err, nil)
+	}
+
+	conn.Close()
+	close(done)
+
+	//wait for closing data and meta collections
+	time.Sleep(time.Second * 1)
+	os.RemoveAll(Metadir)
 }

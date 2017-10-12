@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -248,4 +249,23 @@ func TestWriteBatch_DeleteHalf(t *testing.T) {
 
 	coll.Close()
 	coll.Remove()
+}
+
+func TestTimeForClosing(t *testing.T) {
+	cid := "asdf"
+	os.Mkdir(cid, 0755)
+	coll, err := NewCollection(cid)
+	require.Equal(t, err, nil)
+
+	n := 100000
+	for i := 0; i < n; i++ {
+		k := []byte(fmt.Sprintf("%8d", i))
+		err = coll.Put(k, k)
+		require.Equal(t, err, nil)
+	}
+
+	fmt.Println(time.Now())
+	coll.Close()
+	fmt.Println(time.Now())
+	//coll.Remove()
 }

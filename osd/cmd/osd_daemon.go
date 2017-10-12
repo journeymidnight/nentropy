@@ -26,7 +26,8 @@ func runRpcServer(done <-chan os.Signal) {
 		logger.Fatalf("failed to listen: %v", err)
 	}
 	s := grpc.NewServer()
-	pb.RegisterStoreServer(s, osd.NewServer())
+	osdserver := osd.NewServer()
+	pb.RegisterStoreServer(s, osdserver)
 	reflection.Register(s)
 
 	syncdone := make(chan struct{})
@@ -39,6 +40,7 @@ func runRpcServer(done <-chan os.Signal) {
 			syncdone <- struct{}{}
 			go s.GracefulStop()
 			go lis.Close()
+			osdserver.Close()
 		}
 	}()
 

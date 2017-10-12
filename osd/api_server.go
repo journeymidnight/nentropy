@@ -23,6 +23,7 @@ package osd
 import (
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 
 	pb "github.com/journeymidnight/nentropy/osd/protos"
@@ -34,12 +35,51 @@ import (
 // Server is used to implement osd.StoreServer
 type Server struct {
 	rwlock      sync.RWMutex
-	collections map[string]*store.Collection //Server holds
+	collections map[string]*store.Collection //the data collections Server holds
+	meta        *store.Collection            //the meta collections Server holds
 }
 
-// NewServer creates a Server
+// NewServer creates a Server also init data collections according to meta collection
 func NewServer() *Server {
-	return &Server{collections: make(map[string]*store.Collection)}
+	if _, err := os.Stat(Metadir); err != nil {
+		if os.IsNotExist(err) {
+			os.Mkdir(Metadir, 0755)
+		} else {
+			fmt.Println("failed to stat meta dir, maybe fs corruption")
+			os.Exit(-1)
+		}
+	}
+
+	//mc maybe newly created, or load from existing data dir
+	mc, err := store.NewCollection(Metadir)
+	if err != nil {
+		fmt.Println("failed to open meta dir, error is ", err)
+		os.Exit(-1)
+	}
+
+	datacoll := make(map[string]*store.Collection)
+	iter := mc.NewIterator()
+	defer iter.Close()
+
+	//loading each collection
+	for iter.Seek(MetaPGKey); iter.Valid(); iter.Next() {
+		dir := iter.Value()
+
+		//actually this can unlikely to happen because this collection have no other keys.
+		if !strings.HasPrefix(string(dir), string(MetaPGKey)) {
+			break
+		}
+
+		pgdir := dir[len(MetaPGKey):]
+		dc, err := store.NewCollection(string(pgdir))
+		if err != nil {
+			fmt.Printf("failed to open data dir %s:, error is %s: \r\n", string(pgdir), err.Error())
+			os.Exit(-1)
+		}
+		datacoll[string(pgdir)] = dc
+	}
+
+	return &Server{collections: datacoll, meta: mc}
 }
 
 type syncBatch struct {
@@ -61,6 +101,14 @@ func createOrGetOnonde(coll *store.Collection, oid []byte) (o *onode) {
 		o = &p
 	}
 	return
+}
+
+// Close closes all the collections
+func (s *Server) Close() {
+	s.meta.Close()
+	for _, coll := range s.collections {
+		coll.Close()
+	}
 }
 
 // Write writes a object to store
@@ -211,6 +259,15 @@ func syncThread(done <-chan struct{}) {
 		}
 	}
 }
+func (s *Server) quitThread(done <-chan struct{}) {
+	for {
+		select {
+		case <-done:
+			s.Close()
+			return
+		}
+	}
+}
 
 func min(a, b uint64) (c uint64) {
 	if a < b {
@@ -333,6 +390,10 @@ func (s *Server) CreatePG(ctx context.Context, in *pb.CreatePgRequest) (*pb.Crea
 		s.collections[dir] = coll
 		s.rwlock.Unlock()
 
+		var metapg []byte
+		metapg = append(MetaPGKey, in.GetPGID()...)
+		s.meta.Put(metapg, metapg)
+
 		return &pb.CreatePgReply{RetCode: 0}, nil
 	}
 	return nil, err
@@ -353,6 +414,9 @@ func (s *Server) RemovePG(ctx context.Context, in *pb.RemovePgRequest) (*pb.Remo
 	coll.Remove()
 	delete(s.collections, dir)
 	s.rwlock.Unlock()
+	var metapg []byte
+	metapg = append(MetaPGKey, in.GetPGID()...)
+	s.meta.Delete(metapg)
 
 	return &pb.RemovePgReply{RetCode: 0}, nil
 }
