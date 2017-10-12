@@ -23,7 +23,6 @@ import (
 
 	"golang.org/x/net/context"
 
-	"bytes"
 	"fmt"
 	"github.com/coreos/etcd/raft/raftpb"
 	"github.com/dgraph-io/badger"
@@ -92,53 +91,56 @@ var (
 	errNoNode = fmt.Errorf("No node has been set up yet")
 )
 
+func putOp(t *protos.Transaction, prefix string, epoch uint64, data []byte) error {
+	key := fmt.Sprintf("%v", epoch)
+	t.Ops = append(t.Ops, &protos.Op{Type: protos.Op_OP_PUT, Prefix: prefix, Key: key, Data: data})
+	t.Keys++
+	t.Bytes += uint64(len(prefix) + len(key) + len(data))
+	return nil
+}
+
 func handleCommittedMsg(data []byte) error {
 	if data == nil {
 		return nil
 	}
-
-	for idx := 0; idx < len(data); {
-		helper.AssertTruef(len(data[idx:]) >= 8,
-			"Slice left of size: %v. Expected at least 4.", len(data[idx:]))
-
-		dataType := binary.LittleEndian.Uint32(data[idx : idx+4])
-		idx += 4
-		sz := int(binary.LittleEndian.Uint32(data[idx : idx+4]))
-		idx += 4
-		if idx+sz > len(data) {
-			return helper.Errorf(
-				"Invalid query. Specified size %v overflows slice [%v,%v)\n",
-				sz, idx, len(data))
-		}
-		helper.Logger.Println(5, "Committed msg type :", dataType)
-		if dataType == DATA_TYPE_OSD_MAP {
-			var osdMap protos.OsdMap
-			if err := osdMap.Unmarshal(data[idx : idx+sz]); err != nil {
-				helper.Check(err)
-			}
-			clus.osdMap = osdMap
-			helper.Logger.Println(5, "New osdmap committed, member in osdmap :")
-			if clus.osdMap.MemberList != nil {
-				for k, _ := range clus.osdMap.MemberList {
-					helper.Logger.Println(5, "OSD Member Id:", k)
+	trans := protos.Transaction{}
+	if err := trans.Unmarshal(data); err != nil {
+		helper.Check(err)
+	}
+	for _, v := range trans.Ops {
+		if v.Type == protos.Op_OP_PUT {
+			if v.Prefix == "osdmap" {
+				var osdMap protos.OsdMap
+				if err := osdMap.Unmarshal(v.Data); err != nil {
+					helper.Check(err)
 				}
+				clus.osdMap = osdMap
+				helper.Logger.Println(5, "New osdmap committed, member in osdmap :")
+				if clus.osdMap.MemberList != nil {
+					for id, _ := range clus.osdMap.MemberList {
+						helper.Logger.Println(5, "OSD Member Id:", id)
+					}
+				}
+
+			} else if v.Prefix == "poolmap" {
+				var poolMap protos.PoolMap
+				if err := poolMap.Unmarshal(v.Data); err != nil {
+					helper.Check(err)
+				}
+				clus.poolMap = poolMap
+
+			} else if v.Prefix == "pgmap" {
+				var pgMaps protos.PgMaps
+				if err := pgMaps.Unmarshal(v.Data); err != nil {
+					helper.Check(err)
+				}
+				clus.pgMaps = pgMaps
+			} else {
+				helper.Errorf("Unknown data type!")
 			}
-		} else if dataType == DATA_TYPE_POOL_MAP {
-			var poolMap protos.PoolMap
-			if err := poolMap.Unmarshal(data[idx : idx+sz]); err != nil {
-				helper.Check(err)
-			}
-			clus.poolMap = poolMap
-		} else if dataType == DATA_TYPE_PG_MAPS {
-			var pgMaps protos.PgMaps
-			if err := pgMaps.Unmarshal(data[idx : idx+sz]); err != nil {
-				helper.Check(err)
-			}
-			clus.pgMaps = pgMaps
 		} else {
-			return helper.Errorf("Unknown data type!")
+			helper.Errorf("UnSupport data type!")
 		}
-		idx += sz
 	}
 
 	return nil
@@ -305,26 +307,23 @@ type ProposedData struct {
 	Data []byte
 }
 
-func proposeData(proposedDataArray []ProposedData) error {
-	buf := new(bytes.Buffer)
-	for _, val := range proposedDataArray {
-		helper.Check(binary.Write(buf, binary.LittleEndian, val.Type))
-		helper.Check(binary.Write(buf, binary.LittleEndian, uint32(len(val.Data))))
-		helper.Check2(buf.Write(val.Data))
-	}
-	if buf.Len() != 0 {
-		proposalData := make([]byte, buf.Len())
-		copy(proposalData, buf.Bytes())
-		proposal := protos.Proposal{Data: proposalData}
-		clus.Node().ProposeAndWait(context.TODO(), &proposal)
-	}
+func proposeData(t *protos.Transaction) error {
+	data, err := t.Marshal()
+	helper.Check(err)
+	proposal := protos.Proposal{Data: data}
+	clus.Node().ProposeAndWait(context.TODO(), &proposal)
 	return nil
 }
 
 func ProposeOsdMap(osdMap *protos.OsdMap) error {
 	data, err := osdMap.Marshal()
 	helper.Check(err)
-	proposeData([]ProposedData{{Type: DATA_TYPE_OSD_MAP, Data: data}})
+	trans := protos.Transaction{}
+	err = putOp(&trans, "osdmap", osdMap.Epoch, data)
+	if err != nil {
+		return err
+	}
+	proposeData(&trans)
 	return nil
 }
 
@@ -335,7 +334,12 @@ func GetCurrOsdMap() (protos.OsdMap, error) {
 func ProposePoolMap(poolMap *protos.PoolMap) error {
 	data, err := poolMap.Marshal()
 	helper.Check(err)
-	proposeData([]ProposedData{{Type: DATA_TYPE_POOL_MAP, Data: data}})
+	trans := protos.Transaction{}
+	err = putOp(&trans, "poolmap", poolMap.Epoch, data)
+	if err != nil {
+		return err
+	}
+	proposeData(&trans)
 	return nil
 }
 
@@ -346,7 +350,12 @@ func GetCurrPoolMap() (protos.PoolMap, error) {
 func ProposePgMaps(pgMaps *protos.PgMaps) error {
 	data, err := pgMaps.Marshal()
 	helper.Check(err)
-	proposeData([]ProposedData{{Type: DATA_TYPE_PG_MAPS, Data: data}})
+	trans := protos.Transaction{}
+	err = putOp(&trans, "pgmap", uint64(1), data)
+	if err != nil {
+		return err
+	}
+	proposeData(&trans)
 	return nil
 }
 

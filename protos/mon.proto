@@ -129,6 +129,24 @@ message Pg{
     repeated int32 osd_ids = 2;
 }
 
+message Op {
+    enum OpType {
+        OP_PUT = 0;
+        OP_ERASE = 1;
+        OP_COMPACT = 2;
+    }
+    OpType type = 1;
+    string prefix = 2;
+    string key = 3;
+    string endKey = 4;
+    bytes  data = 5;
+}
+
+message Transaction {
+    repeated Op ops = 1;
+    uint64 bytes = 2;
+    uint64 keys  = 3;
+}
 message PgConfigRequest {
     string keyRing = 1;
     enum OpType {
