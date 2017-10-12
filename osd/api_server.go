@@ -236,7 +236,7 @@ func (s *Server) Read(ctx context.Context, in *pb.ReadRequest) (*pb.ReadReply, e
 		return nil, err
 	}
 
-	if len(val) <= 0 {
+	if val == nil {
 		return nil, ErrNoValueForKey
 	}
 

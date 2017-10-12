@@ -73,10 +73,10 @@ func NewCollection(dir string) (*Collection, error) {
 }
 
 // Get returns value of an key, err on error
-func (coll *Collection) Get(key []byte) (value []byte, err error) {
+func (coll *Collection) Get(key []byte) ([]byte, error) {
 	var item badger.KVItem
 	if geterr := coll.kv.Get(key, &item); geterr != nil {
-		return value, errors.New("faild to get key")
+		return nil, errors.New("faild to get key")
 	}
 	var val []byte
 	copyerr := item.Value(func(v []byte) {
@@ -84,7 +84,11 @@ func (coll *Collection) Get(key []byte) (value []byte, err error) {
 		copy(val, v)
 	})
 	if copyerr != nil {
-		return value, errors.New("faild to copy value")
+		return nil, errors.New("faild to copy value")
+	}
+
+	if len(val) == 0 {
+		return nil, nil
 	}
 
 	return val, nil

@@ -43,8 +43,8 @@ func TestSimpleSetGet_rewrite(t *testing.T) {
 	newvalue, err := coll.Get(key)
 	require.Equal(t, newvalue, value2)
 	require.Equal(t, err, nil)
-	//coll.Close()
-	//coll.Remove()
+	coll.Close()
+	coll.Remove()
 }
 
 func TestSimpleIterator(t *testing.T) {
@@ -66,6 +66,7 @@ func TestSimpleIterator(t *testing.T) {
 		require.Equal(t, itr.Value(), []byte(fmt.Sprintf("%04d", i)))
 		i++
 	}
+	coll.Close()
 	coll.Remove()
 }
 
@@ -88,6 +89,7 @@ func TestIteratorSeeking(t *testing.T) {
 
 	require.Equal(t, itr.Valid(), true)
 	require.Equal(t, itr.Value(), tobeseeked)
+	coll.Close()
 	coll.Remove()
 }
 
@@ -115,6 +117,7 @@ func TestWriteBatch_AllPuts(t *testing.T) {
 		i++
 	}
 
+	coll.Close()
 	coll.Remove()
 }
 
@@ -146,6 +149,7 @@ func TestWriteBatch_rewritekeyinabatch(t *testing.T) {
 
 	v, _ := coll.Get(key)
 	require.Equal(t, v, []byte(fmt.Sprintf("%04d", 99)))
+	coll.Close()
 	coll.Remove()
 }
 func TestWriteBatch_AllDeletes(t *testing.T) {
@@ -175,6 +179,7 @@ func TestWriteBatch_AllDeletes(t *testing.T) {
 	}
 
 	require.Equal(t, i, 0)
+	coll.Close()
 	coll.Remove()
 }
 func TestWriteBatch_DeleteAll(t *testing.T) {
@@ -207,6 +212,7 @@ func TestWriteBatch_DeleteAll(t *testing.T) {
 	}
 	require.Equal(t, i, 0)
 
+	coll.Close()
 	coll.Remove()
 }
 
@@ -240,5 +246,6 @@ func TestWriteBatch_DeleteHalf(t *testing.T) {
 	}
 	require.Equal(t, i, 50)
 
+	coll.Close()
 	coll.Remove()
 }
