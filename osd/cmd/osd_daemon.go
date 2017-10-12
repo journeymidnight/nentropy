@@ -29,10 +29,14 @@ func runRpcServer(done <-chan os.Signal) {
 	pb.RegisterStoreServer(s, osd.NewServer())
 	reflection.Register(s)
 
+	syncdone := make(chan struct{})
+	go osd.StartSyncThread(syncdone)
+
 	go func() {
 		select {
 		case <-done:
 			logger.Println("server going to stop now")
+			syncdone <- struct{}{}
 			go s.GracefulStop()
 			go lis.Close()
 		}
@@ -48,5 +52,6 @@ func main() {
 
 	//store.LoadCollections()
 
+	osd.DefaultStripeSize = 8
 	runRpcServer(ch)
 }

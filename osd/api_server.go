@@ -195,7 +195,11 @@ func (s *Server) Write(ctx context.Context, in *pb.WriteRequest) (*pb.WriteReply
 
 var syncChan = make(chan *syncBatch)
 
-// syncThread syncs an batch to a specific store
+// StartSyncThread starts sync thread
+func StartSyncThread(done <-chan struct{}) {
+	syncThread(done)
+}
+
 func syncThread(done <-chan struct{}) {
 	for {
 		select {

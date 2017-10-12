@@ -6,8 +6,8 @@ import (
 	"github.com/journeymidnight/nentropy/store"
 )
 
-// default size for each stripe
-var defaultStripeSize uint64 = 64 << 10
+// DefaultStripeSize default size for each stripe
+var DefaultStripeSize uint64 = 64 << 10
 
 var onodePrefix = []byte("O")
 var dataPrefix = []byte("D")
@@ -22,7 +22,7 @@ type onode struct {
 }
 
 func newOnode(oid []byte) *onode {
-	return &onode{Oid: oid, Size: 0, StripeSize: defaultStripeSize}
+	return &onode{Oid: oid, Size: 0, StripeSize: DefaultStripeSize}
 }
 
 func getDataKey(oid []byte, offset uint64) []byte {

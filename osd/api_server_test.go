@@ -101,7 +101,7 @@ func TestCreateExistingPG(t *testing.T) {
 }
 
 func TestAlignedWriteAndRead_fullstripe(t *testing.T) {
-	defaultStripeSize = 8 // smaller stripe size for simple test
+	DefaultStripeSize = 8 // smaller stripe size for simple test
 	done := make(chan struct{})
 	go runServer(t, done)
 
@@ -160,7 +160,7 @@ func TestAlignedWriteAndRead_fullstripe(t *testing.T) {
 }
 
 func TestAlignedWriteAndRead_notfullstripe(t *testing.T) {
-	defaultStripeSize = 8 // smaller stripe size for simple test
+	DefaultStripeSize = 8 // smaller stripe size for simple test
 	done := make(chan struct{})
 	go runServer(t, done)
 
@@ -219,7 +219,7 @@ func TestAlignedWriteAndRead_notfullstripe(t *testing.T) {
 }
 
 func TestAlignedWriteAndRead_readatlonglength(t *testing.T) {
-	defaultStripeSize = 8 // smaller stripe size for simple test
+	DefaultStripeSize = 8 // smaller stripe size for simple test
 	done := make(chan struct{})
 	go runServer(t, done)
 
@@ -277,7 +277,7 @@ func TestAlignedWriteAndRead_readatlonglength(t *testing.T) {
 }
 
 func TestAlignedWriteAndRead_alignto16(t *testing.T) {
-	defaultStripeSize = 8 // smaller stripe size for simple test
+	DefaultStripeSize = 8 // smaller stripe size for simple test
 	done := make(chan struct{})
 	go runServer(t, done)
 
@@ -335,7 +335,7 @@ func TestAlignedWriteAndRead_alignto16(t *testing.T) {
 	done <- struct{}{}
 }
 func TestAlignedWriteAndRead_alignto64_comparewholevalue(t *testing.T) {
-	defaultStripeSize = 8 // smaller stripe size for simple test
+	DefaultStripeSize = 8 // smaller stripe size for simple test
 	done := make(chan struct{})
 	go runServer(t, done)
 
@@ -401,7 +401,7 @@ func TestAlignedWriteAndRead_alignto64_comparewholevalue(t *testing.T) {
 
 //rewrite the original stripe
 func TestAlignedWriteAndRead_rewritewhole(t *testing.T) {
-	defaultStripeSize = 8 // smaller stripe size for simple test
+	DefaultStripeSize = 8 // smaller stripe size for simple test
 	done := make(chan struct{})
 	go runServer(t, done)
 
@@ -474,7 +474,7 @@ func TestAlignedWriteAndRead_rewritewhole(t *testing.T) {
 }
 
 func TestAlignedWriteAndRead_rewritepart(t *testing.T) {
-	defaultStripeSize = 8 // smaller stripe size for simple test
+	DefaultStripeSize = 8 // smaller stripe size for simple test
 	done := make(chan struct{})
 	go runServer(t, done)
 
@@ -549,7 +549,7 @@ func TestAlignedWriteAndRead_rewritepart(t *testing.T) {
 }
 
 func TestAlignedWriteAndRead_crossstripe(t *testing.T) {
-	defaultStripeSize = 8 // smaller stripe size for simple test
+	DefaultStripeSize = 8 // smaller stripe size for simple test
 	done := make(chan struct{})
 	go runServer(t, done)
 
@@ -606,7 +606,7 @@ func TestAlignedWriteAndRead_crossstripe(t *testing.T) {
 	done <- struct{}{}
 }
 func TestUnAlignedWriteAndRead_sameoffset(t *testing.T) {
-	defaultStripeSize = 8 // smaller stripe size for simple test
+	DefaultStripeSize = 8 // smaller stripe size for simple test
 	done := make(chan struct{})
 	go runServer(t, done)
 
@@ -664,7 +664,7 @@ func TestUnAlignedWriteAndRead_sameoffset(t *testing.T) {
 }
 
 func TestUnAlignedWriteAndRead_differentoffset(t *testing.T) {
-	defaultStripeSize = 8 // smaller stripe size for simple test
+	DefaultStripeSize = 8 // smaller stripe size for simple test
 	done := make(chan struct{})
 	go runServer(t, done)
 
@@ -722,7 +722,7 @@ func TestUnAlignedWriteAndRead_differentoffset(t *testing.T) {
 }
 
 func TestUnAlignedWriteAndRead_crossstripe(t *testing.T) {
-	defaultStripeSize = 8 // smaller stripe size for simple test
+	DefaultStripeSize = 8 // smaller stripe size for simple test
 	done := make(chan struct{})
 	go runServer(t, done)
 
@@ -780,7 +780,7 @@ func TestUnAlignedWriteAndRead_crossstripe(t *testing.T) {
 }
 
 func TestUnAlignedWriteAndRead_rewritewhole_notcrossstripe(t *testing.T) {
-	defaultStripeSize = 8 // smaller stripe size for simple test
+	DefaultStripeSize = 8 // smaller stripe size for simple test
 	done := make(chan struct{})
 	go runServer(t, done)
 
@@ -854,7 +854,7 @@ func TestUnAlignedWriteAndRead_rewritewhole_notcrossstripe(t *testing.T) {
 }
 
 func TestUnAlignedWriteAndRead_rewritewhole_crossstripe(t *testing.T) {
-	defaultStripeSize = 8 // smaller stripe size for simple test
+	DefaultStripeSize = 8 // smaller stripe size for simple test
 	done := make(chan struct{})
 	go runServer(t, done)
 
@@ -929,7 +929,7 @@ func TestUnAlignedWriteAndRead_rewritewhole_crossstripe(t *testing.T) {
 	done <- struct{}{}
 }
 func TestUnAlignedWriteAndRead_rewritepart_crossstripe(t *testing.T) {
-	defaultStripeSize = 8 // smaller stripe size for simple test
+	DefaultStripeSize = 8 // smaller stripe size for simple test
 	done := make(chan struct{})
 	go runServer(t, done)
 
@@ -1006,7 +1006,7 @@ func TestUnAlignedWriteAndRead_rewritepart_crossstripe(t *testing.T) {
 }
 
 func TestUnAlignedWriteAndRead_rewritepart_crossstripe_differentoffset(t *testing.T) {
-	defaultStripeSize = 8 // smaller stripe size for simple test
+	DefaultStripeSize = 8 // smaller stripe size for simple test
 	done := make(chan struct{})
 	go runServer(t, done)
 
@@ -1083,7 +1083,7 @@ func TestUnAlignedWriteAndRead_rewritepart_crossstripe_differentoffset(t *testin
 }
 
 func TestUnAlignedWriteAndRead_rewritepart_crossstripe_differentoffset_badstripesize(t *testing.T) {
-	defaultStripeSize = 7 // smaller stripe size for simple test
+	DefaultStripeSize = 7 // smaller stripe size for simple test
 	done := make(chan struct{})
 	go runServer(t, done)
 

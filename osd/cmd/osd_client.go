@@ -17,6 +17,8 @@ const (
 var action = flag.String("action", "", "action to osd, support: createpg, removepg, writeobj, readobj, removeobj")
 var pgid = flag.String("pgid", "", "id of the pg")
 var oid = flag.String("oid", "", "oid of an object")
+var offset = flag.Uint64("offset", 0, "specify offset for read/write")
+var length = flag.Uint64("length", 0, "specify length for read/write")
 var value = flag.String("value", "", "value of the object")
 
 func main() {
@@ -65,12 +67,26 @@ func main() {
 			fmt.Println("please provide the oid")
 			os.Exit(-1)
 		}
+		buf := []byte(*value)
+		buflen := uint64(len(buf))
+
+		if *length == 0 {
+			*length = buflen
+		}
+
+		if buflen > *length {
+			//shortten the buffer
+			buf = buf[:*length]
+		} else {
+			//use length as actual buflen
+			*length = buflen
+		}
 		req := &pb.WriteRequest{
 			PGID:   []byte(*pgid),
 			Oid:    []byte(*oid),
-			Value:  []byte(*value),
-			Length: 0,
-			Offset: 0,
+			Value:  buf,
+			Length: *length,
+			Offset: *offset,
 		}
 
 		_, err := c.Write(context.Background(), req)
@@ -87,14 +103,14 @@ func main() {
 		readreq := &pb.ReadRequest{
 			PGID:   []byte(*pgid),
 			Oid:    []byte(*oid),
-			Length: 0,
-			Offset: 0,
+			Length: *length,
+			Offset: *offset,
 		}
 		readret, err := c.Read(context.Background(), readreq)
 		if err != nil {
 			fmt.Printf("objct write failed, error is  %s\r\n", err.Error())
 		} else {
-			fmt.Printf("objct write successfully, value is  %s\r\n", string(readret.ReadBuf))
+			fmt.Printf("objct write successfully, value is: %X", readret.ReadBuf)
 		}
 	case "removeobj":
 		if *oid == "" {
