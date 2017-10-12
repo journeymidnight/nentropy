@@ -95,6 +95,8 @@ func newServer() *monitorRpcServer {
 }
 
 func HandleOsdAdd(req *protos.OsdConfigRequest) (*protos.OsdConfigReply, error) {
+	clus.mapLock.Lock()
+	defer clus.mapLock.Unlock()
 	if _, ok := clus.osdMap.MemberList[req.Osd.Id]; ok {
 		return &protos.OsdConfigReply{}, errors.New(fmt.Sprintf("osd %v already existd in osdmap", req.Osd.Id))
 	}
@@ -115,6 +117,8 @@ func HandleOsdAdd(req *protos.OsdConfigRequest) (*protos.OsdConfigReply, error) 
 }
 
 func HandleOsdDel(req *protos.OsdConfigRequest) (*protos.OsdConfigReply, error) {
+	clus.mapLock.Lock()
+	defer clus.mapLock.Unlock()
 	if _, ok := clus.osdMap.MemberList[req.Osd.Id]; !ok {
 		return &protos.OsdConfigReply{}, errors.New(fmt.Sprintf("osd %v not existd in osdmap", req.Osd.Id))
 	}
@@ -135,6 +139,8 @@ func HandleOsdDel(req *protos.OsdConfigRequest) (*protos.OsdConfigReply, error) 
 }
 
 func HandleOsdIn(req *protos.OsdConfigRequest) (*protos.OsdConfigReply, error) {
+	clus.mapLock.Lock()
+	defer clus.mapLock.Unlock()
 	if _, ok := clus.osdMap.MemberList[req.Osd.Id]; !ok {
 		return &protos.OsdConfigReply{}, errors.New(fmt.Sprintf("osd %v not existd in osdmap", req.Osd.Id))
 	}
@@ -142,6 +148,8 @@ func HandleOsdIn(req *protos.OsdConfigRequest) (*protos.OsdConfigReply, error) {
 }
 
 func HandleOsdOut(req *protos.OsdConfigRequest) (*protos.OsdConfigReply, error) {
+	clus.mapLock.Lock()
+	defer clus.mapLock.Unlock()
 	if _, ok := clus.osdMap.MemberList[req.Osd.Id]; !ok {
 		return &protos.OsdConfigReply{}, errors.New(fmt.Sprintf("osd %v not existd in osdmap", req.Osd.Id))
 	}
@@ -149,10 +157,14 @@ func HandleOsdOut(req *protos.OsdConfigRequest) (*protos.OsdConfigReply, error) 
 }
 
 func HandleOsdUp(req *protos.OsdConfigRequest) (*protos.OsdConfigReply, error) {
+	clus.mapLock.Lock()
+	defer clus.mapLock.Unlock()
 	return &protos.OsdConfigReply{}, nil
 }
 
 func HandleOsdDown(req *protos.OsdConfigRequest) (*protos.OsdConfigReply, error) {
+	clus.mapLock.Lock()
+	defer clus.mapLock.Unlock()
 	return &protos.OsdConfigReply{}, nil
 }
 
@@ -162,6 +174,8 @@ func HandleOsdList(req *protos.OsdConfigRequest) (*protos.OsdConfigReply, error)
 }
 
 func HandlePoolCreate(req *protos.PoolConfigRequest) (*protos.PoolConfigReply, error) {
+	clus.mapLock.Lock()
+	defer clus.mapLock.Unlock()
 	// add more parameters check here
 	if req.Size_ < 1 || req.Size_ > 3 {
 		return &protos.PoolConfigReply{}, errors.New(fmt.Sprintf("pool size range error, should be 1-3"))
@@ -198,6 +212,8 @@ func HandlePoolCreate(req *protos.PoolConfigRequest) (*protos.PoolConfigReply, e
 }
 
 func HandlePoolDelete(req *protos.PoolConfigRequest) (*protos.PoolConfigReply, error) {
+	clus.mapLock.Lock()
+	defer clus.mapLock.Unlock()
 	found := false
 	key := int32(0)
 	for index, pool := range clus.poolMap.Pools {
@@ -225,6 +241,8 @@ func HandlePoolDelete(req *protos.PoolConfigRequest) (*protos.PoolConfigReply, e
 }
 
 func HandlePoolEdit(req *protos.PoolConfigRequest) (*protos.PoolConfigReply, error) {
+	clus.mapLock.Lock()
+	defer clus.mapLock.Unlock()
 	return &protos.PoolConfigReply{}, nil
 }
 

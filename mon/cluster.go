@@ -52,6 +52,7 @@ type cluster struct {
 	osdMap    protos.OsdMap
 	poolMap   protos.PoolMap
 	pgMaps    protos.PgMaps
+	mapLock   *sync.Mutex
 }
 
 // grpcRaftNode struct implements the gRPC server interface.
@@ -242,7 +243,7 @@ func StartRaftNodes(walStore *badger.KV) {
 	clus.ctx, clus.cancel = context.WithCancel(context.Background())
 
 	clus.wal = raftwal.Init(walStore, Config.RaftId)
-
+	clus.mapLock = &sync.Mutex{}
 	var wg sync.WaitGroup
 
 	mons := strings.Split(Config.Monitors, ",")
