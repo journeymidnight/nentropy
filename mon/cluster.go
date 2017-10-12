@@ -332,6 +332,36 @@ func GetCurrOsdMap() (protos.OsdMap, error) {
 	return clus.osdMap, nil
 }
 
+func PreparePoolMap(trans *protos.Transaction, poolMap *protos.PoolMap) error {
+	data, err := poolMap.Marshal()
+	helper.Check(err)
+	err = putOp(trans, "poolmap", poolMap.Epoch, data)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func PreparePgMap(trans *protos.Transaction, pgMaps *protos.PgMaps) error {
+	data, err := pgMaps.Marshal()
+	helper.Check(err)
+	err = putOp(trans, "pgmap", pgMaps.Epoch, data)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func PrepareOsdMap(trans *protos.Transaction, osdMap *protos.OsdMap) error {
+	data, err := osdMap.Marshal()
+	helper.Check(err)
+	err = putOp(trans, "osdmap", osdMap.Epoch, data)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 func ProposePoolMap(poolMap *protos.PoolMap) error {
 	data, err := poolMap.Marshal()
 	helper.Check(err)
@@ -352,7 +382,7 @@ func ProposePgMaps(pgMaps *protos.PgMaps) error {
 	data, err := pgMaps.Marshal()
 	helper.Check(err)
 	trans := protos.Transaction{}
-	err = putOp(&trans, "pgmap", uint64(1), data)
+	err = putOp(&trans, "pgmap", pgMaps.Epoch, data)
 	if err != nil {
 		return err
 	}

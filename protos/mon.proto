@@ -115,13 +115,13 @@ message PoolConfigReply {
 }
 
 message PgMaps {
-    map<int32, PgMap>  pgmaps = 1;
+    uint64 epoch  = 1;
+    map<int32, PgMap>  pgmaps = 2;
 }
 
 message PgMap {
-    uint64      epoch            = 1;
-    int32 pool_id = 2;
-    map<int32, Pg>  pgmap = 3;
+    int32 pool_id = 1;
+    map<int32, Pg>  pgmap = 2;
 }
 
 message Pg{
@@ -162,5 +162,6 @@ message PgConfigRequest {
 
 message PgConfigReply {
     int32 ret_code = 1;
-    PgMap map = 2;
+    uint64 epoch  = 2;
+    PgMap map = 3;
 }

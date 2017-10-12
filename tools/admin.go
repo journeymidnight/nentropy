@@ -9,6 +9,7 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/testdata"
 	"log"
+	"sort"
 )
 
 var (
@@ -35,6 +36,15 @@ func createPool(poolName string, poolSize int32, pgNumber int32, policy pb.Distr
 	_, err := client.PoolConfig(context.Background(), &req)
 	if err != nil {
 		fmt.Println("create pool error: ", err)
+	}
+	return
+}
+
+func deletePool(poolName string) {
+	req := pb.PoolConfigRequest{"", pb.PoolConfigRequest_DEL, poolName, 0, 0, 0}
+	_, err := client.PoolConfig(context.Background(), &req)
+	if err != nil {
+		fmt.Println("delete pool error: ", err)
 	}
 	return
 }
@@ -72,6 +82,7 @@ func poolHandle() {
 		}
 		createPool(*pool, int32(*size), int32(*pgNumber), pb.DistributePolicy(policy_int32))
 	case "delete":
+		deletePool(*pool)
 	case "list":
 		listPools()
 	default:
@@ -86,6 +97,15 @@ func addOsd(osdId int32, osdWeight uint64, osdHost string, osdZone string, osdUp
 	_, err := client.OsdConfig(context.Background(), &req)
 	if err != nil {
 		fmt.Println("add osd error: ", err)
+	}
+	return
+}
+
+func removeOsd(osdId int32) {
+	req := pb.OsdConfigRequest{"", &pb.Osd{osdId, "", 0, "", "", false, false}, pb.OsdConfigRequest_DEL}
+	_, err := client.OsdConfig(context.Background(), &req)
+	if err != nil {
+		fmt.Println("del osd error: ", err)
 	}
 	return
 }
@@ -117,6 +137,7 @@ func osdHandle() {
 	case "add":
 		addOsd(int32(*id), uint64(*weight), *host, *zone, false, true)
 	case "remove":
+		removeOsd(int32(*id))
 	case "in":
 	case "out":
 	case "list":
@@ -135,13 +156,20 @@ func listPgs() {
 		fmt.Println("list osds error: ", err)
 		return
 	}
-	fmt.Println("List Pgs Result:")
-	fmt.Println("Epoch:", reply.Map.Epoch)
-	for _, v := range reply.Map.Pgmap {
-		fmt.Println("================================")
-		fmt.Println("id:", v.Id)
-		fmt.Println("osds:", v.OsdIds)
+	var keys []int
+	for k := range reply.Map.Pgmap {
+		keys = append(keys, int(k))
 	}
+	sort.Ints(keys)
+
+	fmt.Println("List Pgs Result:")
+	fmt.Println("Epoch:", reply.Epoch)
+	for _, k := range keys {
+		fmt.Println("================================")
+		fmt.Println("id:", reply.Map.Pgmap[int32(k)].Id)
+		fmt.Println("osds:", reply.Map.Pgmap[int32(k)].OsdIds)
+	}
+
 	return
 }
 

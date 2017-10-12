@@ -22,7 +22,6 @@ package consistent
 
 import (
 	"errors"
-	"github.com/journeymidnight/nentropy/helper"
 	pb "github.com/journeymidnight/nentropy/protos"
 	"hash/crc32"
 	"sort"
@@ -216,6 +215,7 @@ func (c *Consistent) GetN(name string, n int) ([]*pb.Osd, error) {
 		start = i
 		res   = make([]*pb.Osd, 0, n)
 		elem  = c.circle[c.sortedHashes[i]]
+		loop  = 0
 	)
 
 	res = append(res, elem)
@@ -223,8 +223,13 @@ func (c *Consistent) GetN(name string, n int) ([]*pb.Osd, error) {
 	if len(res) == n {
 		return res, nil
 	}
-	helper.Logger.Println(5, "loop start", len(c.sortedHashes), c.policy)
+
 	for i = start + 1; i != start; i++ {
+		//avoid infinite loop if can not get enough osd
+		loop++
+		if loop > len(c.sortedHashes) {
+			return res, errors.New("osd counts returned are less then expect")
+		}
 		if i >= len(c.sortedHashes) {
 			i = 0
 		}
@@ -235,9 +240,8 @@ func (c *Consistent) GetN(name string, n int) ([]*pb.Osd, error) {
 		if len(res) == n {
 			break
 		}
-		helper.Logger.Println(5, "loop again, i, start=", i, start, c.policy, len(res), elem)
 	}
-	helper.Logger.Println(5, "loop end")
+
 	return res, nil
 }
 
