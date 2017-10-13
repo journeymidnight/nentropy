@@ -1,0 +1,76 @@
+{
+	"ImportPath": "github.com/journeymidnight/nentropy/store",
+	"GoVersion": "go1.9",
+	"GodepVersion": "v79",
+	"Deps": [
+		{
+			"ImportPath": "github.com/AndreasBriese/bbloom",
+			"Rev": "0320de81a58b973b5187098f4815608711c70f3b"
+		},
+		{
+			"ImportPath": "github.com/davecgh/go-spew/spew",
+			"Comment": "v1.1.0",
+			"Rev": "346938d642f2ec3594ed81d874461961cd0faa76"
+		},
+		{
+			"ImportPath": "github.com/dgraph-io/badger",
+			"Rev": "dc3220365a70fb75627277536483ac9777292aa2"
+		},
+		{
+			"ImportPath": "github.com/dgraph-io/badger/options",
+			"Rev": "dc3220365a70fb75627277536483ac9777292aa2"
+		},
+		{
+			"ImportPath": "github.com/dgraph-io/badger/protos",
+			"Rev": "dc3220365a70fb75627277536483ac9777292aa2"
+		},
+		{
+			"ImportPath": "github.com/dgraph-io/badger/skl",
+			"Rev": "dc3220365a70fb75627277536483ac9777292aa2"
+		},
+		{
+			"ImportPath": "github.com/dgraph-io/badger/table",
+			"Rev": "dc3220365a70fb75627277536483ac9777292aa2"
+		},
+		{
+			"ImportPath": "github.com/dgraph-io/badger/y",
+			"Rev": "dc3220365a70fb75627277536483ac9777292aa2"
+		},
+		{
+			"ImportPath": "github.com/golang/protobuf/proto",
+			"Rev": "130e6b02ab059e7b717a096f397c5b60111cae74"
+		},
+		{
+			"ImportPath": "github.com/pkg/errors",
+			"Comment": "v0.8.0-5-gc605e28",
+			"Rev": "c605e284fe17294bda444b34710735b29d1a9d90"
+		},
+		{
+			"ImportPath": "github.com/pmezard/go-difflib/difflib",
+			"Comment": "v1.0.0",
+			"Rev": "792786c7400a136282c1664665ae0a8db921c6c2"
+		},
+		{
+			"ImportPath": "github.com/stretchr/testify/assert",
+			"Comment": "v1.1.4-66-gf6abca5",
+			"Rev": "f6abca593680b2315d2075e0f5e2a9751e3f431a"
+		},
+		{
+			"ImportPath": "github.com/stretchr/testify/require",
+			"Comment": "v1.1.4-66-gf6abca5",
+			"Rev": "f6abca593680b2315d2075e0f5e2a9751e3f431a"
+		},
+		{
+			"ImportPath": "golang.org/x/net/internal/timeseries",
+			"Rev": "9c9a3f3e9f9c5c5b124354c89f615e418c7d3537"
+		},
+		{
+			"ImportPath": "golang.org/x/net/trace",
+			"Rev": "9c9a3f3e9f9c5c5b124354c89f615e418c7d3537"
+		},
+		{
+			"ImportPath": "golang.org/x/sys/unix",
+			"Rev": "a45f55524b7ec57890cfa6c6bc06b47f877be0d1"
+		}
+	]
+}
