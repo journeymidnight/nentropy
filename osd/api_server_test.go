@@ -5,7 +5,6 @@ import (
 	"net"
 	"os"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -22,7 +21,7 @@ const (
 	port        = ":50051"
 )
 
-func runServer(t *testing.T, done <-chan struct{}) {
+func runServer(t *testing.T, done <-chan struct{}, closech chan<- struct{}) {
 	lis, err := net.Listen("tcp", port)
 	if err != nil {
 		t.Fatalf("failed to listen: %v", err)
@@ -43,9 +42,7 @@ func runServer(t *testing.T, done <-chan struct{}) {
 			//stop outer server first to stop serving request
 			go s.GracefulStop()
 			go lis.Close()
-			fmt.Println(time.Now())
-			osdserver.Close()
-			fmt.Println(time.Now())
+			osdserver.Close(closech)
 		}
 	}()
 
@@ -53,12 +50,13 @@ func runServer(t *testing.T, done <-chan struct{}) {
 }
 func TestCreateNonExistPG(t *testing.T) {
 	done := make(chan struct{})
+	closech := make(chan struct{})
 	pgid := []byte("asdf")
 
 	//remove if exists
 	os.RemoveAll(string(pgid))
 	os.RemoveAll(Metadir)
-	go runServer(t, done)
+	go runServer(t, done, closech)
 
 	// Set up a connection to the server.
 	conn, err := grpc.Dial(address, grpc.WithInsecure())
@@ -82,15 +80,19 @@ func TestCreateNonExistPG(t *testing.T) {
 	require.Equal(t, err, nil)
 
 	done <- struct{}{}
-	time.Sleep(time.Second * 2)
+	select {
+	case <-closech:
+
+	}
 }
 
 func TestCreateExistingPG(t *testing.T) {
 	done := make(chan struct{})
+	closech := make(chan struct{})
 	pgid := []byte("asdf")
 	os.RemoveAll(Metadir)
 	os.RemoveAll(string(pgid))
-	go runServer(t, done)
+	go runServer(t, done, closech)
 
 	// Set up a connection to the server.
 	conn, err := grpc.Dial(address, grpc.WithInsecure())
@@ -109,16 +111,21 @@ func TestCreateExistingPG(t *testing.T) {
 	require.Contains(t, err.Error(), ErrPGAlreadyExists.Error())
 
 	done <- struct{}{}
+	select {
+	case <-closech:
+
+	}
 	os.RemoveAll(string(pgid))
 }
 
 func TestAlignedWriteAndRead_fullstripe(t *testing.T) {
 	DefaultStripeSize = 8 // smaller stripe size for simple test
 	done := make(chan struct{})
+	closech := make(chan struct{})
 	pgid := []byte("1.0")
 	os.RemoveAll(string(pgid))
 	os.RemoveAll(Metadir)
-	go runServer(t, done)
+	go runServer(t, done, closech)
 
 	// Set up a connection to the server.
 	conn, err := grpc.Dial(address, grpc.WithInsecure())
@@ -170,16 +177,20 @@ func TestAlignedWriteAndRead_fullstripe(t *testing.T) {
 	_, err = c.RemovePG(context.Background(), removereq)
 	require.Equal(t, err, nil)
 	done <- struct{}{}
-	time.Sleep(time.Second * 2)
+	select {
+	case <-closech:
+
+	}
 }
 
 func TestAlignedWriteAndRead_notfullstripe(t *testing.T) {
 	DefaultStripeSize = 8 // smaller stripe size for simple test
 	done := make(chan struct{})
+	closech := make(chan struct{})
 	pgid := []byte("1.0")
 	os.RemoveAll(string(pgid))
 	os.RemoveAll(Metadir)
-	go runServer(t, done)
+	go runServer(t, done, closech)
 
 	// Set up a connection to the server.
 	conn, err := grpc.Dial(address, grpc.WithInsecure())
@@ -231,16 +242,20 @@ func TestAlignedWriteAndRead_notfullstripe(t *testing.T) {
 	_, err = c.RemovePG(context.Background(), removereq)
 	require.Equal(t, err, nil)
 	done <- struct{}{}
-	time.Sleep(time.Second * 2)
+	select {
+	case <-closech:
+
+	}
 }
 
 func TestAlignedWriteAndRead_readatlonglength(t *testing.T) {
 	DefaultStripeSize = 8 // smaller stripe size for simple test
 	done := make(chan struct{})
+	closech := make(chan struct{})
 	pgid := []byte("1.0")
 	os.RemoveAll(string(pgid))
 	os.RemoveAll(Metadir)
-	go runServer(t, done)
+	go runServer(t, done, closech)
 
 	// Set up a connection to the server.
 	conn, err := grpc.Dial(address, grpc.WithInsecure())
@@ -291,16 +306,20 @@ func TestAlignedWriteAndRead_readatlonglength(t *testing.T) {
 	_, err = c.RemovePG(context.Background(), removereq)
 	require.Equal(t, err, nil)
 	done <- struct{}{}
-	time.Sleep(time.Second * 2)
+	select {
+	case <-closech:
+
+	}
 }
 
 func TestAlignedWriteAndRead_alignto16(t *testing.T) {
 	DefaultStripeSize = 8 // smaller stripe size for simple test
 	done := make(chan struct{})
+	closech := make(chan struct{})
 	pgid := []byte("1.0")
 	os.RemoveAll(string(pgid))
 	os.RemoveAll(Metadir)
-	go runServer(t, done)
+	go runServer(t, done, closech)
 
 	// Set up a connection to the server.
 	conn, err := grpc.Dial(address, grpc.WithInsecure())
@@ -352,15 +371,19 @@ func TestAlignedWriteAndRead_alignto16(t *testing.T) {
 	_, err = c.RemovePG(context.Background(), removereq)
 	require.Equal(t, err, nil)
 	done <- struct{}{}
-	time.Sleep(time.Second * 2)
+	select {
+	case <-closech:
+
+	}
 }
 func TestAlignedWriteAndRead_alignto64_comparewholevalue(t *testing.T) {
 	DefaultStripeSize = 8 // smaller stripe size for simple test
 	done := make(chan struct{})
+	closech := make(chan struct{})
 	pgid := []byte("1.0")
 	os.RemoveAll(string(pgid))
 	os.RemoveAll(Metadir)
-	go runServer(t, done)
+	go runServer(t, done, closech)
 
 	// Set up a connection to the server.
 	conn, err := grpc.Dial(address, grpc.WithInsecure())
@@ -418,17 +441,21 @@ func TestAlignedWriteAndRead_alignto64_comparewholevalue(t *testing.T) {
 	_, err = c.RemovePG(context.Background(), removereq)
 	require.Equal(t, err, nil)
 	done <- struct{}{}
-	time.Sleep(time.Second * 2)
+	select {
+	case <-closech:
+
+	}
 }
 
 //rewrite the original stripe
 func TestAlignedWriteAndRead_rewritewhole(t *testing.T) {
 	DefaultStripeSize = 8 // smaller stripe size for simple test
 	done := make(chan struct{})
+	closech := make(chan struct{})
 	pgid := []byte("1.0")
 	os.RemoveAll(string(pgid))
 	os.RemoveAll(Metadir)
-	go runServer(t, done)
+	go runServer(t, done, closech)
 
 	// Set up a connection to the server.
 	conn, err := grpc.Dial(address, grpc.WithInsecure())
@@ -494,16 +521,20 @@ func TestAlignedWriteAndRead_rewritewhole(t *testing.T) {
 	_, err = c.RemovePG(context.Background(), removereq)
 	require.Equal(t, err, nil)
 	done <- struct{}{}
-	time.Sleep(time.Second * 2)
+	select {
+	case <-closech:
+
+	}
 }
 
 func TestAlignedWriteAndRead_rewritepart(t *testing.T) {
 	DefaultStripeSize = 8 // smaller stripe size for simple test
 	done := make(chan struct{})
+	closech := make(chan struct{})
 	pgid := []byte("1.0")
 	os.RemoveAll(string(pgid))
 	os.RemoveAll(Metadir)
-	go runServer(t, done)
+	go runServer(t, done, closech)
 
 	// Set up a connection to the server.
 	conn, err := grpc.Dial(address, grpc.WithInsecure())
@@ -571,16 +602,20 @@ func TestAlignedWriteAndRead_rewritepart(t *testing.T) {
 	_, err = c.RemovePG(context.Background(), removereq)
 	require.Equal(t, err, nil)
 	done <- struct{}{}
-	time.Sleep(time.Second * 2)
+	select {
+	case <-closech:
+
+	}
 }
 
 func TestAlignedWriteAndRead_crossstripe(t *testing.T) {
 	DefaultStripeSize = 8 // smaller stripe size for simple test
 	done := make(chan struct{})
+	closech := make(chan struct{})
 	pgid := []byte("1.0")
 	os.RemoveAll(string(pgid))
 	os.RemoveAll(Metadir)
-	go runServer(t, done)
+	go runServer(t, done, closech)
 
 	// Set up a connection to the server.
 	conn, err := grpc.Dial(address, grpc.WithInsecure())
@@ -631,15 +666,15 @@ func TestAlignedWriteAndRead_crossstripe(t *testing.T) {
 	_, err = c.RemovePG(context.Background(), removereq)
 	require.Equal(t, err, nil)
 	done <- struct{}{}
-	time.Sleep(time.Second * 2)
 }
 func TestUnAlignedWriteAndRead_sameoffset(t *testing.T) {
 	DefaultStripeSize = 8 // smaller stripe size for simple test
 	done := make(chan struct{})
+	closech := make(chan struct{})
 	pgid := []byte("1.0")
 	os.RemoveAll(string(pgid))
 	os.RemoveAll(Metadir)
-	go runServer(t, done)
+	go runServer(t, done, closech)
 
 	// Set up a connection to the server.
 	conn, err := grpc.Dial(address, grpc.WithInsecure())
@@ -690,16 +725,20 @@ func TestUnAlignedWriteAndRead_sameoffset(t *testing.T) {
 	_, err = c.RemovePG(context.Background(), removereq)
 	require.Equal(t, err, nil)
 	done <- struct{}{}
-	time.Sleep(time.Second * 2)
+	select {
+	case <-closech:
+
+	}
 }
 
 func TestUnAlignedWriteAndRead_differentoffset(t *testing.T) {
 	DefaultStripeSize = 8 // smaller stripe size for simple test
 	done := make(chan struct{})
+	closech := make(chan struct{})
 	pgid := []byte("1.0")
 	os.RemoveAll(string(pgid))
 	os.RemoveAll(Metadir)
-	go runServer(t, done)
+	go runServer(t, done, closech)
 
 	// Set up a connection to the server.
 	conn, err := grpc.Dial(address, grpc.WithInsecure())
@@ -750,16 +789,20 @@ func TestUnAlignedWriteAndRead_differentoffset(t *testing.T) {
 	_, err = c.RemovePG(context.Background(), removereq)
 	require.Equal(t, err, nil)
 	done <- struct{}{}
-	time.Sleep(time.Second * 2)
+	select {
+	case <-closech:
+
+	}
 }
 
 func TestUnAlignedWriteAndRead_crossstripe(t *testing.T) {
 	DefaultStripeSize = 8 // smaller stripe size for simple test
 	done := make(chan struct{})
+	closech := make(chan struct{})
 	pgid := []byte("1.0")
 	os.RemoveAll(string(pgid))
 	os.RemoveAll(Metadir)
-	go runServer(t, done)
+	go runServer(t, done, closech)
 
 	// Set up a connection to the server.
 	conn, err := grpc.Dial(address, grpc.WithInsecure())
@@ -810,16 +853,20 @@ func TestUnAlignedWriteAndRead_crossstripe(t *testing.T) {
 	_, err = c.RemovePG(context.Background(), removereq)
 	require.Equal(t, err, nil)
 	done <- struct{}{}
-	time.Sleep(time.Second * 2)
+	select {
+	case <-closech:
+
+	}
 }
 
 func TestUnAlignedWriteAndRead_rewritewhole_notcrossstripe(t *testing.T) {
 	DefaultStripeSize = 8 // smaller stripe size for simple test
 	done := make(chan struct{})
+	closech := make(chan struct{})
 	pgid := []byte("1.0")
 	os.RemoveAll(string(pgid))
 	os.RemoveAll(Metadir)
-	go runServer(t, done)
+	go runServer(t, done, closech)
 
 	// Set up a connection to the server.
 	conn, err := grpc.Dial(address, grpc.WithInsecure())
@@ -886,18 +933,22 @@ func TestUnAlignedWriteAndRead_rewritewhole_notcrossstripe(t *testing.T) {
 	_, err = c.RemovePG(context.Background(), removereq)
 	require.Equal(t, err, nil)
 	done <- struct{}{}
-	time.Sleep(time.Second * 2)
+	select {
+	case <-closech:
+
+	}
 }
 
 func TestUnAlignedWriteAndRead_rewritewhole_crossstripe(t *testing.T) {
 	DefaultStripeSize = 8 // smaller stripe size for simple test
 	done := make(chan struct{})
+	closech := make(chan struct{})
 	pgid := []byte("1.0")
 
 	//remove if exists
 	os.RemoveAll(string(pgid))
 	os.RemoveAll(Metadir)
-	go runServer(t, done)
+	go runServer(t, done, closech)
 
 	// Set up a connection to the server.
 	conn, err := grpc.Dial(address, grpc.WithInsecure())
@@ -964,17 +1015,21 @@ func TestUnAlignedWriteAndRead_rewritewhole_crossstripe(t *testing.T) {
 	require.Equal(t, readret.RetCode, int32(0))
 	require.Equal(t, readret.ReadBuf, value2)
 	done <- struct{}{}
-	time.Sleep(time.Second * 2)
+	select {
+	case <-closech:
+
+	}
 }
 func TestUnAlignedWriteAndRead_rewritepart_crossstripe(t *testing.T) {
 	DefaultStripeSize = 8 // smaller stripe size for simple test
 	done := make(chan struct{})
+	closech := make(chan struct{})
 	pgid := []byte("1.0")
 
 	//remove if exists
 	os.RemoveAll(string(pgid))
 	os.RemoveAll(Metadir)
-	go runServer(t, done)
+	go runServer(t, done, closech)
 
 	// Set up a connection to the server.
 	conn, err := grpc.Dial(address, grpc.WithInsecure())
@@ -1042,18 +1097,22 @@ func TestUnAlignedWriteAndRead_rewritepart_crossstripe(t *testing.T) {
 	require.Equal(t, readret.RetCode, int32(0))
 	require.Equal(t, readret.ReadBuf, value3)
 	done <- struct{}{}
-	time.Sleep(time.Second * 2)
+	select {
+	case <-closech:
+
+	}
 }
 
 func TestUnAlignedWriteAndRead_rewritepart_crossstripe_differentoffset(t *testing.T) {
 	DefaultStripeSize = 8 // smaller stripe size for simple test
 	done := make(chan struct{})
+	closech := make(chan struct{})
 	pgid := []byte("1.0")
 
 	//remove if exists
 	os.RemoveAll(string(pgid))
 	os.RemoveAll(Metadir)
-	go runServer(t, done)
+	go runServer(t, done, closech)
 
 	// Set up a connection to the server.
 	conn, err := grpc.Dial(address, grpc.WithInsecure())
@@ -1121,18 +1180,22 @@ func TestUnAlignedWriteAndRead_rewritepart_crossstripe_differentoffset(t *testin
 	require.Equal(t, readret.RetCode, int32(0))
 	require.Equal(t, readret.ReadBuf, value3)
 	done <- struct{}{}
-	time.Sleep(time.Second * 2)
+	select {
+	case <-closech:
+
+	}
 }
 
 func TestUnAlignedWriteAndRead_rewritepart_crossstripe_differentoffset_badstripesize(t *testing.T) {
 	DefaultStripeSize = 7 // smaller stripe size for simple test
 	done := make(chan struct{})
+	closech := make(chan struct{})
 	pgid := []byte("1.0")
 
 	//remove if exists
 	os.RemoveAll(string(pgid))
 	os.RemoveAll(Metadir)
-	go runServer(t, done)
+	go runServer(t, done, closech)
 
 	// Set up a connection to the server.
 	conn, err := grpc.Dial(address, grpc.WithInsecure())
@@ -1200,14 +1263,18 @@ func TestUnAlignedWriteAndRead_rewritepart_crossstripe_differentoffset_badstripe
 	require.Equal(t, readret.RetCode, int32(0))
 	require.Equal(t, readret.ReadBuf, value3)
 	done <- struct{}{}
-	time.Sleep(time.Second * 2)
+	select {
+	case <-closech:
+
+	}
 }
 func TestWriteThenReadKey(t *testing.T) {
 	done := make(chan struct{})
+	closech := make(chan struct{})
 	pgid := []byte("1.0")
 	os.RemoveAll(string(pgid))
 	os.RemoveAll(Metadir)
-	go runServer(t, done)
+	go runServer(t, done, closech)
 
 	// Set up a connection to the server.
 	conn, err := grpc.Dial(address, grpc.WithInsecure())
@@ -1257,13 +1324,17 @@ func TestWriteThenReadKey(t *testing.T) {
 	_, err = c.RemovePG(context.Background(), removereq)
 	require.Equal(t, err, nil)
 	done <- struct{}{}
-	time.Sleep(time.Second * 2)
+	select {
+	case <-closech:
+
+	}
 }
 
 func TestReadNonExistPG(t *testing.T) {
 	done := make(chan struct{})
+	closech := make(chan struct{})
 	os.RemoveAll(Metadir)
-	go runServer(t, done)
+	go runServer(t, done, closech)
 
 	// Set up a connection to the server.
 	conn, err := grpc.Dial(address, grpc.WithInsecure())
@@ -1285,16 +1356,20 @@ func TestReadNonExistPG(t *testing.T) {
 	_, err = c.Read(context.Background(), readreq)
 	require.Contains(t, err.Error(), ErrNoSuchPG.Error())
 	done <- struct{}{}
-	time.Sleep(time.Second * 2)
+	select {
+	case <-closech:
+
+	}
 }
 
 func TestReadNonExistKey(t *testing.T) {
 	done := make(chan struct{})
+	closech := make(chan struct{})
 	pgid := []byte("1.0")
 
 	os.RemoveAll(string(pgid))
 	os.RemoveAll(Metadir)
-	go runServer(t, done)
+	go runServer(t, done, closech)
 
 	// Set up a connection to the server.
 	conn, err := grpc.Dial(address, grpc.WithInsecure())
@@ -1343,15 +1418,19 @@ func TestReadNonExistKey(t *testing.T) {
 	_, err = c.RemovePG(context.Background(), removereq)
 	require.Equal(t, err, nil)
 	done <- struct{}{}
-	time.Sleep(time.Second * 2)
+	select {
+	case <-closech:
+
+	}
 }
 
 func TestWriteRemoveRead(t *testing.T) {
 	done := make(chan struct{})
+	closech := make(chan struct{})
 	pgid := []byte("1.0")
 	os.RemoveAll(string(pgid))
 	os.RemoveAll(Metadir)
-	go runServer(t, done)
+	go runServer(t, done, closech)
 
 	// Set up a connection to the server.
 	conn, err := grpc.Dial(address, grpc.WithInsecure())
@@ -1413,16 +1492,20 @@ func TestWriteRemoveRead(t *testing.T) {
 	_, err = c.RemovePG(context.Background(), pgremovereq)
 	require.Equal(t, err, nil)
 	done <- struct{}{}
-	time.Sleep(time.Second * 2)
+	select {
+	case <-closech:
+
+	}
 }
 
 func TestWriteAndGetObjectStat_zerooffset(t *testing.T) {
 	DefaultStripeSize = 8 // smaller stripe size for simple test
 	done := make(chan struct{})
+	closech := make(chan struct{})
 	pgid := []byte("1.0")
 	os.RemoveAll(string(pgid))
 	os.RemoveAll(Metadir)
-	go runServer(t, done)
+	go runServer(t, done, closech)
 
 	// Set up a connection to the server.
 	conn, err := grpc.Dial(address, grpc.WithInsecure())
@@ -1474,16 +1557,20 @@ func TestWriteAndGetObjectStat_zerooffset(t *testing.T) {
 	_, err = c.RemovePG(context.Background(), removereq)
 	require.Equal(t, err, nil)
 	done <- struct{}{}
-	time.Sleep(time.Second * 2)
+	select {
+	case <-closech:
+
+	}
 }
 
 func TestWriteAndGetObjectStat_haveoffset(t *testing.T) {
 	DefaultStripeSize = 8 // smaller stripe size for simple test
 	done := make(chan struct{})
+	closech := make(chan struct{})
 	pgid := []byte("1.0")
 	os.RemoveAll(string(pgid))
 	os.RemoveAll(Metadir)
-	go runServer(t, done)
+	go runServer(t, done, closech)
 
 	// Set up a connection to the server.
 	conn, err := grpc.Dial(address, grpc.WithInsecure())
@@ -1536,15 +1623,19 @@ func TestWriteAndGetObjectStat_haveoffset(t *testing.T) {
 	_, err = c.RemovePG(context.Background(), removereq)
 	require.Equal(t, err, nil)
 	done <- struct{}{}
-	time.Sleep(time.Second * 2)
+	select {
+	case <-closech:
+
+	}
 }
 
 func TestLoadFromExistingData_onepg(t *testing.T) {
 	done := make(chan struct{})
+	closech := make(chan struct{})
 	pgid := []byte("1.0")
 	os.RemoveAll(string(pgid))
 	os.RemoveAll(Metadir)
-	go runServer(t, done)
+	go runServer(t, done, closech)
 
 	// Set up a connection to the server.
 	conn, err := grpc.Dial(address, grpc.WithInsecure())
@@ -1579,14 +1670,18 @@ func TestLoadFromExistingData_onepg(t *testing.T) {
 	done <- struct{}{}
 	conn.Close()
 	close(done)
+	select {
+	case <-closech:
+
+	}
 
 	//closing collections maybe time-consuming, wait 2 seconds here
-	time.Sleep(time.Second * 2)
 	fmt.Println("recreating new")
 
 	//start a new pair of server/client
 	done = make(chan struct{})
-	go runServer(t, done)
+	closech = make(chan struct{})
+	go runServer(t, done, closech)
 
 	// Set up a connection to the server.
 	conn, err = grpc.Dial(address, grpc.WithInsecure())
@@ -1610,13 +1705,15 @@ func TestLoadFromExistingData_onepg(t *testing.T) {
 	done <- struct{}{}
 	conn.Close()
 	close(done)
+	select {
+	case <-closech:
 
-	//closing collections maybe time-consuming, wait 2 second
-	time.Sleep(time.Second)
+	}
 
 	//finally we are going to remove the pg
 	done = make(chan struct{})
-	go runServer(t, done)
+	closech = make(chan struct{})
+	go runServer(t, done, closech)
 
 	// Set up a connection to the server.
 	conn, err = grpc.Dial(address, grpc.WithInsecure())
@@ -1632,14 +1729,18 @@ func TestLoadFromExistingData_onepg(t *testing.T) {
 
 	conn.Close()
 	close(done)
+	select {
+	case <-closech:
+
+	}
 
 	//wait for closing data and meta collections
-	time.Sleep(time.Second * 2)
 	os.RemoveAll(Metadir)
 }
 
 func TestLoadFromExistingData_100pgs(t *testing.T) {
 	done := make(chan struct{})
+	closech := make(chan struct{})
 
 	os.RemoveAll(Metadir)
 	var pgs [][]byte
@@ -1649,7 +1750,7 @@ func TestLoadFromExistingData_100pgs(t *testing.T) {
 		os.RemoveAll(string(pgid))
 	}
 
-	go runServer(t, done)
+	go runServer(t, done, closech)
 
 	// Set up a connection to the server.
 	conn, err := grpc.Dial(address, grpc.WithInsecure())
@@ -1687,16 +1788,19 @@ func TestLoadFromExistingData_100pgs(t *testing.T) {
 	done <- struct{}{}
 	conn.Close()
 	close(done)
+	select {
+	case <-closech:
 
-	//closing 100 collections maybe time-consuming, wait 10 seconds here
-	time.Sleep(time.Second * 10)
+	}
+
 	fmt.Println("recreating new")
 
 	//start a new pair of server/client
 	done = make(chan struct{})
+	closech = make(chan struct{})
 
 	//load all 100 pgs here
-	go runServer(t, done)
+	go runServer(t, done, closech)
 
 	// Set up a connection to the server.
 	conn, err = grpc.Dial(address, grpc.WithInsecure())
@@ -1722,13 +1826,14 @@ func TestLoadFromExistingData_100pgs(t *testing.T) {
 	done <- struct{}{}
 	conn.Close()
 	close(done)
+	select {
+	case <-closech:
 
-	//closing 100 collections maybe time-consuming, wait 10 second
-	time.Sleep(time.Second * 1)
+	}
 
 	//finally we are going to remove the pg
 	done = make(chan struct{})
-	go runServer(t, done)
+	go runServer(t, done, closech)
 
 	// Set up a connection to the server.
 	conn, err = grpc.Dial(address, grpc.WithInsecure())
@@ -1747,8 +1852,11 @@ func TestLoadFromExistingData_100pgs(t *testing.T) {
 
 	conn.Close()
 	close(done)
+	select {
+	case <-closech:
+
+	}
 
 	//wait for closing data and meta collections
-	time.Sleep(time.Second * 1)
 	os.RemoveAll(Metadir)
 }

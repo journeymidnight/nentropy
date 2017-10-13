@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"net"
 	"os"
@@ -19,7 +20,7 @@ const (
 	port = ":50052"
 )
 
-func runRpcServer(done <-chan os.Signal) {
+func runRpcServer(done <-chan os.Signal, close chan<- struct{}) {
 	logger := log.New(os.Stdout, "osd::rpcserver: ", log.Ltime)
 	lis, err := net.Listen("tcp", port)
 	if err != nil {
@@ -40,7 +41,10 @@ func runRpcServer(done <-chan os.Signal) {
 			syncdone <- struct{}{}
 			go s.GracefulStop()
 			go lis.Close()
-			osdserver.Close()
+
+			osdserver.Close(close)
+
+			return
 		}
 	}()
 
@@ -55,5 +59,11 @@ func main() {
 	//store.LoadCollections()
 
 	osd.DefaultStripeSize = 8
-	runRpcServer(ch)
+	closech := make(chan struct{})
+	runRpcServer(ch, closech)
+
+	select {
+	case <-closech:
+		fmt.Println("collections closed, we can quit now")
+	}
 }

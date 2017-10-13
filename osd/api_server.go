@@ -104,11 +104,14 @@ func createOrGetOnonde(coll *store.Collection, oid []byte) (o *onode) {
 }
 
 // Close closes all the collections
-func (s *Server) Close() {
-	s.meta.Close()
-	for _, coll := range s.collections {
-		coll.Close()
-	}
+func (s *Server) Close(ch chan<- struct{}) {
+	go func() {
+		s.meta.Close()
+		for _, coll := range s.collections {
+			coll.Close()
+		}
+		ch <- struct{}{}
+	}()
 }
 
 // Write writes a object to store
@@ -255,15 +258,6 @@ func syncThread(done <-chan struct{}) {
 			err := bat.coll.Write(bat.batch)
 			bat.persist <- err
 		case <-done:
-			return
-		}
-	}
-}
-func (s *Server) quitThread(done <-chan struct{}) {
-	for {
-		select {
-		case <-done:
-			s.Close()
 			return
 		}
 	}
