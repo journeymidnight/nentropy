@@ -4,8 +4,11 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
+	"log"
 	"os"
 
+	"github.com/journeymidnight/nentropy/osd"
 	pb "github.com/journeymidnight/nentropy/osd/protos"
 	"google.golang.org/grpc"
 )
@@ -14,12 +17,13 @@ const (
 	address = "localhost:50052"
 )
 
-var action = flag.String("action", "", "action to osd, support: createpg, removepg, writeobj, readobj, removeobj")
+var action = flag.String("action", "", "action to osd, support: createpg, removepg, writeobj, readobj, removeobj, putfile, getfile")
 var pgid = flag.String("pgid", "", "id of the pg")
 var oid = flag.String("oid", "", "oid of an object")
 var offset = flag.Uint64("offset", 0, "specify offset for read/write")
 var length = flag.Uint64("length", 0, "specify length for read/write")
 var value = flag.String("value", "", "value of the object")
+var filename = flag.String("filename", "", "file name")
 
 func main() {
 	flag.Parse()
@@ -127,6 +131,63 @@ func main() {
 		} else {
 			fmt.Println("objct remove successfully")
 		}
+	case "putfile":
+		if *oid == "" {
+			fmt.Println("please provide the oid")
+			os.Exit(-1)
+		}
+		if *filename == "" {
+			fmt.Println("please provide a filename")
+			os.Exit(-1)
+		}
+
+		if _, err := os.Stat(*filename); err != nil {
+			if os.IsNotExist(err) {
+				fmt.Println("file not exist")
+				os.Exit(-1)
+			}
+		}
+		file, err := os.Open(*filename)
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer file.Close()
+
+		buf := make([]byte, osd.DefaultStripeSize) // define your buffer size here.
+
+		offset := uint64(0)
+		for {
+			n, err := file.Read(buf)
+
+			if n > 0 {
+				req := &pb.WriteRequest{
+					PGID:   []byte(*pgid),
+					Oid:    []byte(*oid),
+					Value:  buf[:n],
+					Length: uint64(n),
+					Offset: offset,
+				}
+
+				_, err := c.Write(context.Background(), req)
+				if err != nil {
+					fmt.Printf("put file at offset %d failed, error is  %s\r\n", offset, err.Error())
+					os.Exit(-1)
+				} else {
+					fmt.Printf("put file at offset %d successed \r\n", offset)
+				}
+				offset += uint64(n)
+			}
+
+			if err == io.EOF {
+				fmt.Printf("put file successed \r\n")
+				break
+			}
+			if err != nil {
+				log.Printf("read %d bytes: %v", n, err)
+				break
+			}
+		}
+
 	default:
 		fmt.Println("action not supported")
 	}
