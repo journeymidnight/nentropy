@@ -16,3 +16,8 @@ all:
 	mv nentropy_monitor $(PWD)/build/bin
 	mv nentropy_admin $(PWD)/build/bin
 	mv nentropy_osd $(PWD)/build/bin
+test-osd:
+	cd $(URLPATH)/$(REPO)/osd && go test -v
+test-store:
+	cd $(URLPATH)/$(REPO)/store && go test -v
+test: test-osd test-store
