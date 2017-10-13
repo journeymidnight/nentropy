@@ -6,8 +6,6 @@ import (
 	pb "github.com/journeymidnight/nentropy/protos"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials"
-	"google.golang.org/grpc/testdata"
 	"log"
 	"sort"
 )
@@ -187,18 +185,7 @@ func pgHandle() {
 func main() {
 	flag.Parse()
 	var opts []grpc.DialOption
-	if *tls {
-		if *caFile == "" {
-			*caFile = testdata.Path("ca.pem")
-		}
-		creds, err := credentials.NewClientTLSFromFile(*caFile, *serverHostOverride)
-		if err != nil {
-			log.Fatalf("Failed to create TLS credentials %v", err)
-		}
-		opts = append(opts, grpc.WithTransportCredentials(creds))
-	} else {
-		opts = append(opts, grpc.WithInsecure())
-	}
+	opts = append(opts, grpc.WithInsecure())
 	conn, err := grpc.Dial(*serverAddr, opts...)
 	if err != nil {
 		log.Fatalf("fail to dial: %v", err)
