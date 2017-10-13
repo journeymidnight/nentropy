@@ -1949,4 +1949,5 @@ func TestRemoveAllStripe(t *testing.T) {
 	}
 	coll.Close()
 	os.RemoveAll(string(pgid))
+	os.RemoveAll(Metadir)
 }
