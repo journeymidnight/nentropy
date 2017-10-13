@@ -49,3 +49,8 @@ func stripeRead(coll *store.Collection, offset uint64, n *onode) ([]byte, error)
 	value, err := coll.Get(key)
 	return value, err
 }
+
+func stripeDelete(bat *store.WriteBatch, offset uint64, n *onode) {
+	key := getDataKey(n.Oid, offset)
+	bat.Delete(key)
+}

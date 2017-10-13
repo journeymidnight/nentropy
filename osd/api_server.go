@@ -358,11 +358,45 @@ func (s *Server) Remove(ctx context.Context, in *pb.RemoveRequest) (*pb.RemoveRe
 	if !ok {
 		return nil, ErrNoSuchPG
 	}
+	oid := in.GetOid()
 
-	if err := coll.Delete(in.GetOid()); err != nil {
-		return nil, ErrFailedRemovingKey
+	//(fixme)find the onode first, should use cache
+	val, err := coll.Get(oid)
+	if err != nil {
+		return nil, err
 	}
 
+	if val == nil {
+		return nil, ErrNoValueForKey
+	}
+
+	var n onode
+	bson.Unmarshal(val, &n)
+
+	size := n.Size
+	stripeSize := n.StripeSize
+	stripeNum := size / stripeSize
+	stripeRem := size % stripeSize
+
+	bat := store.NewWriteBatch()
+	var i uint64
+	for ; i < stripeNum; i++ {
+		stripeDelete(bat, i*stripeSize, &n)
+	}
+
+	if stripeRem > 0 {
+		stripeDelete(bat, i*stripeSize, &n)
+	}
+
+	// also delete the onode
+	bat.Delete(oid)
+
+	//put the batch to sync channel
+	b := &syncBatch{batch: bat, coll: coll, persist: make(chan error), oid: oid}
+	syncChan <- b
+
+	//receiving the response from store
+	<-b.persist
 	return &pb.RemoveReply{RetCode: 0}, nil
 }
 

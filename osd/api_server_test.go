@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	pb "github.com/journeymidnight/nentropy/osd/protos"
+	"github.com/journeymidnight/nentropy/store"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
@@ -1859,4 +1860,93 @@ func TestLoadFromExistingData_100pgs(t *testing.T) {
 
 	//wait for closing data and meta collections
 	os.RemoveAll(Metadir)
+}
+
+func TestRemoveAllStripe(t *testing.T) {
+	DefaultStripeSize = 8 // smaller stripe size for simple test
+	done := make(chan struct{})
+	closech := make(chan struct{})
+	pgid := []byte("1.0")
+	oid := []byte("hello")
+	os.RemoveAll(string(pgid))
+	os.RemoveAll(Metadir)
+	go runServer(t, done, closech)
+
+	// Set up a connection to the server.
+	conn, err := grpc.Dial(address, grpc.WithInsecure())
+	if err != nil {
+		t.Fatalf("did not connect: %v", err)
+	}
+	defer conn.Close()
+	c := pb.NewStoreClient(conn)
+
+	value := []byte("abcdefghijklmnopqrstuvwxyz")
+	l := uint64(len(value))
+	creq := &pb.CreatePgRequest{
+		PGID: pgid,
+	}
+
+	_, err = c.CreatePG(context.Background(), creq)
+	require.Equal(t, err, nil)
+
+	req := &pb.WriteRequest{
+		PGID:   pgid,
+		Oid:    oid,
+		Value:  value,
+		Length: l,
+		Offset: 0,
+	}
+
+	r, err := c.Write(context.Background(), req)
+	if err != nil {
+		t.Fatalf("could not write: %v\n", err)
+	}
+	require.Equal(t, r.RetCode, int32(0))
+
+	removeobjreq := &pb.RemoveRequest{
+		PGID: pgid,
+		Oid:  oid,
+	}
+
+	removeobjret, err := c.Remove(context.Background(), removeobjreq)
+	if err != nil {
+		t.Fatalf("could not remove : %v\n", err)
+	} else {
+		require.Equal(t, removeobjret.RetCode, int32(0))
+	}
+
+	readreq := &pb.ReadRequest{
+		PGID:   pgid,
+		Oid:    oid,
+		Length: l,
+		Offset: 0,
+	}
+	_, err = c.Read(context.Background(), readreq)
+	require.Contains(t, err.Error(), ErrNoValueForKey.Error())
+
+	done <- struct{}{}
+	select {
+	case <-closech:
+	}
+
+	//i know it's implite to open collection like this, but i must check the stripe prefixs doesn'it exist any more
+	coll, err := store.NewCollection(string(pgid))
+
+	stripeNum := l / DefaultStripeSize
+	stripeRem := l % DefaultStripeSize
+
+	var i uint64
+	for ; i < stripeNum; i++ {
+		value, err := coll.Get(getDataKey(oid, i*DefaultStripeSize))
+		require.Equal(t, err, nil)
+		require.Equal(t, len(value), 0)
+	}
+
+	if stripeRem > 0 {
+		value, err := coll.Get(getDataKey(oid, i*DefaultStripeSize))
+		require.Equal(t, err, nil)
+		require.Equal(t, len(value), 0)
+	}
+	coll.Close()
+	os.RemoveAll(string(pgid))
 }
