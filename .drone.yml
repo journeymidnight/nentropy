@@ -7,7 +7,11 @@ pipeline:
     image: golang
     commands:
       - make
-  test:
+  test-store:
     image: golang
     commands:
-      - make test
+      - make test-store
+  test-osd:
+    image: golang
+    commands:
+      - make test-osd
