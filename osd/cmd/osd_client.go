@@ -8,22 +8,23 @@ import (
 	"log"
 	"os"
 
-	"github.com/journeymidnight/nentropy/osd"
 	pb "github.com/journeymidnight/nentropy/osd/protos"
 	"google.golang.org/grpc"
 )
 
 const (
-	address = "localhost:50052"
+	address   = "localhost:50052"
+	chunksize = uint64(8)
 )
 
-var action = flag.String("action", "", "action to osd, support: createpg, removepg, writeobj, readobj, removeobj, putfile, getfile")
+var action = flag.String("action", "", "action to osd, support: createpg, removepg, writeobj, readobj, removeobj, putfile, getfile, getobjsize")
 var pgid = flag.String("pgid", "", "id of the pg")
 var oid = flag.String("oid", "", "oid of an object")
 var offset = flag.Uint64("offset", 0, "specify offset for read/write")
 var length = flag.Uint64("length", 0, "specify length for read/write")
 var value = flag.String("value", "", "value of the object")
 var filename = flag.String("filename", "", "file name")
+var outputfile = flag.String("outputfile", "", "file name of output file")
 
 func main() {
 	flag.Parse()
@@ -99,6 +100,21 @@ func main() {
 		} else {
 			fmt.Println("object write successfully")
 		}
+	case "getobjsize":
+		if *oid == "" {
+			fmt.Println("please provide the oid")
+			os.Exit(-1)
+		}
+		statreq := &pb.ObjectStatRequest{
+			PGID: []byte(*pgid),
+			Oid:  []byte(*oid),
+		}
+		statret, err := c.ObjectStat(context.Background(), statreq)
+		if err != nil {
+			fmt.Printf("get object size failed, error is  %s\r\n", err.Error())
+		} else {
+			fmt.Printf("get object size successfully, size is: %d", statret.GetSize())
+		}
 	case "readobj":
 		if *oid == "" {
 			fmt.Println("please provide the oid")
@@ -153,7 +169,7 @@ func main() {
 		}
 		defer file.Close()
 
-		buf := make([]byte, osd.DefaultStripeSize) // define your buffer size here.
+		buf := make([]byte, chunksize) // define your buffer size here.
 
 		offset := uint64(0)
 		for {
@@ -186,6 +202,62 @@ func main() {
 				log.Printf("read %d bytes: %v", n, err)
 				break
 			}
+		}
+	case "getfile":
+		if *oid == "" {
+			fmt.Println("please provide the oid")
+			os.Exit(-1)
+		}
+
+		if *outputfile == "" {
+			fmt.Println("please provide a output filename")
+			os.Exit(-1)
+		}
+
+		if _, err := os.Stat(*filename); err == nil {
+			fmt.Println("file already exists")
+			os.Exit(-1)
+		}
+		file, err := os.Create(*outputfile)
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer file.Close()
+
+		statreq := &pb.ObjectStatRequest{
+			PGID: []byte(*pgid),
+			Oid:  []byte(*oid),
+		}
+		statret, err := c.ObjectStat(context.Background(), statreq)
+		if err != nil {
+			fmt.Printf("get object size failed, error is  %s\r\n", err.Error())
+			os.Exit(-1)
+		}
+		objsize := statret.GetSize()
+
+		offset := uint64(0)
+		for objsize > 0 {
+			// try read in chunks
+			readreq := &pb.ReadRequest{
+				PGID:   []byte(*pgid),
+				Oid:    []byte(*oid),
+				Length: chunksize,
+				Offset: offset,
+			}
+			readret, err := c.Read(context.Background(), readreq)
+			if err != nil {
+				os.Exit(-1)
+			}
+
+			readlength := uint64(len(readret.ReadBuf))
+			if objsize/chunksize > 1 && readlength != chunksize {
+				fmt.Println("read length is illegal")
+				os.Exit(-1)
+			}
+
+			file.WriteAt(readret.ReadBuf, int64(offset))
+			objsize -= readlength
+			offset += readlength
 		}
 
 	default:
