@@ -33,8 +33,8 @@ import (
 	"golang.org/x/net/trace"
 
 	"github.com/journeymidnight/nentropy/helper"
+	"github.com/journeymidnight/nentropy/mon/raftwal"
 	"github.com/journeymidnight/nentropy/protos"
-	"github.com/journeymidnight/nentropy/raftwal"
 )
 
 const (
