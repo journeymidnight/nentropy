@@ -18,9 +18,6 @@
 package main
 
 import (
-	"bytes"
-	"encoding/binary"
-	"fmt"
 	"log"
 	"math/rand"
 	"sync"
@@ -51,57 +48,6 @@ type peerPoolEntry struct {
 
 type HandleCommittedMsg func(data []byte) error
 type HandleConfChange func(data []byte) error
-
-// peerPool stores the peers' addresses and our connections to them.  It has exactly one
-// entry for every peer other than ourselves.  Some of these peers might be unreachable or
-// have bogus (but never empty) addresses.
-type peerPool struct {
-	sync.RWMutex
-	peers map[uint64]peerPoolEntry
-}
-
-var (
-	errNoPeerPoolEntry = fmt.Errorf("no peerPool entry")
-	errNoPeerPool      = fmt.Errorf("no peerPool pool, could not connect")
-)
-
-// getPool returns the non-nil pool for a peer.  This might error even if get(id)
-// succeeds, if the pool is nil.  This happens if the peer was configured so badly (it had
-// a totally bogus addr) we can't make a pool.  (A reasonable refactoring would have us
-// make a pool, one that has a nil gRPC connection.)
-//
-// You must call pools().release on the pool.
-func (p *peerPool) getPool(id uint64) (*pool, error) {
-	p.RLock()
-	defer p.RUnlock()
-	ent, ok := p.peers[id]
-	if !ok {
-		return nil, errNoPeerPoolEntry
-	}
-	if ent.poolOrNil == nil {
-		return nil, errNoPeerPool
-	}
-	ent.poolOrNil.AddOwner()
-	return ent.poolOrNil, nil
-}
-
-func (p *peerPool) get(id uint64) (string, bool) {
-	p.RLock()
-	defer p.RUnlock()
-	ret, ok := p.peers[id]
-	return ret.addr, ok
-}
-
-func (p *peerPool) set(id uint64, addr string, pl *pool) {
-	p.Lock()
-	defer p.Unlock()
-	if old, ok := p.peers[id]; ok {
-		if old.poolOrNil != nil {
-			pools().release(old.poolOrNil)
-		}
-	}
-	p.peers[id] = peerPoolEntry{addr, pl}
-}
 
 type proposalCtx struct {
 	ch  chan error
@@ -152,11 +98,6 @@ func (p *proposals) Has(pid uint32) bool {
 	return has
 }
 
-type sendmsg struct {
-	to   uint64
-	data []byte
-}
-
 type node struct {
 	helper.SafeMutex
 
@@ -172,13 +113,12 @@ type node struct {
 	done        chan struct{} // to check whether node is running or not
 	gid         uint32
 	id          uint64
-	messages    chan sendmsg
 	peersAddr   []string // raft peer URLs
-	peers       peerPool
 	props       proposals
 	raftContext *protos.RaftContext
 	store       *raft.MemoryStorage
 	wal         *raftwal.Wal
+	transport   Transport
 
 	canCampaign bool
 
@@ -219,9 +159,6 @@ func (n *node) ConfState() *raftpb.ConfState {
 func newNode(id uint64, myAddr string) *node {
 	helper.Logger.Printf(10, "Node with ID: %v\n", id)
 
-	peers := peerPool{
-		peers: make(map[uint64]peerPoolEntry),
-	}
 	props := proposals{
 		ids: make(map[uint32]*proposalCtx),
 	}
@@ -246,10 +183,8 @@ func newNode(id uint64, myAddr string) *node {
 			Logger:          &raft.DefaultLogger{Logger: helper.Logger.Logger},
 		},
 		applyCh:     make(chan raftpb.Entry, numPendingMutations),
-		peers:       peers,
 		props:       props,
 		raftContext: rc,
-		messages:    make(chan sendmsg, 1000),
 		stop:        make(chan struct{}),
 		done:        make(chan struct{}),
 	}
@@ -262,45 +197,7 @@ func (n *node) SetCommittedMsgHandler(callback HandleCommittedMsg) {
 	n.handleCommittedMsg = callback
 }
 
-// Never returns ("", true)
-func (n *node) GetPeer(pid uint64) (string, bool) {
-	return n.peers.get(pid)
-}
-
-// You must call release on the pool.  Can error for some pid's for which GetPeer
-// succeeds.
-func (n *node) GetPeerPool(pid uint64) (*pool, error) {
-	return n.peers.getPool(pid)
-}
-
-// addr must not be empty.
-func (n *node) SetPeer(pid uint64, addr string, poolOrNil *pool) {
-	helper.AssertTruef(addr != "", "SetPeer for peer %d has empty addr.", pid)
-	n.peers.set(pid, addr, poolOrNil)
-}
-
-// Connects the node and makes its peerPool refer to the constructed pool and address
-// (possibly updating ourselves from the old address.)  (Unless pid is ourselves, in which
-// case this does nothing.)
-func (n *node) Connect(pid uint64, addr string) {
-	if pid == n.id {
-		return
-	}
-	if paddr, ok := n.GetPeer(pid); ok && paddr == addr {
-		// Already connected.
-		return
-	}
-	// Here's what we do.  Right now peerPool maps peer node id's to addr values.  If
-	// a *pool can be created, good, but if not, we still create a peerPoolEntry with
-	// a nil *pool.
-	p, ok := pools().connect(addr)
-	if !ok {
-		// TODO: Note this fact in more general peer health info somehow.
-		helper.Logger.Printf(10, "Peer %d claims same host as me\n", pid)
-	}
-	n.SetPeer(pid, addr, p)
-}
-
+/*
 func (n *node) AddToCluster(ctx context.Context, pid uint64) error {
 	addr, ok := n.GetPeer(pid)
 	helper.AssertTruef(ok, "Unable to find conn pool for peer: %d", pid)
@@ -317,27 +214,7 @@ func (n *node) AddToCluster(ctx context.Context, pid uint64) error {
 		Context: rcBytes,
 	})
 }
-
-type header struct {
-	proposalId uint32
-	msgId      uint16
-}
-
-func (h *header) Length() int {
-	return 6 // 4 bytes for proposalId, 2 bytes for msgId.
-}
-
-func (h *header) Encode() []byte {
-	result := make([]byte, h.Length())
-	binary.LittleEndian.PutUint32(result[0:4], h.proposalId)
-	binary.LittleEndian.PutUint16(result[4:6], h.msgId)
-	return result
-}
-
-func (h *header) Decode(in []byte) {
-	h.proposalId = binary.LittleEndian.Uint32(in[0:4])
-	h.msgId = binary.LittleEndian.Uint16(in[4:6])
-}
+*/
 
 func (n *node) ProposeAndWait(ctx context.Context, proposal *protos.Proposal) error {
 	if n.Raft() == nil {
@@ -383,105 +260,6 @@ func (n *node) ProposeAndWait(ctx context.Context, proposal *protos.Proposal) er
 	return err
 }
 
-func (n *node) send(m raftpb.Message) {
-	helper.AssertTruef(n.id != m.To, "Seding message to itself")
-	data, err := m.Marshal()
-	helper.Check(err)
-	if m.Type != raftpb.MsgHeartbeat && m.Type != raftpb.MsgHeartbeatResp {
-		helper.Logger.Printf(5, "\t\tSENDING: %v %v-->%v\n", m.Type, m.From, m.To)
-	}
-	select {
-	case n.messages <- sendmsg{to: m.To, data: data}:
-		// pass
-	default:
-		// TODO: It's bad to fail like this.
-		helper.Logger.Fatalf(0, "Unable to push messages to channel in send")
-	}
-}
-
-const (
-	messageBatchSoftLimit = 10000000
-)
-
-func (n *node) batchAndSendMessages() {
-	batches := make(map[uint64]*bytes.Buffer)
-	for {
-		totalSize := 0
-		sm := <-n.messages
-	slurp_loop:
-		for {
-			var buf *bytes.Buffer
-			if b, ok := batches[sm.to]; !ok {
-				buf = new(bytes.Buffer)
-				batches[sm.to] = buf
-			} else {
-				buf = b
-			}
-			totalSize += 4 + len(sm.data)
-			helper.Check(binary.Write(buf, binary.LittleEndian, uint32(len(sm.data))))
-			helper.Check2(buf.Write(sm.data))
-
-			if totalSize > messageBatchSoftLimit {
-				// We limit the batch size, but we aren't pushing back on
-				// n.messages, because the loop below spawns a goroutine
-				// to do its dirty work.  This is good because right now
-				// (*node).send fails(!) if the channel is full.
-				break
-			}
-
-			select {
-			case sm = <-n.messages:
-			default:
-				break slurp_loop
-			}
-		}
-
-		for to, buf := range batches {
-			if buf.Len() == 0 {
-				continue
-			}
-			data := make([]byte, buf.Len())
-			copy(data, buf.Bytes())
-			go n.doSendMessage(to, data)
-			buf.Reset()
-		}
-	}
-}
-
-func (n *node) doSendMessage(to uint64, data []byte) {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-
-	addr := n.peersAddr[to-1]
-	n.Connect(to, addr)
-	pool, err := n.GetPeerPool(to)
-	if err != nil {
-		// No such peer exists or we got handed a bogus config (bad addr), so we
-		// can't send messages to this peer.
-		return
-	}
-	defer pools().release(pool)
-	conn := pool.Get()
-
-	c := protos.NewRaftNodeClient(conn)
-	p := &protos.Payload{Data: data}
-
-	ch := make(chan error, 1)
-	go func() {
-		_, err = c.RaftMessage(ctx, p)
-		ch <- err
-	}()
-
-	select {
-	case <-ctx.Done():
-		return
-	case <-ch:
-		// We don't need to do anything if we receive any error while sending message.
-		// RAFT would automatically retry.
-		return
-	}
-}
-
 const numPendingMutations = 10000
 
 func (n *node) processApplyCh() {
@@ -494,12 +272,22 @@ func (n *node) processApplyCh() {
 			var cc raftpb.ConfChange
 			cc.Unmarshal(e.Data)
 
+			var rc protos.RaftContext
 			if len(cc.Context) > 0 {
-				var rc protos.RaftContext
 				helper.Check(rc.Unmarshal(cc.Context))
-				n.Connect(rc.Id, rc.Addr)
-				n.peersAddr = append(n.peersAddr, rc.Addr)
+				//n.Connect(rc.Id, rc.Addr)
+				//n.peersAddr = append(n.peersAddr, rc.Addr)
 				helper.Logger.Println(10, "ConfChange rc.ID:", rc.Id, "rc.Addr", rc.Addr)
+			}
+			switch cc.Type {
+			case raftpb.ConfChangeAddNode:
+				if len(cc.Context) > 0 {
+					n.transport.AddPeer(rc.Id, rc)
+				}
+			case raftpb.ConfChangeRemoveNode:
+				if cc.NodeID == uint64(n.id) {
+					n.transport.RemovePeer(rc.Id)
+				}
 			}
 
 			cs := n.Raft().ApplyConfChange(cc)
@@ -581,7 +369,8 @@ func (n *node) Run() {
 			for _, msg := range rd.Messages {
 				// NOTE: We can do some optimizations here to drop messages.
 				msg.Context = rcBytes
-				n.send(msg)
+				//n.send(msg)
+				n.transport.Send(msg)
 			}
 
 			if !raft.IsEmptySnap(rd.Snapshot) {
@@ -698,40 +487,72 @@ func (n *node) snapshot(skip uint64) {
 	*/
 }
 
-func (n *node) joinPeers() {
-	var id int
-	var addr string
-	for id, addr = range n.peersAddr {
-		if uint64(id+1) != n.id {
-			break
+func (rn *grpcRaftNode) JoinCluster(ctx context.Context, rc *protos.RaftContext) (*protos.Payload, error) {
+	/*
+		if ctx.Err() != nil {
+			return &protos.Payload{}, ctx.Err()
 		}
-	}
-	if id == len(n.peersAddr) {
-		log.Fatal("Unable to get id to add the node")
-	}
-	id = id + 1
-	n.Connect(uint64(id), addr)
-	helper.Logger.Printf(10, "joinPeers connected with: %q with peer id: %d\n", addr, id)
 
-	pool, err := pools().get(addr)
-	if err != nil {
-		log.Fatalf("Unable to get pool for addr: %q for peer: %d, error: %v\n", addr, id, err)
-	}
-	defer pools().release(pool)
+		// TODO:
+		// Check the node if it is exist
 
-	// Bring the instance up to speed first.
-	// Raft would decide whether snapshot needs to fetched or not
-	// so populateShard is not needed
-	// _, err := populateShard(n.ctx, pool, n.gid)
-	// helper.Checkf(err, "Error while populating shard")
+		node := clus.Node()
+		if node == nil {
+			return &protos.Payload{}, nil
+		}
+		helper.Logger.Println(10, "JoinCluster: id:", rc.Id, "Addr:", rc.Addr)
+		node.Connect(rc.Id, rc.Addr)
+		helper.Logger.Println(10, "after connection")
 
-	conn := pool.Get()
+		c := make(chan error, 1)
+		go func() { c <- node.AddToCluster(ctx, rc.Id) }()
 
-	c := protos.NewRaftNodeClient(conn)
-	helper.Logger.Printf(10, "Calling JoinCluster")
-	_, err = c.JoinCluster(n.ctx, n.raftContext)
-	helper.Checkf(err, "Error while joining cluster")
-	helper.Logger.Printf(10, "Done with JoinCluster call\n")
+		select {
+		case <-ctx.Done():
+			return &protos.Payload{}, ctx.Err()
+		case err := <-c:
+			return &protos.Payload{}, err
+		}
+	*/
+	return nil, nil
+}
+
+func (n *node) joinPeers() {
+	/*
+		var id int
+		var addr string
+		for id, addr = range n.peersAddr {
+			if uint64(id+1) != n.id {
+				break
+			}
+		}
+		if id == len(n.peersAddr) {
+			log.Fatal("Unable to get id to add the node")
+		}
+		id = id + 1
+		n.Connect(uint64(id), addr)
+		helper.Logger.Printf(10, "joinPeers connected with: %q with peer id: %d\n", addr, id)
+
+		pool, err := pools().get(addr)
+		if err != nil {
+			log.Fatalf("Unable to get pool for addr: %q for peer: %d, error: %v\n", addr, id, err)
+		}
+		defer pools().release(pool)
+
+		// Bring the instance up to speed first.
+		// Raft would decide whether snapshot needs to fetched or not
+		// so populateShard is not needed
+		// _, err := populateShard(n.ctx, pool, n.gid)
+		// helper.Checkf(err, "Error while populating shard")
+
+		conn := pool.Get()
+
+		c := protos.NewRaftNodeClient(conn)
+		helper.Logger.Printf(10, "Calling JoinCluster")
+		_, err = c.JoinCluster(n.ctx, n.raftContext)
+		helper.Checkf(err, "Error while joining cluster")
+		helper.Logger.Printf(10, "Done with JoinCluster call\n")
+	*/
 }
 
 func (n *node) initFromWal(wal *raftwal.Wal) (restart bool, rerr error) {
@@ -781,6 +602,10 @@ func (n *node) initFromWal(wal *raftwal.Wal) (restart bool, rerr error) {
 
 // InitAndStartNode gets called after having at least one membership sync with the cluster.
 func (n *node) InitAndStartNode(wal *raftwal.Wal) {
+	InitRaftTransport(n.id, n, n.peersAddr)
+	n.transport = GetTransport()
+	n.transport.Start()
+
 	restart, err := n.initFromWal(wal)
 	helper.Check(err)
 
@@ -809,7 +634,6 @@ func (n *node) InitAndStartNode(wal *raftwal.Wal) {
 	// TODO: Find a better way to snapshot, so we don't lose the membership
 	// state information, which isn't persisted.
 	go n.snapshotPeriodically()
-	go n.batchAndSendMessages()
 }
 
 func (n *node) AmLeader() bool {
@@ -819,3 +643,10 @@ func (n *node) AmLeader() bool {
 	r := n.Raft()
 	return r.Status().Lead == r.Status().ID
 }
+
+func (n *node) Process(ctx context.Context, m raftpb.Message) error {
+	return n._raft.Step(ctx, m)
+}
+func (n *node) IsIDRemoved(id uint64) bool                           { return false }
+func (n *node) ReportUnreachable(id uint64)                          {}
+func (n *node) ReportSnapshot(id uint64, status raft.SnapshotStatus) {}

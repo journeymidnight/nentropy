@@ -165,3 +165,14 @@ message PgConfigReply {
     uint64 epoch  = 2;
     PgMap map = 3;
 }
+
+message MonAddr {
+    uint32 id = 1;
+    string addr = 2;
+    uint32 port = 3;
+}
+
+message MonMap {
+    uint64 epoch  = 1;
+    map<uint32, MonAddr>  monMap = 2;
+}

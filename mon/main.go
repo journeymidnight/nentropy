@@ -158,7 +158,6 @@ func main() {
 
 	// By default Go GRPC traces all requests.
 	grpc.EnableTracing = false
-	RunServer() // For internal communication.
 
 	go StartRaftNodes(state.WALstore)
 
