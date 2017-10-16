@@ -5,6 +5,7 @@ import (
 	"net"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -674,7 +675,20 @@ func TestUnAlignedWriteAndRead_sameoffset(t *testing.T) {
 	closech := make(chan struct{})
 	pgid := []byte("1.0")
 	os.RemoveAll(string(pgid))
-	os.RemoveAll(Metadir)
+
+	ispatherr := true
+	maxtry := 10
+	for i := 0; i < maxtry; i++ {
+		err := os.RemoveAll(Metadir)
+		if err != nil {
+			time.Sleep(time.Second)
+			continue
+		}
+		ispatherr = false
+		break
+	}
+	require.Equal(t, ispatherr, false)
+
 	go runServer(t, done, closech)
 
 	// Set up a connection to the server.
