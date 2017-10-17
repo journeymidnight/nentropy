@@ -182,6 +182,36 @@ func pgHandle() {
 	return
 }
 
+func getObjectLayout(poolName string, objectName string) (*pb.LayoutReply, error) {
+	req := pb.LayoutRequest{objectName, poolName}
+	reply, err := client.GetLayout(context.Background(), &req)
+	if err != nil {
+		return nil, err
+	}
+	return reply, nil
+}
+
+func objectHandle() {
+	switch *cmd {
+	case "search":
+		result, err := getObjectLayout(*pool, *object)
+		if err != nil {
+			fmt.Println("get object layout error: ", err)
+			return
+		}
+		fmt.Println("Layout Info:")
+		fmt.Println("PG name:", result.PgName)
+		fmt.Println("OSDS:")
+		for _, osd := range result.Osds {
+			fmt.Println(fmt.Sprintf("id:%d addr:%s weight:%d host:%s zone:%s up:%v in:%v", osd.Id, osd.Addr, osd.Weight, osd.Host, osd.Zone, osd.Up, osd.In))
+		}
+	default:
+		fmt.Println("unsupport cmd, should be put/get/delete/search")
+		return
+	}
+	return
+}
+
 func main() {
 	flag.Parse()
 	var opts []grpc.DialOption
@@ -200,6 +230,7 @@ func main() {
 	case "osd":
 		osdHandle()
 	case "object":
+		objectHandle()
 	default:
 		fmt.Printf("unsupport target type %v", target)
 	}

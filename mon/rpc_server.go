@@ -19,7 +19,19 @@ type monitorRpcServer struct {
 }
 
 func (s *monitorRpcServer) GetLayout(ctx context.Context, in *protos.LayoutRequest) (*protos.LayoutReply, error) {
-	return &protos.LayoutReply{}, nil
+	poolId, err := GetPoolIdByName(in.PoolName)
+	if err != nil {
+		return &protos.LayoutReply{}, err
+	}
+	pgNumbers := clus.poolMap.Pools[poolId].PgNumbers
+	hashPgId := helper.HashKey(in.ObjectName) % uint32(pgNumbers)
+	pgName := fmt.Sprintf("%d.%d", poolId, hashPgId)
+	osds := make([]*protos.Osd, 0)
+	for _, v := range clus.pgMaps.Pgmaps[poolId].Pgmap[int32(hashPgId)].OsdIds {
+		helper.Logger.Println(5, "osd to be returned:", *clus.osdMap.MemberList[v])
+		osds = append(osds, clus.osdMap.MemberList[v])
+	}
+	return &protos.LayoutReply{0, pgName, osds}, nil
 }
 
 func (s *monitorRpcServer) OsdConfig(ctx context.Context, in *protos.OsdConfigRequest) (*protos.OsdConfigReply, error) {
@@ -106,6 +118,7 @@ func HandleOsdAdd(req *protos.OsdConfigRequest) (*protos.OsdConfigReply, error) 
 	for k, v := range clus.osdMap.MemberList {
 		newOsdMap.MemberList[k] = v
 	}
+	helper.Logger.Println(5, "osd to be added:", *req.Osd)
 	newOsdMap.MemberList[req.Osd.Id] = req.Osd
 	trans := protos.Transaction{}
 	err := PrepareOsdMap(&trans, &newOsdMap)

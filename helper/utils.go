@@ -3,6 +3,7 @@ package helper
 import (
 	"crypto/subtle"
 	"fmt"
+	"hash/crc32"
 	"os"
 	"strconv"
 	"sync"
@@ -148,4 +149,13 @@ func (m *SafeMap) Items() map[interface{}]interface{} {
 	m.lock.RLock()
 	defer m.lock.RUnlock()
 	return m.bm
+}
+
+func HashKey(key string) uint32 {
+	if len(key) < 64 {
+		var scratch [64]byte
+		copy(scratch[:], key)
+		return crc32.ChecksumIEEE(scratch[:len(key)])
+	}
+	return crc32.ChecksumIEEE([]byte(key))
 }
