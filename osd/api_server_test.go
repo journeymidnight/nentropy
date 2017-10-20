@@ -42,13 +42,12 @@ func runServer(t *testing.T, done <-chan struct{}, closech chan<- struct{}) {
 			syncdone <- struct{}{}
 
 			//stop outer server first to stop serving request
-			go s.GracefulStop()
-			go lis.Close()
+			s.GracefulStop()
 			osdserver.Close(closech)
 		}
 	}()
 
-	s.Serve(lis)
+	go s.Serve(lis)
 }
 func TestCreateNonExistPG(t *testing.T) {
 	done := make(chan struct{})
@@ -58,7 +57,7 @@ func TestCreateNonExistPG(t *testing.T) {
 	//remove if exists
 	os.RemoveAll(string(pgid))
 	os.RemoveAll(Metadir)
-	go runServer(t, done, closech)
+	runServer(t, done, closech)
 
 	// Set up a connection to the server.
 	conn, err := grpc.Dial(address, grpc.WithInsecure())
@@ -94,7 +93,7 @@ func TestCreateExistingPG(t *testing.T) {
 	pgid := []byte("asdf")
 	os.RemoveAll(Metadir)
 	os.RemoveAll(string(pgid))
-	go runServer(t, done, closech)
+	runServer(t, done, closech)
 
 	// Set up a connection to the server.
 	conn, err := grpc.Dial(address, grpc.WithInsecure())
@@ -127,7 +126,7 @@ func TestAlignedWriteAndRead_fullstripe(t *testing.T) {
 	pgid := []byte("1.0")
 	os.RemoveAll(string(pgid))
 	os.RemoveAll(Metadir)
-	go runServer(t, done, closech)
+	runServer(t, done, closech)
 
 	// Set up a connection to the server.
 	conn, err := grpc.Dial(address, grpc.WithInsecure())
@@ -192,7 +191,7 @@ func TestAlignedWriteAndRead_notfullstripe(t *testing.T) {
 	pgid := []byte("1.0")
 	os.RemoveAll(string(pgid))
 	os.RemoveAll(Metadir)
-	go runServer(t, done, closech)
+	runServer(t, done, closech)
 
 	// Set up a connection to the server.
 	conn, err := grpc.Dial(address, grpc.WithInsecure())
@@ -257,7 +256,7 @@ func TestAlignedWriteAndRead_readatlonglength(t *testing.T) {
 	pgid := []byte("1.0")
 	os.RemoveAll(string(pgid))
 	os.RemoveAll(Metadir)
-	go runServer(t, done, closech)
+	runServer(t, done, closech)
 
 	// Set up a connection to the server.
 	conn, err := grpc.Dial(address, grpc.WithInsecure())
@@ -321,7 +320,7 @@ func TestAlignedWriteAndRead_alignto16(t *testing.T) {
 	pgid := []byte("1.0")
 	os.RemoveAll(string(pgid))
 	os.RemoveAll(Metadir)
-	go runServer(t, done, closech)
+	runServer(t, done, closech)
 
 	// Set up a connection to the server.
 	conn, err := grpc.Dial(address, grpc.WithInsecure())
@@ -385,7 +384,7 @@ func TestAlignedWriteAndRead_alignto64_comparewholevalue(t *testing.T) {
 	pgid := []byte("1.0")
 	os.RemoveAll(string(pgid))
 	os.RemoveAll(Metadir)
-	go runServer(t, done, closech)
+	runServer(t, done, closech)
 
 	// Set up a connection to the server.
 	conn, err := grpc.Dial(address, grpc.WithInsecure())
@@ -457,7 +456,7 @@ func TestAlignedWriteAndRead_rewritewhole(t *testing.T) {
 	pgid := []byte("1.0")
 	os.RemoveAll(string(pgid))
 	os.RemoveAll(Metadir)
-	go runServer(t, done, closech)
+	runServer(t, done, closech)
 
 	// Set up a connection to the server.
 	conn, err := grpc.Dial(address, grpc.WithInsecure())
@@ -536,7 +535,7 @@ func TestAlignedWriteAndRead_rewritepart(t *testing.T) {
 	pgid := []byte("1.0")
 	os.RemoveAll(string(pgid))
 	os.RemoveAll(Metadir)
-	go runServer(t, done, closech)
+	runServer(t, done, closech)
 
 	// Set up a connection to the server.
 	conn, err := grpc.Dial(address, grpc.WithInsecure())
@@ -617,7 +616,7 @@ func TestAlignedWriteAndRead_crossstripe(t *testing.T) {
 	pgid := []byte("1.0")
 	os.RemoveAll(string(pgid))
 	os.RemoveAll(Metadir)
-	go runServer(t, done, closech)
+	runServer(t, done, closech)
 
 	// Set up a connection to the server.
 	conn, err := grpc.Dial(address, grpc.WithInsecure())
@@ -668,6 +667,7 @@ func TestAlignedWriteAndRead_crossstripe(t *testing.T) {
 	_, err = c.RemovePG(context.Background(), removereq)
 	require.Equal(t, err, nil)
 	done <- struct{}{}
+	<-closech
 }
 func TestUnAlignedWriteAndRead_sameoffset(t *testing.T) {
 	DefaultStripeSize = 8 // smaller stripe size for simple test
@@ -689,7 +689,7 @@ func TestUnAlignedWriteAndRead_sameoffset(t *testing.T) {
 	}
 	require.Equal(t, ispatherr, false)
 
-	go runServer(t, done, closech)
+	runServer(t, done, closech)
 
 	// Set up a connection to the server.
 	conn, err := grpc.Dial(address, grpc.WithInsecure())
@@ -753,7 +753,7 @@ func TestUnAlignedWriteAndRead_differentoffset(t *testing.T) {
 	pgid := []byte("1.0")
 	os.RemoveAll(string(pgid))
 	os.RemoveAll(Metadir)
-	go runServer(t, done, closech)
+	runServer(t, done, closech)
 
 	// Set up a connection to the server.
 	conn, err := grpc.Dial(address, grpc.WithInsecure())
@@ -817,7 +817,7 @@ func TestUnAlignedWriteAndRead_crossstripe(t *testing.T) {
 	pgid := []byte("1.0")
 	os.RemoveAll(string(pgid))
 	os.RemoveAll(Metadir)
-	go runServer(t, done, closech)
+	runServer(t, done, closech)
 
 	// Set up a connection to the server.
 	conn, err := grpc.Dial(address, grpc.WithInsecure())
@@ -881,7 +881,7 @@ func TestUnAlignedWriteAndRead_rewritewhole_notcrossstripe(t *testing.T) {
 	pgid := []byte("1.0")
 	os.RemoveAll(string(pgid))
 	os.RemoveAll(Metadir)
-	go runServer(t, done, closech)
+	runServer(t, done, closech)
 
 	// Set up a connection to the server.
 	conn, err := grpc.Dial(address, grpc.WithInsecure())
@@ -963,7 +963,7 @@ func TestUnAlignedWriteAndRead_rewritewhole_crossstripe(t *testing.T) {
 	//remove if exists
 	os.RemoveAll(string(pgid))
 	os.RemoveAll(Metadir)
-	go runServer(t, done, closech)
+	runServer(t, done, closech)
 
 	// Set up a connection to the server.
 	conn, err := grpc.Dial(address, grpc.WithInsecure())
@@ -1044,7 +1044,7 @@ func TestUnAlignedWriteAndRead_rewritepart_crossstripe(t *testing.T) {
 	//remove if exists
 	os.RemoveAll(string(pgid))
 	os.RemoveAll(Metadir)
-	go runServer(t, done, closech)
+	runServer(t, done, closech)
 
 	// Set up a connection to the server.
 	conn, err := grpc.Dial(address, grpc.WithInsecure())
@@ -1127,7 +1127,7 @@ func TestUnAlignedWriteAndRead_rewritepart_crossstripe_differentoffset(t *testin
 	//remove if exists
 	os.RemoveAll(string(pgid))
 	os.RemoveAll(Metadir)
-	go runServer(t, done, closech)
+	runServer(t, done, closech)
 
 	// Set up a connection to the server.
 	conn, err := grpc.Dial(address, grpc.WithInsecure())
@@ -1210,7 +1210,7 @@ func TestUnAlignedWriteAndRead_rewritepart_crossstripe_differentoffset_badstripe
 	//remove if exists
 	os.RemoveAll(string(pgid))
 	os.RemoveAll(Metadir)
-	go runServer(t, done, closech)
+	runServer(t, done, closech)
 
 	// Set up a connection to the server.
 	conn, err := grpc.Dial(address, grpc.WithInsecure())
@@ -1289,7 +1289,7 @@ func TestWriteThenReadKey(t *testing.T) {
 	pgid := []byte("1.0")
 	os.RemoveAll(string(pgid))
 	os.RemoveAll(Metadir)
-	go runServer(t, done, closech)
+	runServer(t, done, closech)
 
 	// Set up a connection to the server.
 	conn, err := grpc.Dial(address, grpc.WithInsecure())
@@ -1349,7 +1349,7 @@ func TestReadNonExistPG(t *testing.T) {
 	done := make(chan struct{})
 	closech := make(chan struct{})
 	os.RemoveAll(Metadir)
-	go runServer(t, done, closech)
+	runServer(t, done, closech)
 
 	// Set up a connection to the server.
 	conn, err := grpc.Dial(address, grpc.WithInsecure())
@@ -1384,7 +1384,7 @@ func TestReadNonExistKey(t *testing.T) {
 
 	os.RemoveAll(string(pgid))
 	os.RemoveAll(Metadir)
-	go runServer(t, done, closech)
+	runServer(t, done, closech)
 
 	// Set up a connection to the server.
 	conn, err := grpc.Dial(address, grpc.WithInsecure())
@@ -1445,7 +1445,7 @@ func TestWriteRemoveRead(t *testing.T) {
 	pgid := []byte("1.0")
 	os.RemoveAll(string(pgid))
 	os.RemoveAll(Metadir)
-	go runServer(t, done, closech)
+	runServer(t, done, closech)
 
 	// Set up a connection to the server.
 	conn, err := grpc.Dial(address, grpc.WithInsecure())
@@ -1520,7 +1520,7 @@ func TestWriteAndGetObjectStat_zerooffset(t *testing.T) {
 	pgid := []byte("1.0")
 	os.RemoveAll(string(pgid))
 	os.RemoveAll(Metadir)
-	go runServer(t, done, closech)
+	runServer(t, done, closech)
 
 	// Set up a connection to the server.
 	conn, err := grpc.Dial(address, grpc.WithInsecure())
@@ -1585,7 +1585,7 @@ func TestWriteAndGetObjectStat_haveoffset(t *testing.T) {
 	pgid := []byte("1.0")
 	os.RemoveAll(string(pgid))
 	os.RemoveAll(Metadir)
-	go runServer(t, done, closech)
+	runServer(t, done, closech)
 
 	// Set up a connection to the server.
 	conn, err := grpc.Dial(address, grpc.WithInsecure())
@@ -1650,7 +1650,7 @@ func TestLoadFromExistingData_onepg(t *testing.T) {
 	pgid := []byte("1.0")
 	os.RemoveAll(string(pgid))
 	os.RemoveAll(Metadir)
-	go runServer(t, done, closech)
+	runServer(t, done, closech)
 
 	// Set up a connection to the server.
 	conn, err := grpc.Dial(address, grpc.WithInsecure())
@@ -1696,7 +1696,7 @@ func TestLoadFromExistingData_onepg(t *testing.T) {
 	//start a new pair of server/client
 	done = make(chan struct{})
 	closech = make(chan struct{})
-	go runServer(t, done, closech)
+	runServer(t, done, closech)
 
 	// Set up a connection to the server.
 	conn, err = grpc.Dial(address, grpc.WithInsecure())
@@ -1728,7 +1728,7 @@ func TestLoadFromExistingData_onepg(t *testing.T) {
 	//finally we are going to remove the pg
 	done = make(chan struct{})
 	closech = make(chan struct{})
-	go runServer(t, done, closech)
+	runServer(t, done, closech)
 
 	// Set up a connection to the server.
 	conn, err = grpc.Dial(address, grpc.WithInsecure())
@@ -1765,7 +1765,7 @@ func TestLoadFromExistingData_100pgs(t *testing.T) {
 		os.RemoveAll(string(pgid))
 	}
 
-	go runServer(t, done, closech)
+	runServer(t, done, closech)
 
 	// Set up a connection to the server.
 	conn, err := grpc.Dial(address, grpc.WithInsecure())
@@ -1815,7 +1815,7 @@ func TestLoadFromExistingData_100pgs(t *testing.T) {
 	closech = make(chan struct{})
 
 	//load all 100 pgs here
-	go runServer(t, done, closech)
+	runServer(t, done, closech)
 
 	// Set up a connection to the server.
 	conn, err = grpc.Dial(address, grpc.WithInsecure())
@@ -1848,7 +1848,7 @@ func TestLoadFromExistingData_100pgs(t *testing.T) {
 
 	//finally we are going to remove the pg
 	done = make(chan struct{})
-	go runServer(t, done, closech)
+	runServer(t, done, closech)
 
 	// Set up a connection to the server.
 	conn, err = grpc.Dial(address, grpc.WithInsecure())
@@ -1884,7 +1884,7 @@ func TestRemoveAllStripe(t *testing.T) {
 	oid := []byte("hello")
 	os.RemoveAll(string(pgid))
 	os.RemoveAll(Metadir)
-	go runServer(t, done, closech)
+	runServer(t, done, closech)
 
 	// Set up a connection to the server.
 	conn, err := grpc.Dial(address, grpc.WithInsecure())

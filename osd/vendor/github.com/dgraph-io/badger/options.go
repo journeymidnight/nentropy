@@ -75,11 +75,11 @@ var DefaultOptions = Options{
 	// table.MemoryMap to mmap() the tables.
 	// table.Nothing to not preload the tables.
 	MaxLevels:               7,
-	MaxTableSize:            64 << 20,
+	MaxTableSize:            8 << 20,
 	NumCompactors:           3,
 	NumLevelZeroTables:      5,
 	NumLevelZeroTablesStall: 10,
-	NumMemtables:            5,
+	NumMemtables:            2,
 	SyncWrites:              true,
 	// Nothing to read/write value log using standard File I/O
 	// MemoryMap to mmap() the value log files
