@@ -126,7 +126,8 @@ message PgMap {
 
 message Pg{
     int32 id = 1;
-    repeated int32 osd_ids = 2;
+    int32 primary_id = 2;
+    repeated int32 osd_ids = 3;
 }
 
 message Op {

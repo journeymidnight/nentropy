@@ -23,17 +23,18 @@ const (
 )
 
 type Member struct {
-	IsMon bool
-	Name  string
-	Addr  string
-	Port  uint16
-	ID    uint64
+	IsMon    bool
+	Name     string
+	Addr     string
+	Port     uint16
+	RaftPort uint16
+	ID       uint64
 }
 
 type NotifyMemberEvent func(MemberEventType, Member) error
 
 var notifyMemberEvent NotifyMemberEvent
-var list *memberlist.Memberlist
+var List *memberlist.Memberlist
 var eventCh chan memberlist.NodeEvent
 
 type MemberDelegate struct {
@@ -100,7 +101,7 @@ func recvChanEvent(myName string) {
 	}
 }
 
-func Init(isMon bool, id uint64, myAddr string, logger *log.Logger) {
+func Init(isMon bool, id uint64, myAddr string, raftPort uint16, logger *log.Logger) {
 	c := memberlist.DefaultLocalConfig()
 	hostname, _ := os.Hostname()
 	c.Name = hostname + "-" + uuid.NewUUID().String()
@@ -110,6 +111,7 @@ func Init(isMon bool, id uint64, myAddr string, logger *log.Logger) {
 	member := Member{}
 	member.IsMon = isMon
 	member.Addr = myAddr
+	member.RaftPort = raftPort
 	member.ID = id
 	meta, err := json.Marshal(member)
 	if err != nil {
@@ -121,31 +123,32 @@ func Init(isMon bool, id uint64, myAddr string, logger *log.Logger) {
 		c.Events = &memberlist.ChannelEventDelegate{Ch: eventCh}
 	}
 
-	list, err := memberlist.Create(c)
+	List, err := memberlist.Create(c)
 	if err != nil {
 		panic("Failed to create memberlist: " + err.Error())
 	}
 
 	if !isMon && helper.CONFIG.JoinMemberAddr != "" {
 		strs := strings.Split(helper.CONFIG.JoinMemberAddr, ",")
-		_, err := list.Join(strs)
+		_, err := List.Join(strs)
 		if err != nil {
 			panic("Failed to join cluster: " + err.Error())
 		}
 	}
 
 	// Ask for members of the cluster
-	for _, member := range list.Members() {
+	for _, member := range List.Members() {
 		helper.Logger.Printf(0, "Member: %s %s\n", member.Name, member.Addr)
 	}
 
 	if isMon {
 		go recvChanEvent(c.Name)
 	}
+
 }
 
 func GetMembers() (members []Member) {
-	nodes := list.Members()
+	nodes := List.Members()
 	for _, node := range nodes {
 		member := Member{}
 		if err := json.Unmarshal(node.Meta, &member); err != nil {
@@ -154,6 +157,15 @@ func GetMembers() (members []Member) {
 		members = append(members, member)
 	}
 	return
+}
+
+func GetMemberByName(name string) *Member {
+	for _, v := range GetMembers() {
+		if v.Name == name {
+			return &v
+		}
+	}
+	return nil
 }
 
 func SetNotifyFunc(callback NotifyMemberEvent) {

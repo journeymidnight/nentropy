@@ -1,0 +1,99 @@
+syntax = "proto3";
+
+package multiraftbase;
+
+// A NodeUnavailableError indicates that the sending gateway can
+// not process requests at the time, and that the client should
+// retry the request with another peer.
+message NodeUnavailableError {
+}
+
+// A RangeNotFoundError indicates that a command was sent to a range
+// which is not hosted on this store.
+message PgNotFoundError {
+    string pg_name = 1;
+}
+
+// A SendError indicates that a message could not be delivered to
+// the desired recipient(s).
+message SendError {
+    string message = 1;
+    reserved 2;
+}
+
+// An AmbiguousResultError indicates that a request may have succeeded or
+// failed, but the response was not received and the final result is ambiguous.
+message AmbiguousResultError {
+    string message = 1;
+    // This can be set to give extra information about which error was converted
+    // into an AmbiguousResultError. Useful for tests.
+    Error wrapped_err = 2;
+}
+
+// A RaftGroupDeletedError indicates a raft group has been deleted for
+// the replica.
+message RaftGroupDeletedError {
+}
+
+// A ReplicaCorruptionError indicates that the replica has experienced
+// an error which puts its integrity at risk.
+message ReplicaCorruptionError {
+    string error_msg = 1;
+    // processed indicates that the error has been taken into account and
+    // necessary steps will be taken. For now, required for testing.
+    bool processed = 2;
+}
+
+// ReplicaTooOldError is sent in response to a raft message when the
+// recipient of the raft message believes the sender of the raft
+// message to have been removed from the raft group
+message ReplicaTooOldError {
+    // replica_id is the ID of the replica that is too old.
+    int32 replica_id = 1;
+}
+
+message NodeNotReadyError {
+    string node_id = 1;
+}
+
+// ErrorDetail is a union type containing all available errors.
+message ErrorDetail {
+    NodeUnavailableError node_unavailable = 1;
+    NodeNotReadyError node_not_ready = 2;
+    SendError send = 3;
+    // TODO(kaneda): Following three are added to preserve the type when
+    // converting Go errors from/to proto Errors. Revisit this design.
+    RaftGroupDeletedError raft_group_deleted = 4;
+    ReplicaCorruptionError replica_corruption = 5;
+    ReplicaTooOldError replica_too_old = 6;
+    reserved 7;
+    AmbiguousResultError ambiguous_result = 8;
+}
+
+// ErrPosition describes the position of an error in a Batch. A simple nullable
+// primitive field would break compatibility with proto3, where primitive fields
+// are no longer allowed to be nullable.
+message ErrPosition {
+    int32 index = 1;
+}
+
+// Error is a generic representation including a string message
+// and information about retryability.
+message Error {
+    // message is a human-readable error message.
+    string message = 1;
+
+    // Node at which the error was generated (zero if does not apply).
+    string origin_node = 2;
+
+    // If an ErrorDetail is present, it may contain additional structured data
+    // about the error.
+    ErrorDetail detail = 3;
+
+    // The index, if given, contains the index of the request (in the batch)
+    // whose execution caused the error.
+    ErrPosition index = 4;
+    // now is the current time at the node sending the response,
+    // which can be used by the receiver to update its local HLC.
+
+}

@@ -14,31 +14,30 @@
  * limitations under the License.
  */
 
-// Use gen.sh to generate .pb.go files.
+// Use protos/gen.sh to generate .pb.go files.
 syntax = "proto3";
 
 package protos;
 
-message Payload {
-	 bytes Data = 1;
+
+service OsdRpc {
+    rpc CreatePg (CreatePgRequest) returns (CreatePgReply) {}
+    rpc DeletePg (DeletePgRequest) returns (DeletePgReply) {}
 }
 
-message RaftContext {
-	fixed64 id = 1;
-	uint32 group = 2;
-	string addr = 3;
+message CreatePgRequest {
+    string pg_name = 1;
+
 }
 
-message Proposal {
-	uint32 id         = 1;
-	bytes Data        = 2;
+message CreatePgReply {
+    int32 ret_code = 1;
 }
 
-service RaftNode {
-	// Connection testing RPC.
-	rpc Echo (Payload)             returns (Payload) {}
+message DeletePgRequest {
+    string pg_name = 1;
+}
 
-	// RAFT serving RPCs.
-	rpc RaftMessage (Payload)                     returns (Payload) {}
-	rpc JoinCluster (RaftContext)            returns (Payload) {}
+message DeletePgReply {
+    int32 ret_code = 1;
 }

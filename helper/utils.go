@@ -127,6 +127,19 @@ func (m *SafeMap) Set(k interface{}, v interface{}) bool {
 	return true
 }
 
+// Maps the given key and value. Returns false
+// if the key is already in the map and changes nothing.
+func (m *SafeMap) LoadOrStore(k interface{}, v interface{}) (actual interface{}, loaded bool) {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+	if val, ok := m.bm[k]; !ok {
+		m.bm[k] = v
+		return v, false
+	} else {
+		return val, true
+	}
+}
+
 // Returns true if k is exist in the map.
 func (m *SafeMap) Check(k interface{}) bool {
 	m.lock.RLock()

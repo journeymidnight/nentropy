@@ -424,7 +424,7 @@ func allocateNewPgs(poolMap *protos.PoolMap, pgMaps *protos.PgMaps, osdMap *prot
 	startIndex := len(targetMap.Pgmap)
 	for i := 0; i < int(n); i++ {
 		id := int32(startIndex + i)
-		targetMap.Pgmap[id] = &protos.Pg{id, make([]int32, 0)}
+		targetMap.Pgmap[id] = &protos.Pg{id, 0, make([]int32, 0)}
 	}
 	hashRing := consistent.New(osdMap, poolMap.Pools[poolId].Policy)
 	err = updatePgMap(targetMap, poolMap, hashRing)

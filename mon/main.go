@@ -161,7 +161,7 @@ func main() {
 
 	go StartRaftNodes(state.WALstore)
 
-	memberlist.Init(true, helper.CONFIG.RaftId, helper.CONFIG.MyAddr, logger.Logger)
+	memberlist.Init(true, helper.CONFIG.RaftId, helper.CONFIG.MyAddr, 0, logger.Logger)
 	memberlist.SetNotifyFunc(NotifyMemberEvent)
 
 	// setup shutdown os signal handler
