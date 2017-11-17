@@ -32,15 +32,6 @@ message RaftHeartbeat {
     bool quiesce = 6;
 }
 
-message ReplicaDescriptor {
-    //in nentropy node_id here should be osd.id
-    string node_id = 1;
-    // replica_id uniquely identifies a replica instance. If a range is removed from
-    // a store and then re-added to the same store, the new instance will have a
-    // higher replica_id.
-    int32 replica_id = 2;
-}
-
 // RaftMessageRequest is the request used to send raft messages using our
 // protobuf-based RPC codec. If a RaftMessageRequest has a non-empty number of
 // heartbeats or heartbeat_resps, the contents of the message field is treated

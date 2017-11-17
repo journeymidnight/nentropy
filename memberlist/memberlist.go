@@ -101,7 +101,7 @@ func recvChanEvent(myName string) {
 	}
 }
 
-func Init(isMon bool, id uint64, myAddr string, raftPort uint16, logger *log.Logger) {
+func Init(isMon bool, id uint64, myAddr string, logger *log.Logger) {
 	c := memberlist.DefaultLocalConfig()
 	hostname, _ := os.Hostname()
 	c.Name = hostname + "-" + uuid.NewUUID().String()
@@ -111,7 +111,6 @@ func Init(isMon bool, id uint64, myAddr string, raftPort uint16, logger *log.Log
 	member := Member{}
 	member.IsMon = isMon
 	member.Addr = myAddr
-	member.RaftPort = raftPort
 	member.ID = id
 	meta, err := json.Marshal(member)
 	if err != nil {

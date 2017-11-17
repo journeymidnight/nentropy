@@ -14,14 +14,14 @@ const ()
 var schedulerConcurrency = envutil.EnvOrDefaultInt(
 	"NENTROPY_SCHEDULER_CONCURRENCY", 8*runtime.NumCPU())
 
-type RaftContainerConfig struct {
+type StoreConfig struct {
 	Transport *RaftTransport
 	RaftConfig
 	RaftHeartbeatIntervalTicks int
 }
 
-type RaftContainer struct {
-	cfg RaftContainerConfig
+type Store struct {
+	cfg StoreConfig
 	mu  struct {
 		sync.Mutex
 		replicas map[multiraftbase.GroupID]*Replica
@@ -32,30 +32,30 @@ type RaftContainer struct {
 	scheduler         *raftScheduler
 }
 
-func (rcc *RaftContainerConfig) SetDefaults() {
-	rcc.RaftConfig.SetDefaults()
+func (sc *StoreConfig) SetDefaults() {
+	sc.RaftConfig.SetDefaults()
 }
 
-func NewRaftContainer(cfg RaftContainerConfig) *RaftContainer {
+func NewStore(cfg StoreConfig) *Store {
 	cfg.SetDefaults()
-	rc := &RaftContainer{
+	s := &Store{
 		cfg: cfg,
 	}
-	rc.scheduler = newRaftScheduler(rc, schedulerConcurrency)
-	rc.mu.Lock()
-	rc.mu.replicas = map[multiraftbase.GroupID]*Replica{}
-	rc.mu.Unlock()
-	return rc
+	s.scheduler = newRaftScheduler(s, schedulerConcurrency)
+	s.mu.Lock()
+	s.mu.replicas = map[multiraftbase.GroupID]*Replica{}
+	s.mu.Unlock()
+	return s
 }
 
-func (rc *RaftContainer) processReady(ctx context.Context, id multiraftbase.GroupID) {
+func (s *Store) processReady(ctx context.Context, id multiraftbase.GroupID) {
 	return
 }
 
-func (rc *RaftContainer) processRequestQueue(ctx context.Context, id multiraftbase.GroupID) {
+func (s *Store) processRequestQueue(ctx context.Context, id multiraftbase.GroupID) {
 	return
 }
 
-func (rc *RaftContainer) processTick(ctx context.Context, id multiraftbase.GroupID) bool {
+func (s *Store) processTick(ctx context.Context, id multiraftbase.GroupID) bool {
 	return true
 }

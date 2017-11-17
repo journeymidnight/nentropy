@@ -26,13 +26,16 @@ import (
 
 	"github.com/coreos/etcd/raft/raftpb"
 	. "github.com/journeymidnight/nentropy/multiraft/multiraftbase"
+	"github.com/journeymidnight/nentropy/rpc"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 
 	"github.com/cockroachdb/cockroach/pkg/util/log"
 	"github.com/cockroachdb/cockroach/pkg/util/syncutil"
 	"github.com/cockroachdb/cockroach/pkg/util/timeutil"
-	"github.com/journeymidnight/nentropy/helper"
+
+	"github.com/journeymidnight/nentropy/memberlist"
+	"sync"
 )
 
 const (
@@ -50,7 +53,12 @@ const (
 	//
 	// TODO(tamird): make culling of outbound streams more evented, so that we
 	// need not rely on this timeout to shut things down.
-	raftIdleTimeout = time.Minute
+	raftIdleTimeout       = time.Minute
+	maxBackoff            = time.Second
+	NetworkTimeout        = 3 * time.Second
+	defaultWindowSize     = 65535
+	initialWindowSize     = defaultWindowSize * 32 // for an RPC
+	initialConnWindowSize = initialWindowSize * 16 // for a connection
 )
 
 // RaftMessageResponseStream is the subset of the
@@ -106,7 +114,7 @@ type RaftMessageHandler interface {
 
 // NodeAddressResolver is the function used by RaftTransport to map node IDs to
 // network addresses.
-type NodeAddressResolver func(id NodeID) (net.Addr, error)
+type NodeAddressResolver func(id string) (net.Addr, error)
 
 type raftTransportStats struct {
 	nodeID        string //like osd.1 or mon.1
@@ -138,99 +146,110 @@ func (s raftTransportStatsSlice) Less(i, j int) bool { return s[i].nodeID < s[j]
 // outbound message which caused the remote to hang up; all that is known is
 // which remote hung up.
 type RaftTransport struct {
-	ctx      context.Context
-	cancel   context.CancelFunc
-	resolver NodeAddressResolver
+	resolver   NodeAddressResolver
+	rpcContext *rpc.Context
+	queues     sync.Map // map[string]*chan *RaftMessageRequest
+	stats      sync.Map // map[string]*raftTransportStats
+	handler    *RaftMessageHandler
+	conns      sync.Map
+}
 
-	queues  helper.SafeMap // map[string]*chan *RaftMessageRequest
-	stats   helper.SafeMap // map[string]*raftTransportStats
-	handler *RaftMessageHandler
+// GossipAddressResolver is a thin wrapper around gossip's GetNodeIDAddress
+// that allows its return value to be used as the net.Addr interface.
+func GossipAddressResolver() NodeAddressResolver {
+	return func(nodeID string) (net.Addr, error) {
+		return net.ResolveIPAddr("ip", memberlist.GetMemberByName(nodeID).Addr)
+	}
 }
 
 // NewRaftTransport creates a new RaftTransport.
 func NewRaftTransport(
 	resolver NodeAddressResolver,
 	grpcServer *grpc.Server,
+	rpcContext *rpc.Context,
 ) *RaftTransport {
-	ctx, cancel := context.WithCancel(context.Background())
+
 	t := &RaftTransport{
-		resolver: resolver,
-		ctx:      ctx,
-		cancel:   cancel,
+		resolver:   resolver,
+		rpcContext: rpcContext,
 	}
 
 	if grpcServer != nil {
 		RegisterMultiRaftServer(grpcServer, t)
 	}
+	if t.rpcContext != nil {
+		ctx := context.Background()
+		t.rpcContext.Stopper.RunWorker(ctx, func(ctx context.Context) {
+			ticker := time.NewTicker(10 * time.Second)
+			defer ticker.Stop()
+			lastStats := make(map[string]raftTransportStats)
+			lastTime := timeutil.Now()
+			var stats raftTransportStatsSlice
+			for {
+				select {
+				case <-ticker.C:
+					stats = stats[:0]
+					t.stats.Range(func(k, v interface{}) bool {
+						s := (*raftTransportStats)(v)
+						s.queue = 0
+						stats = append(stats, s)
+						return true
+					})
 
-	go func() {
-		ticker := time.NewTicker(10 * time.Second)
-		defer ticker.Stop()
-		lastStats := make(map[string]raftTransportStats)
-		lastTime := timeutil.Now()
-		var stats raftTransportStatsSlice
-		for {
-			select {
-			case <-ticker.C:
-				stats = stats[:0]
-				for _, v := range t.stats.Items() {
-					s := (*raftTransportStats)(v)
-					// Clear the queue length stat. Note that this field is only
-					// mutated by this goroutine.
-					s.queue = 0
-					stats = append(stats, s)
-				}
+					t.queues.Range(func(k, v interface{}) bool {
+						ch := *(*chan *RaftMessageRequest)(v)
+						t.getStats(string(k)).queue += len(ch)
+						return true
+					})
 
-				for k, v := range t.queues.Items() {
-					ch := *(*chan *RaftMessageRequest)(v)
-					(*raftTransportStats)(t.stats.Get(k)).queue += len(ch)
-				}
+					now := timeutil.Now()
+					elapsed := now.Sub(lastTime).Seconds()
+					sort.Sort(stats)
 
-				now := timeutil.Now()
-				elapsed := now.Sub(lastTime).Seconds()
-				sort.Sort(stats)
-
-				var buf bytes.Buffer
-				// NB: The header is 80 characters which should display in a single
-				// line on most terminals.
-				fmt.Fprintf(&buf,
-					"         qlen   qmax   qdropped client-sent client-recv server-sent server-recv\n")
-				for _, s := range stats {
-					last := lastStats[s.nodeID]
-					cur := raftTransportStats{
-						nodeID:        s.nodeID,
-						queue:         s.queue,
-						queueMax:      atomic.LoadInt32(&s.queueMax),
-						clientDropped: atomic.LoadInt64(&s.clientDropped),
-						clientSent:    atomic.LoadInt64(&s.clientSent),
-						clientRecv:    atomic.LoadInt64(&s.clientRecv),
-						serverSent:    atomic.LoadInt64(&s.serverSent),
-						serverRecv:    atomic.LoadInt64(&s.serverRecv),
+					var buf bytes.Buffer
+					// NB: The header is 80 characters which should display in a single
+					// line on most terminals.
+					fmt.Fprintf(&buf,
+						"         qlen   qmax   qdropped client-sent client-recv server-sent server-recv\n")
+					for _, s := range stats {
+						last := lastStats[s.nodeID]
+						cur := raftTransportStats{
+							nodeID:        s.nodeID,
+							queue:         s.queue,
+							queueMax:      atomic.LoadInt32(&s.queueMax),
+							clientDropped: atomic.LoadInt64(&s.clientDropped),
+							clientSent:    atomic.LoadInt64(&s.clientSent),
+							clientRecv:    atomic.LoadInt64(&s.clientRecv),
+							serverSent:    atomic.LoadInt64(&s.serverSent),
+							serverRecv:    atomic.LoadInt64(&s.serverRecv),
+						}
+						fmt.Fprintf(&buf, "  %3d: %6d %6d %10d %11.1f %11.1f %11.1f %11.1f\n",
+							cur.nodeID, cur.queue, cur.queueMax, cur.clientDropped,
+							float64(cur.clientSent-last.clientSent)/elapsed,
+							float64(cur.clientRecv-last.clientRecv)/elapsed,
+							float64(cur.serverSent-last.serverSent)/elapsed,
+							float64(cur.serverRecv-last.serverRecv)/elapsed)
+						lastStats[s.nodeID] = cur
 					}
-					fmt.Fprintf(&buf, "  %3d: %6d %6d %10d %11.1f %11.1f %11.1f %11.1f\n",
-						cur.nodeID, cur.queue, cur.queueMax, cur.clientDropped,
-						float64(cur.clientSent-last.clientSent)/elapsed,
-						float64(cur.clientRecv-last.clientRecv)/elapsed,
-						float64(cur.serverSent-last.serverSent)/elapsed,
-						float64(cur.serverRecv-last.serverRecv)/elapsed)
-					lastStats[s.nodeID] = cur
+					lastTime = now
+					log.Infof(ctx, "stats:\n%s", buf.String())
+				case <-ctx.Done():
+					return
 				}
-				lastTime = now
-				log.Infof(ctx, "stats:\n%s", buf.String())
-			case <-ctx.Done():
-				return
 			}
-		}
-	}()
+		})
+	}
+
 	return t
 }
 
 func (t *RaftTransport) queuedMessageCount() int64 {
 	var n int64
-	for _, v := range t.queues.Items() {
+	t.queues.Range(func(k, v interface{}) bool {
 		ch := *(*chan *RaftMessageRequest)(v)
 		n += int64(len(ch))
-	}
+		return true
+	})
 	return n
 }
 
@@ -272,8 +291,8 @@ func newRaftMessageResponse(req *RaftMessageRequest, err *Error) *RaftMessageRes
 }
 
 func (t *RaftTransport) getStats(nodeID string) *raftTransportStats {
-	value := t.stats.Get(nodeID)
-	if value == nil {
+	value, ok := t.stats.Load(nodeID)
+	if ok == false {
 		stats := &raftTransportStats{nodeID: nodeID}
 		value, _ = t.stats.LoadOrStore(nodeID, stats)
 	}
@@ -409,33 +428,39 @@ func (t *RaftTransport) connectAndProcess(
 // lost and a new instance of processQueue will be started by the next message
 // to be sent.
 func (t *RaftTransport) processQueue(
-	nodeID NodeID,
+	nodeID string,
 	ch chan *RaftMessageRequest,
 	stats *raftTransportStats,
 	stream MultiRaft_RaftMessageBatchClient,
 ) error {
 	errCh := make(chan error, 1)
-	ctx := stream.Context()
-	go func() {
-		errCh <- func() error {
-			for {
-				resp, err := stream.Recv()
-				if err != nil {
-					return err
-				}
-				atomic.AddInt64(&stats.clientRecv, 1)
-				handler, ok := t.getHandler()
-				if !ok {
-					log.Warningf(ctx, "no handler found for node %s",
-						resp.ToReplica.NodeId)
-					continue
-				}
-				if err := handler.HandleRaftResponse(ctx, resp); err != nil {
-					return err
-				}
-			}
-		}()
-	}()
+	// Starting workers in a task prevents data races during shutdown.
+	if err := t.rpcContext.Stopper.RunTask(
+		stream.Context(), "storage.RaftTransport: processing queue",
+		func(ctx context.Context) {
+			t.rpcContext.Stopper.RunWorker(ctx, func(ctx context.Context) {
+				errCh <- func() error {
+					for {
+						resp, err := stream.Recv()
+						if err != nil {
+							return err
+						}
+						atomic.AddInt64(&stats.clientRecv, 1)
+						handler, ok := t.getHandler()
+						if !ok {
+							log.Warningf(ctx, "no handler found for node %s",
+								resp.ToReplica.NodeId)
+							continue
+						}
+						if err := handler.HandleRaftResponse(ctx, resp); err != nil {
+							return err
+						}
+					}
+				}()
+			})
+		}); err != nil {
+		return err
+	}
 
 	var raftIdleTimer timeutil.Timer
 	defer raftIdleTimer.Stop()
@@ -443,7 +468,7 @@ func (t *RaftTransport) processQueue(
 	for {
 		raftIdleTimer.Reset(raftIdleTimeout)
 		select {
-		case <-t.ctx.Done():
+		case <-t.rpcContext.Stopper.ShouldStop():
 			return nil
 		case <-raftIdleTimer.C:
 			raftIdleTimer.Read = true
@@ -479,8 +504,8 @@ func (t *RaftTransport) processQueue(
 // getQueue returns the queue for the specified node ID and a boolean
 // indicating whether the queue already exists (true) or was created (false).
 func (t *RaftTransport) getQueue(nodeID string) (chan *RaftMessageRequest, bool) {
-	value := t.queues.Get(nodeID)
-	if value == nil {
+	value, ok := t.queues.Load(nodeID)
+	if ok == false {
 		ch := make(chan *RaftMessageRequest, raftSendBufferSize)
 
 		value, ok := t.queues.LoadOrStore(int64(nodeID), unsafe.Pointer(&ch))
