@@ -20,6 +20,7 @@ syntax = "proto3";
 package multiraftbase;
 
 import "github.com/coreos/etcd/raft/raftpb/raft.proto";
+import "metadata.proto";
 import "state.proto";
 import "error.proto";
 

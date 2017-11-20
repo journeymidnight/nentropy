@@ -33,26 +33,23 @@ import (
 	"time"
 )
 
-// Engines is a container of engines, allowing convenient closing.
-type Engines []engine.Engine
-
-type Server struct {
+type OsdServer struct {
 	nodeID        string
 	cfg           Config
 	grpc          *grpc.Server
 	rpcContext    *rpc.Context
 	raftTransport *multiraft.RaftTransport
 	stopper       *stop.Stopper
-	engines       Engines
+	store         *multiraft.Store
 }
 
 // NewServer creates a Server from a server.Context.
-func NewServer(cfg Config, stopper *stop.Stopper) (*Server, error) {
+func NewOsdServer(cfg Config, stopper *stop.Stopper) (*OsdServer, error) {
 	if _, err := net.ResolveTCPAddr("tcp", cfg.AdvertiseAddr); err != nil {
 		return nil, errors.Errorf("unable to resolve RPC address %q: %v", cfg.AdvertiseAddr, err)
 	}
 
-	s := &Server{
+	s := &OsdServer{
 		stopper: stopper,
 		cfg:     cfg,
 	}
@@ -80,7 +77,7 @@ func NewServer(cfg Config, stopper *stop.Stopper) (*Server, error) {
 	)
 
 	//register osd outer rpc service for mon or client
-	protos.RegisterOsdRpcServer(s.grpc, newServer())
+	protos.RegisterOsdRpcServer(s.grpc, s)
 
 	//// TODO(bdarnell): make StoreConfig configurable.
 	//storeCfg := storage.StoreConfig{
@@ -132,7 +129,7 @@ type ListenError struct {
 //
 // The passed context can be used to trace the server startup. The context
 // should represent the general startup operation.
-func (s *Server) Start(ctx context.Context) error {
+func (s *OsdServer) Start(ctx context.Context) error {
 
 	// The following code is a specialization of util/net.go's ListenAndServe
 	// which adds pgwire support. A single port is used to serve all protocols

@@ -1,0 +1,209 @@
+syntax = "proto3";
+package multiraftbase;
+
+import "metadata.proto";
+import "state.proto";
+import "error.proto";
+import "gogoproto/gogo.proto";
+
+// ReadConsistencyType specifies what type of consistency is observed
+// during read operations.
+enum ReadConsistencyType {
+option (gogoproto.goproto_enum_prefix) = false;
+
+// CONSISTENT reads are guaranteed to read committed data; the
+// mechanism relies on clocks to determine lease expirations.
+CONSISTENT = 0;
+// CONSENSUS requires that reads must achieve consensus. This is a
+// stronger guarantee of consistency than CONSISTENT.
+//
+// TODO(spencer): current unimplemented.
+CONSENSUS = 1;
+// INCONSISTENT reads return the latest available, committed values.
+// They are more efficient, but may read stale values as pending
+// intents are ignored.
+INCONSISTENT = 2;
+}
+
+// ResponseHeader is returned with every storage node response.
+message ResponseHeader {
+// The number of keys operated on.
+int64 num_keys = 1;
+// Range or list of ranges used to execute the request. Multiple
+// ranges may be returned for Scan, ReverseScan or DeleteRange.
+repeated PgInfo pg_infos = 2;
+}
+
+// A GetRequest is the argument for the Get() method.
+message GetRequest {
+option (gogoproto.equal) = true;
+int64 num_keys = 1;
+}
+
+// A GetResponse is the return value from the Get() method.
+// If the key doesn't exist, returns nil for Value.Bytes.
+message GetResponse {
+ResponseHeader header = 1 [(gogoproto.nullable) = false, (gogoproto.embed) = true];
+Value value = 2;
+}
+
+// A PutRequest is the argument to the Put() method.
+message PutRequest {
+option (gogoproto.equal) = true;
+
+Value value = 1 ;
+// Specify as true to put the value without a corresponding
+// timestamp. This option should be used with care as it precludes
+// the use of this value with transactions.
+bool inline = 2;
+// NOTE: For internal use only! Set to indicate that the put is
+// writing to virgin keyspace and no reads are necessary to
+// rationalize MVCC.
+bool blind = 3;
+}
+
+// A PutResponse is the return value from the Put() method.
+message PutResponse {
+ResponseHeader header = 1 [(gogoproto.nullable) = false, (gogoproto.embed) = true];
+}
+
+// A RequestUnion contains exactly one of the requests.
+// The values added here must match those in ResponseUnion.
+//
+// WARNING: Do not remove fields from RequestUnion. Instead, remove
+// all non-header fields from the request message and prepend its
+// name with "Deprecated". See DeprecatedVerifyChecksumRequest for an
+// example.
+//
+// Be cautious about deprecating fields as doing so can lead to inconsistencies
+// between replicas.
+message RequestUnion {
+option (gogoproto.onlyone) = true;
+
+GetRequest get = 1;
+PutRequest put = 2;
+}
+
+// A ResponseUnion contains exactly one of the responses.
+// The values added here must match those in RequestUnion.
+//
+// WARNING: Do not remove fields from ResponseUnion. Instead, remove
+// all non-header fields from the response message and prepend its
+// name with "Deprecated". See DeprecatedVerifyChecksumResponse for an
+// example.
+message ResponseUnion {
+option (gogoproto.onlyone) = true;
+
+GetResponse get = 1;
+PutResponse put = 2;
+}
+
+// A Header is attached to a BatchRequest, encapsulating routing and auxiliary
+// information required for executing it.
+message Header {
+reserved 7;
+// replica specifies the destination of the request.
+ReplicaDescriptor replica = 2;
+// range_id specifies the ID of the Raft consensus group which the key
+// range belongs to. This is used by the receiving node to route the
+// request to the correct range.
+int64 range_id = 3 [(gogoproto.customname) = "RangeID", (gogoproto.casttype) = "RangeID"];
+// user_priority allows any command's priority to be biased from the
+// default random priority. It specifies a multiple. If set to 0.5,
+// the chosen priority will be 1/2x as likely to beat any default
+// random priority. If set to 1, a default random priority is
+// chosen. If set to 2, the chosen priority will be 2x as likely to
+// beat any default random priority, and so on. As a special case, 0
+// priority is treated the same as 1. This value is ignored if txn
+// is specified. The min and max user priorities are set via
+// MinUserPriority and MaxUserPriority in data.go.
+double user_priority = 4 [(gogoproto.casttype) = "UserPriority"];
+// If set, return_range_info causes RangeInfo details to be returned with
+// each ResponseHeader.
+bool return_range_info = 10 ;
+// gateway_node_id is the ID of the gateway node where the request originated.
+int32 gateway_node_id = 11 [(gogoproto.customname) = "GatewayNodeID", (gogoproto.casttype) = "NodeID"];
+}
+
+
+// A BatchRequest contains one or more requests to be executed in
+// parallel, or if applicable (based on write-only commands and
+// range-locality), as a single update.
+message BatchRequest {
+option (gogoproto.goproto_stringer) = false;
+
+Header header = 1 [(gogoproto.embed) = true];
+repeated RequestUnion requests = 2;
+}
+
+// A BatchResponse contains one or more responses, one per request
+// corresponding to the requests in the matching BatchRequest. The
+// error in the response header is set to the first error from the
+// slice of responses, if applicable.
+message BatchResponse {
+option (gogoproto.goproto_stringer) = false;
+
+message Header {
+reserved 4;
+// error is non-nil if an error occurred.
+Error error = 1;
+}
+Header header = 1 [(gogoproto.embed) = true];
+repeated ResponseUnion responses = 2;
+}
+
+// The two Batch services below are identical, except that some internal
+// Request types are not permitted in batches processed by External.Batch. This
+// distinction exists e.g. to prevent command-line tools from accessing
+// internal-only RPC methods.
+
+service Internal {
+rpc Batch (BatchRequest) returns (BatchResponse) {}
+}
+
+service External {
+rpc Batch (BatchRequest) returns (BatchResponse) {}
+}
+
+// TruncateLogRequest is used to remove a prefix of the raft log. While there
+// is no requirement for correctness that the raft log truncation be synchronized across
+// replicas, it is nice to preserve the property that all replicas of a range are as close
+// to identical as possible. The raft leader can also inform decisions about the cutoff point
+// with its knowledge of the replicas' acknowledgment status.
+message TruncateLogRequest {
+option (gogoproto.equal) = true;
+
+// Log entries < this index are to be discarded.
+uint64 index = 1;
+
+// RangeID is used to double check that the correct range is being truncated.
+// The header specifies a span, start and end keys, but not the range id
+// itself. The range may have changed from the one specified in the header
+// in the case of a merge.
+int64 range_id = 2 [(gogoproto.customname) = "RangeID", (gogoproto.casttype) = "RangeID"];
+}
+
+// WriteBatch is the serialized representation of a RocksDB write
+// batch. A wrapper message is used so that the absence of the field
+// can be distinguished from a zero-length batch, and so structs
+// containing pointers to it can be compared with the == operator (we
+// rely on this in storage.EvalResult)
+message WriteBatch {
+bytes data = 1;
+}
+
+// RaftCommand is the message written to the raft log. It contains
+// some metadata about the proposal itself, then either a BatchRequest
+// (legacy mode) or a ReplicatedEvalResult + WriteBatch
+// (proposer-evaluated KV mode).
+message RaftCommand {
+// Metadata about the proposal itself. These fields exist at
+// top-level instead of being grouped in a sub-message for
+// backwards-compatibility.
+
+// proposer_replica is the replica which proposed this command, to be
+// used for lease validation.
+ReplicaDescriptor proposer_replica = 1;
+WriteBatch write_batch = 2;
+}
+

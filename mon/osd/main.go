@@ -39,7 +39,7 @@ func main() {
 	signal.Notify(signalCh, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
 
 	errChan := make(chan error, 1)
-	var s *Server
+	var s *OsdServer
 	go func() {
 		defer func() {
 			if s != nil {
@@ -50,7 +50,7 @@ func main() {
 		}()
 		ctx := context.Background()
 		if err := func() error {
-			s, err = NewServer(*cfg, stopper)
+			s, err = NewOsdServer(*cfg, stopper)
 			if err != nil {
 				return errors.New("failed to create server")
 			}

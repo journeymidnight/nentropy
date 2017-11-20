@@ -19,6 +19,38 @@ syntax = "proto3";
 
 package multiraftbase;
 
+import "metadata.proto";
+import "gogoproto/gogo.proto";
+
+message RaftTruncatedState {
+    option (gogoproto.equal) = true;
+    option (gogoproto.populate) = true;
+
+    // The highest index that has been removed from the log.
+    uint64 index = 1;
+    // The term corresponding to 'index'.
+    uint64 term = 2;
+}
+
 message ReplicaState {
     uint64 raft_applied_index = 1;
+    PgDescriptor desc = 2;
+    // The truncation state of the Raft log.
+    RaftTruncatedState truncated_state = 3;
+}
+
+message PgInfo {
+    option (gogoproto.equal) = true;
+
+    ReplicaState state = 1 [(gogoproto.nullable) = false, (gogoproto.embed) = true];
+    // The highest (and last) index in the Raft log.
+    uint64 lastIndex = 2;
+    uint64 num_pending = 3;
+    reserved 4; // previously last verification timestamp for verify queue.
+    uint64 num_dropped = 5;
+    // raft_log_size may be initially inaccurate after a server restart.
+    // See storage.Replica.mu.raftLogSize.
+    int64 raft_log_size = 6;
+    // Approximately the amount of quota available.
+    int64 approximate_proposal_quota = 7;
 }

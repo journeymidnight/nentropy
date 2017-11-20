@@ -1,5 +1,7 @@
 syntax = "proto3";
-package protos;
+package multiraftbase;
+
+import "gogoproto/gogo.proto";
 
 // Attributes specifies a list of arbitrary strings describing
 // node topology, store type, and machine capabilities.
@@ -28,6 +30,20 @@ message ReplicaIdent {
     int64 pool_id = 1;
     int64 pg_id = 2;
     ReplicaDescriptor replica = 3;
+}
+
+// RangeDescriptor is the value stored in a range metadata key.
+// A range is described using an inclusive start key, a non-inclusive end key,
+// and a list of replicas where the range is stored.
+message PgDescriptor {
+    int64 pool_id = 1;
+
+    int64 pg_id = 2;
+
+    repeated ReplicaDescriptor replicas = 3;
+
+    // next_replica_id is a counter used to generate replica IDs.
+    int32 next_replica_id = 4;
 }
 
 // StoreCapacity contains capacity information for a storage device.
@@ -72,4 +88,16 @@ message StoreDescriptor {
 message StoreDeadReplicas {
     int32 store_id = 1;
     repeated ReplicaIdent replicas = 2;
+}
+
+message Value {
+    option (gogoproto.equal) = true;
+
+    // raw_bytes contains the encoded value and checksum.
+    bytes raw_bytes = 1;
+}
+
+message KeyValue {
+    bytes key = 1 [(gogoproto.casttype) = "Key"];
+    Value value = 2;
 }
