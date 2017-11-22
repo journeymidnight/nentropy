@@ -87,3 +87,16 @@ func (e *NodeNotReadyError) Error() string {
 func (e *NodeNotReadyError) message(_ *Error) string {
 	return fmt.Sprintf("node %s was not ready", e.NodeId)
 }
+
+// NewRangeNotFoundError initializes a new RangeNotFoundError.
+func NewRangeNotFoundError(rangeID RangeID) *RangeNotFoundError {
+	return &RangeNotFoundError{
+		RangeID: rangeID,
+	}
+}
+
+// NewAmbiguousResultError initializes a new AmbiguousResultError with
+// an explanatory message.
+func NewAmbiguousResultError(msg string) *AmbiguousResultError {
+	return &AmbiguousResultError{Message: msg}
+}

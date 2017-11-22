@@ -13,7 +13,7 @@
 // permissions and limitations under the License. See the AUTHORS file
 // for names of contributors.
 
-package main
+package multiraft
 
 import (
 	"github.com/biogo/store/llrb"

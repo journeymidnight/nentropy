@@ -307,7 +307,7 @@ func (bq *baseQueue) MaybeAdd(repl *Replica) {
 // the replica is already queued at a lower priority, updates the existing
 // priority. Expects the queue lock to be held by caller.
 func (bq *baseQueue) addInternal(
-	ctx context.Context, desc *protos.RangeDescriptor, should bool, priority float64,
+	ctx context.Context, desc *multiraftbase.PgDescriptor, should bool, priority float64,
 ) (bool, error) {
 	if bq.mu.stopped {
 		return false, errQueueStopped

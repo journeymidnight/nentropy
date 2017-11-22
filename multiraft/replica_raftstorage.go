@@ -8,9 +8,8 @@ import (
 	"github.com/pkg/errors"
 	"golang.org/x/net/context"
 
-	"github.com/journeymidnight/nentropy/mon/osd/engine"
 	"github.com/journeymidnight/nentropy/multiraft/multiraftbase"
-	"github.com/journeymidnight/nentropy/protos"
+	"github.com/journeymidnight/nentropy/storage/engine"
 	"github.com/journeymidnight/nentropy/util/uuid"
 )
 
@@ -57,7 +56,7 @@ func (r *replicaRaftStorage) InitialState() (raftpb.HardState, raftpb.ConfState,
 // proposals count towards maxBytes with their payloads inlined.
 func (r *replicaRaftStorage) Entries(lo, hi, maxBytes uint64) ([]raftpb.Entry, error) {
 	ctx := r.AnnotateCtx(context.TODO())
-	return entries(ctx, r.store.Engine(), r.RangeID, r.store.raftEntryCache,
+	return entries(ctx, r.store.Engine(), r.GroupID, r.store.raftEntryCache,
 		r.raftMu.sideloaded, lo, hi, maxBytes)
 }
 
@@ -68,7 +67,7 @@ func (r *replicaRaftStorage) Entries(lo, hi, maxBytes uint64) ([]raftpb.Entry, e
 func entries(
 	ctx context.Context,
 	e engine.Reader,
-	rangeID protos.RangeID,
+	groupID multiraftbase.GroupID,
 	eCache *raftEntryCache,
 	sideloaded sideloadStorage,
 	lo, hi, maxBytes uint64,
@@ -83,7 +82,7 @@ func entries(
 	}
 	ents := make([]raftpb.Entry, 0, n)
 
-	ents, size, hitIndex := eCache.getEntries(ents, rangeID, lo, hi, maxBytes)
+	ents, size, hitIndex := eCache.getEntries(ents, groupID, lo, hi, maxBytes)
 	// Return results if the correct number of results came back or if
 	// we ran into the max bytes limit.
 	if uint64(len(ents)) == hi-lo || (maxBytes > 0 && size > maxBytes) {
@@ -123,7 +122,7 @@ func entries(
 
 	// Cache the fetched entries, if we may.
 	if canCache {
-		eCache.addEntries(rangeID, ents)
+		eCache.addEntries(groupID, ents)
 	}
 
 	// Did the correct number of results come back? If so, we're all good.
@@ -144,7 +143,7 @@ func entries(
 		}
 
 		// Was the missing index after the last index?
-		lastIndex, err := loadLastIndex(ctx, e, rangeID)
+		lastIndex, err := loadLastIndex(ctx, e, groupID)
 		if err != nil {
 			return nil, err
 		}
@@ -157,7 +156,7 @@ func entries(
 	}
 
 	// No results, was it due to unavailability or truncation?
-	ts, err := loadTruncatedState(ctx, e, rangeID)
+	ts, err := loadTruncatedState(ctx, e, groupID)
 	if err != nil {
 		return nil, err
 	}
@@ -182,13 +181,13 @@ func (r *replicaRaftStorage) Term(i uint64) (uint64, error) {
 		return r.mu.lastTerm, nil
 	}
 	// Try to retrieve the term for the desired entry from the entry cache.
-	if term, ok := r.store.raftEntryCache.getTerm(r.RangeID, i); ok {
+	if term, ok := r.store.raftEntryCache.getTerm(r.GroupID, i); ok {
 		return term, nil
 	}
 	readonly := r.store.Engine().NewReadOnly()
 	defer readonly.Close()
 	ctx := r.AnnotateCtx(context.TODO())
-	return term(ctx, readonly, r.RangeID, r.store.raftEntryCache, i)
+	return term(ctx, readonly, r.GroupID, r.store.raftEntryCache, i)
 }
 
 // raftTermLocked requires that r.mu is locked for reading.
@@ -197,13 +196,13 @@ func (r *Replica) raftTermRLocked(i uint64) (uint64, error) {
 }
 
 func term(
-	ctx context.Context, eng engine.Reader, rangeID protos.RangeID, eCache *raftEntryCache, i uint64,
+	ctx context.Context, eng engine.Reader, groupID multiraftbase.GroupID, eCache *raftEntryCache, i uint64,
 ) (uint64, error) {
 	// entries() accepts a `nil` sideloaded storage and will skip inlining of
 	// sideloaded entries. We only need the term, so this is what we do.
-	ents, err := entries(ctx, eng, rangeID, eCache, nil /* sideloaded */, i, i+1, 0)
+	ents, err := entries(ctx, eng, groupID, eCache, nil /* sideloaded */, i, i+1, 0)
 	if err == raft.ErrCompacted {
-		ts, err := loadTruncatedState(ctx, eng, rangeID)
+		ts, err := loadTruncatedState(ctx, eng, groupID)
 		if err != nil {
 			return 0, err
 		}
@@ -337,7 +336,7 @@ func (r *Replica) append(
 	if len(entries) == 0 {
 		return prevLastIndex, prevLastTerm, prevRaftLogSize, nil
 	}
-	var value protos.Value
+	var value multiraftbase.Value
 	for i := range entries {
 		ent := &entries[i]
 		key := r.raftMu.stateLoader.RaftLogKey(ent.Index)

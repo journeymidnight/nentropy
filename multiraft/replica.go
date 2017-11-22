@@ -54,6 +54,8 @@ type Replica struct {
 		// from the Raft log entry. Use the invalidLastTerm constant for this
 		// case.
 		lastIndex, lastTerm uint64
+
+		RangeID multiraftbase.RangeID // Should only be set by the constructor.
 		// proposals stores the Raft in-flight commands which
 		// originated at this Replica, i.e. all commands for which
 		// propose has been called, but which have not yet
@@ -70,9 +72,6 @@ type Replica struct {
 		// Raft group). The replica ID will be non-zero whenever the replica is
 		// part of a Raft group.
 		replicaID ReplicaID
-		// The minimum allowed ID for this replica. Initialized from
-		// RaftTombstone.NextReplicaID.
-		minReplicaID ReplicaID
 		// The ID of the leader replica within the Raft group. Used to determine
 		// when the leadership changes.
 		leaderID ReplicaID
@@ -99,20 +98,6 @@ type Replica struct {
 		// Note that there are two replicaStateLoaders, in raftMu and mu,
 		// depending on which lock is being held.
 		stateLoader replicaStateLoader
-	}
-
-	cmdQMu struct {
-		// Protects all fields in the cmdQMu struct.
-		//
-		// Locking notes: Replica.mu < Replica.cmdQMu
-		syncutil.Mutex
-		// Enforces at most one command is running per key(s) within each span
-		// scope. The globally-scoped component tracks user writes (i.e. all
-		// keys for which keys.Addr is the identity), the locally-scoped component
-		// the rest (e.g. RangeDescriptor, transaction record, Lease, ...).
-		// Commands with different accesses but the same scope are stored in the
-		// same component.
-		queues [numSpanScope]*CommandQueue
 	}
 	unreachablesMu struct {
 		syncutil.Mutex
@@ -281,7 +266,7 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 		switch e.Type {
 		case raftpb.EntryNormal:
 			var commandID CmdIDKey
-			var command protos.RaftCommand
+			var command multiraftbase.RaftCommand
 
 			// Process committed entries. etcd raft occasionally adds a nil entry
 			// (our own commands are never empty). This happens in two situations:
@@ -327,7 +312,7 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 				const expl = "while unmarshaling ConfChangeContext"
 				return stats, expl, errors.Wrap(err, expl)
 			}
-			var command protos.RaftCommand
+			var command multiraftbase.RaftCommand
 			if err := command.Unmarshal(ccCtx.Payload); err != nil {
 				const expl = "while unmarshaling RaftCommand"
 				return stats, expl, errors.Wrap(err, expl)
@@ -383,7 +368,7 @@ func (r *Replica) processRaftCommand(
 	ctx context.Context,
 	idKey CmdIDKey,
 	term, index uint64,
-	raftCmd protos.RaftCommand,
+	raftCmd multiraftbase.RaftCommand,
 ) bool {
 	if index == 0 {
 		helper.Logger.Fatalf(5, "processRaftCommand requires a non-zero index")
@@ -403,9 +388,9 @@ func (r *Replica) processRaftCommand(
 	r.mu.Unlock()
 
 	var response proposalResult
-	var writeBatch *protos.WriteBatch
+	var writeBatch *multiraftbase.WriteBatch
 	{
-		var pErr *protos.Error
+		var pErr *multiraftbase.Error
 		if raftCmd.WriteBatch != nil {
 			writeBatch = raftCmd.WriteBatch
 		}
@@ -424,8 +409,28 @@ func (r *Replica) processRaftCommand(
 
 // NewReplicaCorruptionError creates a new error indicating a corrupt replica,
 // with the supplied list of errors given as history.
-func NewReplicaCorruptionError(err error) *protos.ReplicaCorruptionError {
-	return &protos.ReplicaCorruptionError{ErrorMsg: err.Error()}
+func NewReplicaCorruptionError(err error) *multiraftbase.ReplicaCorruptionError {
+	return &multiraftbase.ReplicaCorruptionError{ErrorMsg: err.Error()}
+}
+
+func newReplica(rangeID roachpb.RangeID, store *Store) *Replica {
+	r := &Replica{
+		AmbientContext: store.cfg.AmbientCtx,
+		RangeID:        rangeID,
+		store:          store,
+	}
+	r.mu.stateLoader = makeReplicaStateLoader(rangeID)
+	if leaseHistoryMaxEntries > 0 {
+		r.leaseHistory = newLeaseHistory()
+	}
+
+	// Add replica pointer value. NB: this was historically useful for debugging
+	// replica GC issues, but is a distraction at the moment.
+	// r.AmbientContext.AddLogTagStr("@", fmt.Sprintf("%x", unsafe.Pointer(r)))
+
+	r.raftMu.timedMutex = makeTimedMutex(raftMuLogger)
+	r.raftMu.stateLoader = makeReplicaStateLoader(rangeID)
+	return r
 }
 
 // applyRaftCommand applies a raft command from the replicated log to the
@@ -435,21 +440,21 @@ func NewReplicaCorruptionError(err error) *protos.ReplicaCorruptionError {
 func (r *Replica) applyRaftCommand(
 	ctx context.Context,
 	idKey CmdIDKey,
-	writeBatch *protos.WriteBatch,
+	writeBatch *multiraftbase.WriteBatch,
 ) *Error {
 	return nil
 }
 
 func (r *Replica) getReplicaDescriptorByIDRLocked(
-	replicaID ReplicaID, fallback protos.ReplicaDescriptor,
-) (protos.ReplicaDescriptor, error) {
+	replicaID ReplicaID, fallback multiraftbase.ReplicaDescriptor,
+) (multiraftbase.ReplicaDescriptor, error) {
 	if repDesc, ok := r.mu.state.Desc.GetReplicaDescriptorByID(replicaID); ok {
 		return repDesc, nil
 	}
 	if fallback.ReplicaID == replicaID {
 		return fallback, nil
 	}
-	return protos.ReplicaDescriptor{},
+	return multiraftbase.ReplicaDescriptor{},
 		errors.Errorf("replica %d not present in %v, %v", replicaID, fallback, r.mu.state.Desc.Replicas)
 }
 
@@ -475,7 +480,7 @@ func (r *Replica) sendRaftMessage(ctx context.Context, msg raftpb.Message) {
 		return
 	}
 
-	if !r.sendRaftMessageRequest(ctx, &protos.RaftMessageRequest{
+	if !r.sendRaftMessageRequest(ctx, &multiraftbase.RaftMessageRequest{
 		RangeID:     r.RangeID,
 		ToReplica:   toReplica,
 		FromReplica: fromReplica,
@@ -496,10 +501,10 @@ func (r *Replica) sendRaftMessage(ctx context.Context, msg raftpb.Message) {
 func (r *Replica) maybeCoalesceHeartbeat(
 	ctx context.Context,
 	msg raftpb.Message,
-	toReplica, fromReplica protos.ReplicaDescriptor,
+	toReplica, fromReplica multiraftbase.ReplicaDescriptor,
 	quiesce bool,
 ) bool {
-	var hbMap map[protos.StoreIdent][]protos.RaftHeartbeat
+	var hbMap map[multiraftbase.StoreIdent][]multiraftbase.RaftHeartbeat
 	switch msg.Type {
 	case raftpb.MsgHeartbeat:
 		r.store.coalescedMu.Lock()
@@ -510,7 +515,7 @@ func (r *Replica) maybeCoalesceHeartbeat(
 	default:
 		return false
 	}
-	beat := protos.RaftHeartbeat{
+	beat := multiraftbase.RaftHeartbeat{
 		RangeID:       r.RangeID,
 		ToReplicaID:   toReplica.ReplicaID,
 		FromReplicaID: fromReplica.ReplicaID,
@@ -519,7 +524,7 @@ func (r *Replica) maybeCoalesceHeartbeat(
 		Quiesce:       quiesce,
 	}
 
-	toStore := protos.StoreIdent{
+	toStore := multiraftbase.StoreIdent{
 		StoreID: toReplica.StoreID,
 		NodeID:  toReplica.NodeID,
 	}
@@ -643,7 +648,7 @@ func (r *Replica) withRaftGroup(
 // sendRaftMessageRequest sends a raft message, returning false if the message
 // was dropped. It is the caller's responsibility to call ReportUnreachable on
 // the Raft group.
-func (r *Replica) sendRaftMessageRequest(ctx context.Context, req *protos.RaftMessageRequest) bool {
+func (r *Replica) sendRaftMessageRequest(ctx context.Context, req *multiraftbase.RaftMessageRequest) bool {
 
 	helper.Logger.Printf(5, "sending raft request %+v", req)
 
@@ -685,6 +690,18 @@ func (r *Replica) raftStatusRLocked() *raft.Status {
 	return nil
 }
 
+func (r *Replica) cancelPendingCommandsLocked() {
+	r.mu.AssertHeld()
+	for _, p := range r.mu.proposals {
+		resp := proposalResult{
+			Reply: &multiraftbase.BatchResponse{},
+			Err:   multiraftbase.NewError(multiraftbase.NewAmbiguousResultError("removing replica")),
+		}
+		p.finishRaftApplication(resp)
+	}
+	r.mu.proposals = map[multiraftbase.CmdIDKey]*ProposalData{}
+}
+
 // maybeTickQuiesced attempts to tick a quiesced or dormant replica, returning
 // true on success and false if the regular tick path must be taken
 // (i.e. Replica.tick).
@@ -715,4 +732,63 @@ func (r *Replica) addUnreachableRemoteReplica(remoteReplica ReplicaID) {
 	}
 	r.unreachablesMu.remotes[remoteReplica] = struct{}{}
 	r.unreachablesMu.Unlock()
+}
+
+func (r *Replica) initRaftMuLockedReplicaMuLocked(
+	desc *multiraftbase.PgDescriptor, replicaID multiraftbase.ReplicaID,
+) error {
+	ctx := r.AnnotateCtx(context.TODO())
+	if r.mu.state.Desc != nil && r.isInitializedRLocked() {
+		log.Fatalf(ctx, "r%d: cannot reinitialize an initialized replica", desc.RangeID)
+	}
+	if desc.IsInitialized() && replicaID != 0 {
+		return errors.Errorf("replicaID must be 0 when creating an initialized replica")
+	}
+
+	r.cmdQMu.Lock()
+	r.cmdQMu.queues[spanGlobal] = NewCommandQueue(true /* optimizeOverlap */)
+	r.cmdQMu.queues[spanLocal] = NewCommandQueue(false /* !optimizeOverlap */)
+	r.cmdQMu.Unlock()
+
+	r.mu.proposals = map[CmdIDKey]*ProposalData{}
+	// Clear the internal raft group in case we're being reset. Since we're
+	// reloading the raft state below, it isn't safe to use the existing raft
+	// group.
+	r.mu.internalRaftGroup = nil
+
+	var err error
+
+	if r.mu.state, err = r.mu.stateLoader.load(ctx, r.store.Engine(), desc); err != nil {
+		return err
+	}
+	r.rangeStr.store(0, r.mu.state.Desc)
+
+	r.mu.lastIndex, err = r.mu.stateLoader.loadLastIndex(ctx, r.store.Engine())
+	if err != nil {
+		return err
+	}
+	r.mu.lastTerm = invalidLastTerm
+
+	pErr, err := r.mu.stateLoader.loadReplicaDestroyedError(ctx, r.store.Engine())
+	if err != nil {
+		return err
+	}
+
+	if replicaID == 0 {
+		repDesc, ok := desc.GetReplicaDescriptor(r.store.StoreID())
+		if !ok {
+			// This is intentionally not an error and is the code path exercised
+			// during preemptive snapshots. The replica ID will be sent when the
+			// actual raft replica change occurs.
+			return nil
+		}
+		replicaID = repDesc.ReplicaID
+	}
+	r.rangeStr.store(replicaID, r.mu.state.Desc)
+
+	if err := r.setReplicaIDRaftMuLockedMuLocked(replicaID); err != nil {
+		return err
+	}
+
+	return nil
 }

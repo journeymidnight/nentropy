@@ -1,19 +1,17 @@
 package multiraft
 
 import (
-	"github.com/cockroachdb/cockroach/pkg/roachpb"
-	"github.com/cockroachdb/cockroach/pkg/util/envutil"
-	"github.com/cockroachdb/cockroach/pkg/util/hlc"
 	"github.com/coreos/etcd/raft"
 	"github.com/coreos/etcd/raft/raftpb"
 	"github.com/journeymidnight/nentropy/helper"
+	"github.com/journeymidnight/nentropy/multiraft/keys"
 	"github.com/journeymidnight/nentropy/multiraft/multiraftbase"
 	"github.com/journeymidnight/nentropy/rpc"
 	"github.com/journeymidnight/nentropy/storage/engine"
+	"github.com/journeymidnight/nentropy/util/envutil"
 	"github.com/journeymidnight/nentropy/util/stop"
 	"github.com/journeymidnight/nentropy/util/syncutil"
 	"github.com/journeymidnight/nentropy/util/timeutil"
-	"github.com/journeymidnight/nentropy/multiraft/keys"
 	"golang.org/x/net/context"
 	"runtime"
 	"sync"
@@ -27,9 +25,13 @@ const ()
 // Engines is a container of engines, allowing convenient closing.
 type Engines map[string]engine.Engine
 
-var schedulerConcurrency = envutil.EnvOrDefaultInt(
+var storeSchedulerConcurrency = envutil.EnvOrDefaultInt(
 	"NENTROPY_SCHEDULER_CONCURRENCY", 8*runtime.NumCPU())
 
+// A StoreConfig encompasses the auxiliary objects and configuration
+// required to create a store.
+// All fields holding a pointer or an interface are required to create
+// a store; the rest will have sane defaults set if omitted.
 type StoreConfig struct {
 	RaftConfig
 	Transport                  *RaftTransport
@@ -47,35 +49,32 @@ type raftRequestQueue struct {
 	infos []raftRequestInfo
 }
 
+// A Store maintains a map of ranges by start key. A Store corresponds
+// to one physical device.
 type Store struct {
-	cfg StoreConfig
-	mu  struct {
+	Ident multiraftbase.StoreIdent
+	cfg   StoreConfig
+	mu    struct {
 		sync.Mutex
-		replicas       sync.Map //map[multiraftbase.GroupID]*Replica
-		uninitReplicas map[multiraftbase.GroupID]*Replica
+		replicas sync.Map //map[multiraftbase.GroupID]*Replica
 	}
-	engines       Engines
-	started       int32
-	stopper       *stop.Stopper
-	replicaQueues sync.Map // map[multiraftbase.GroupID]*raftRequestQueue
+	engines        Engines
+	raftEntryCache *raftEntryCache
+	started        int32
+	stopper        *stop.Stopper
+	replicaQueues  sync.Map // map[multiraftbase.GroupID]*raftRequestQueue
 	//	raftRequestQueues map[multiraftbase.GroupID]*raftRequestQueue
 	scheduler *raftScheduler
+
+	coalescedMu struct {
+		syncutil.Mutex
+		heartbeats         map[multiraftbase.StoreIdent][]multiraftbase.RaftHeartbeat
+		heartbeatResponses map[multiraftbase.StoreIdent][]multiraftbase.RaftHeartbeat
+	}
 }
 
 func (sc *StoreConfig) SetDefaults() {
 	sc.RaftConfig.SetDefaults()
-}
-
-func NewStore(cfg StoreConfig) *Store {
-	cfg.SetDefaults()
-	s := &Store{
-		cfg: cfg,
-	}
-	s.scheduler = newRaftScheduler(s, schedulerConcurrency)
-	s.mu.Lock()
-	//init in mu
-	s.mu.Unlock()
-	return s
 }
 
 func (s *Store) processReady(ctx context.Context, id multiraftbase.GroupID) {
@@ -127,7 +126,7 @@ func (s *Store) processRequestQueue(ctx context.Context, id multiraftbase.GroupI
 }
 
 func (s *Store) processTick(ctx context.Context, id multiraftbase.GroupID) bool {
-	value, ok := s.mu.replicas.Load(id))
+	value, ok := s.mu.replicas.Load(id)
 	if !ok {
 		return false
 	}
@@ -191,7 +190,7 @@ func (s *Store) raftTickLoop(ctx context.Context) {
 				// disruption. Replica.maybeTickQuiesced only grabs short-duration
 				// locks and not locks that are held during disk I/O.
 				if !(*Replica)(v).maybeTickQuiesced() {
-					rangeIDs = append(rangeIDs, protos.RangeID(k))
+					rangeIDs = append(rangeIDs, multiraftbase.RangeID(k))
 				}
 				return true
 			})
@@ -222,8 +221,8 @@ func (s *Store) sendQueuedHeartbeats(ctx context.Context) {
 	s.coalescedMu.Lock()
 	heartbeats := s.coalescedMu.heartbeats
 	heartbeatResponses := s.coalescedMu.heartbeatResponses
-	s.coalescedMu.heartbeats = map[protos.StoreIdent][]protos.RaftHeartbeat{}
-	s.coalescedMu.heartbeatResponses = map[protos.StoreIdent][]protos.RaftHeartbeat{}
+	s.coalescedMu.heartbeats = map[multiraftbase.StoreIdent][]multiraftbase.RaftHeartbeat{}
+	s.coalescedMu.heartbeatResponses = map[multiraftbase.StoreIdent][]multiraftbase.RaftHeartbeat{}
 	s.coalescedMu.Unlock()
 
 	var beatsSent int
@@ -355,9 +354,9 @@ func (s *Store) uncoalesceBeats(
 // responsibility to unlock it.
 func (s *Store) getOrCreateReplica(
 	ctx context.Context,
-	rangeID roachpb.RangeID,
-	replicaID roachpb.ReplicaID,
-	creatingReplica *roachpb.ReplicaDescriptor,
+	rangeID multiraftbase.RangeID,
+	replicaID multiraftbase.ReplicaID,
+	creatingReplica *multiraftbase.ReplicaDescriptor,
 ) (_ *Replica, created bool, _ error) {
 	for {
 		r, created, err := s.tryGetOrCreateReplica(
@@ -376,6 +375,29 @@ func (s *Store) getOrCreateReplica(
 	}
 }
 
+func (r *Replica) setReplicaIDRaftMuLockedMuLocked(replicaID multiraftbase.ReplicaID) error {
+	if r.mu.replicaID == replicaID {
+		// The common case: the replica ID is unchanged.
+		return nil
+	}
+	if replicaID == 0 {
+		// If the incoming message does not have a new replica ID it is a
+		// preemptive snapshot. We'll update minReplicaID if the snapshot is
+		// accepted.
+		return nil
+	}
+	return nil
+}
+
+// addReplicaToRangeMapLocked adds the replica to the replicas map.
+// addReplicaToRangeMapLocked requires that the store lock is held.
+func (s *Store) addReplicaToRangeMapLocked(repl *Replica) error {
+	if _, loaded := s.mu.replicas.LoadOrStore(int64(repl.RangeID), unsafe.Pointer(repl)); loaded {
+		return errors.Errorf("replica already exists")
+	}
+	return nil
+}
+
 // tryGetOrCreateReplica performs a single attempt at trying to lookup or
 // create a replica. It will fail with errRetry if it finds a Replica that has
 // been destroyed (and is no longer in Store.mu.replicas) or if during creation
@@ -384,35 +406,15 @@ func (s *Store) getOrCreateReplica(
 // getOrCreateReplica.
 func (s *Store) tryGetOrCreateReplica(
 	ctx context.Context,
-	rangeID roachpb.RangeID,
-	replicaID roachpb.ReplicaID,
-	creatingReplica *roachpb.ReplicaDescriptor,
+	rangeID multiraftbase.RangeID,
+	replicaID multiraftbase.ReplicaID,
+	creatingReplica *multiraftbase.ReplicaDescriptor,
 ) (_ *Replica, created bool, _ error) {
 	// The common case: look up an existing (initialized) replica.
 	if value, ok := s.mu.replicas.Load(int64(rangeID)); ok {
 		repl := (*Replica)(value)
-		if creatingReplica != nil {
-			// Drop messages that come from a node that we believe was once a member of
-			// the group but has been removed.
-			desc := repl.Desc()
-			_, found := desc.GetReplicaDescriptorByID(creatingReplica.ReplicaID)
-			// It's not a current member of the group. Is it from the past?
-			if !found && creatingReplica.ReplicaID < desc.NextReplicaID {
-				return nil, false, roachpb.NewReplicaTooOldError(creatingReplica.ReplicaID)
-			}
-		}
 
 		repl.raftMu.Lock()
-		repl.mu.RLock()
-		destroyed, corrupted := repl.mu.destroyed, repl.mu.corrupted
-		repl.mu.RUnlock()
-		if destroyed != nil {
-			repl.raftMu.Unlock()
-			if corrupted {
-				return nil, false, destroyed
-			}
-			return nil, false, errRetry
-		}
 		repl.mu.Lock()
 		if err := repl.setReplicaIDRaftMuLockedMuLocked(replicaID); err != nil {
 			repl.mu.Unlock()
@@ -421,21 +423,6 @@ func (s *Store) tryGetOrCreateReplica(
 		}
 		repl.mu.Unlock()
 		return repl, false, nil
-	}
-
-	// No replica currently exists, so we'll try to create one. Before creating
-	// the replica, see if there is a tombstone which would indicate that this is
-	// a stale message.
-	tombstoneKey := keys.RaftTombstoneKey(rangeID)
-	var tombstone roachpb.RaftTombstone
-	if ok, err := engine.MVCCGetProto(
-		ctx, s.Engine(), tombstoneKey, hlc.Timestamp{}, true, nil, &tombstone,
-	); err != nil {
-		return nil, false, err
-	} else if ok {
-		if replicaID != 0 && replicaID < tombstone.NextReplicaID {
-			return nil, false, &roachpb.RaftGroupDeletedError{}
-		}
 	}
 
 	// Create a new replica and lock it for raft processing.
@@ -451,7 +438,6 @@ func (s *Store) tryGetOrCreateReplica(
 	// replica even outside of raft processing. Have to do this after grabbing
 	// Store.mu to maintain lock ordering invariant.
 	repl.mu.Lock()
-	repl.mu.minReplicaID = tombstone.NextReplicaID
 	// Add the range to range map, but not replicasByKey since the range's start
 	// key is unknown. The range will be added to replicasByKey later when a
 	// snapshot is applied. After unlocking Store.mu above, another goroutine
@@ -465,12 +451,12 @@ func (s *Store) tryGetOrCreateReplica(
 	s.mu.uninitReplicas[repl.RangeID] = repl
 	s.mu.Unlock()
 
-	desc := &multiraftbase.RangeDescriptor{
+	desc := &multiraftbase.PgDescriptor{
 		RangeID: rangeID,
 		// TODO(bdarnell): other fields are unknown; need to populate them from
 		// snapshot.
 	}
-	if err := repl.initRaftMuLockedReplicaMuLocked(desc, s.Clock(), replicaID); err != nil {
+	if err := repl.initRaftMuLockedReplicaMuLocked(desc, replicaID); err != nil {
 		// Mark the replica as destroyed and remove it from the replicas maps to
 		// ensure nobody tries to use it
 		repl.mu.destroyed = errors.Wrapf(err, "%s: failed to initialize", repl)
@@ -517,145 +503,6 @@ func (s *Store) processRaftRequest(
 
 		helper.Logger.Printf(5, "not quiescing: local raft status is %+v, incoming quiesce message is %+v", status, req.Message)
 
-	}
-
-	// Snapshots addressed to replica ID 0 are permitted; this is the
-	// mechanism by which preemptive snapshots work. No other requests to
-	// replica ID 0 are allowed.
-	//
-	// Note that just because the ToReplica's ID is 0 it does not necessarily
-	// mean that the replica's current ID is 0. We allow for preemptive snaphots
-	// to be applied to initialized replicas as of #8613.
-	if req.ToReplica.ReplicaID == 0 {
-		if req.Message.Type != raftpb.MsgSnap {
-			helper.Logger.Printf(5, "refusing incoming Raft message %s from %+v to %+v",
-				req.Message.Type, req.FromReplica, req.ToReplica)
-			return multiraftbase.NewErrorf(
-				"cannot recreate replica that is not a member of its range (StoreID %s not found in r%d)",
-				r.store.StoreID(), req.RangeID,
-			)
-		}
-
-		defer func() {
-			s.mu.Lock()
-			defer s.mu.Unlock()
-
-			// We need to remove the placeholder regardless of whether the snapshot
-			// applied successfully or not.
-			if addedPlaceholder {
-				// Clear the replica placeholder; we are about to swap it with a real replica.
-				if !s.removePlaceholderLocked(ctx, req.RangeID) {
-					log.Fatalf(ctx, "could not remove placeholder after preemptive snapshot")
-				}
-				if pErr == nil {
-					atomic.AddInt32(&s.counts.filledPlaceholders, 1)
-				} else {
-					atomic.AddInt32(&s.counts.removedPlaceholders, 1)
-				}
-				removePlaceholder = false
-			}
-
-			if pErr == nil {
-				// If the snapshot succeeded, process the range descriptor update.
-				if err := s.processRangeDescriptorUpdateLocked(ctx, r); err != nil {
-					pErr = multiraftbase.NewError(err)
-				}
-			}
-		}()
-
-		// Requiring that the Term is set in a message makes sure that we
-		// get all of Raft's internal safety checks (it confuses messages
-		// at term zero for internal messages). The sending side uses the
-		// term from the snapshot itself, but we'll just check nonzero.
-		if req.Message.Term == 0 {
-			return multiraftbase.NewErrorf(
-				"preemptive snapshot from term %d received with zero term",
-				req.Message.Snapshot.Metadata.Term,
-			)
-		}
-		// TODO(tschottdorf): A lot of locking of the individual Replica
-		// going on below as well. I think that's more easily refactored
-		// away; what really matters is that the Store doesn't do anything
-		// else with that same Replica (or one that might conflict with us
-		// while we still run). In effect, we'd want something like:
-		//
-		// 1. look up the snapshot's key range
-		// 2. get an exclusive lock for operations on that key range from
-		//    the store (or discard the snapshot)
-		//    (at the time of writing, we have checked the key range in
-		//    canApplySnapshotLocked above, but there are concerns about two
-		//    conflicting operations passing that check simultaneously,
-		//    see #7830)
-		// 3. do everything below (apply the snapshot through temp Raft group)
-		// 4. release the exclusive lock on the snapshot's key range
-		//
-		// There are two future outcomes: Either we begin receiving
-		// legitimate Raft traffic for this Range (hence learning the
-		// ReplicaID and becoming a real Replica), or the Replica GC queue
-		// decides that the ChangeReplicas as a part of which the
-		// preemptive snapshot was sent has likely failed and removes both
-		// in-memory and on-disk state.
-		r.mu.Lock()
-		r.mu.internalRaftGroup = nil
-		needTombstone := r.mu.state.Desc.NextReplicaID != 0
-		r.mu.Unlock()
-
-		appliedIndex, _, err := r.raftMu.stateLoader.loadAppliedIndex(ctx, r.store.Engine())
-		if err != nil {
-			return multiraftbase.NewError(err)
-		}
-		raftGroup, err := raft.NewRawNode(
-			newRaftConfig(
-				raft.Storage((*replicaRaftStorage)(r)),
-				preemptiveSnapshotRaftGroupID,
-				// We pass the "real" applied index here due to subtleties
-				// arising in the case in which Raft discards the snapshot:
-				// It would instruct us to apply entries, which would have
-				// crashing potential for any choice of dummy value below.
-				appliedIndex,
-				r.store.cfg,
-				helper.Logger,
-			), nil)
-		if err != nil {
-			return multiraftbase.NewError(err)
-		}
-		// We have a Raft group; feed it the message.
-		if err := raftGroup.Step(req.Message); err != nil {
-			return multiraftbase.NewError(errors.Wrap(err, "unable to process preemptive snapshot"))
-		}
-		// In the normal case, the group should ask us to apply a snapshot.
-		// If it doesn't, our snapshot was probably stale. In that case we
-		// still go ahead and apply a noop because we want that case to be
-		// counted by stats as a successful application.
-		var ready raft.Ready
-		if raftGroup.HasReady() {
-			ready = raftGroup.Ready()
-		}
-
-		if needTombstone {
-			// Bump the min replica ID, but don't write the tombstone key. The
-			// tombstone key is not expected to be present when normal replica data
-			// is present and applySnapshot would delete the key in most cases. If
-			// Raft has decided the snapshot shouldn't be applied we would be
-			// writing the tombstone key incorrectly.
-			r.mu.Lock()
-			r.mu.minReplicaID = r.nextReplicaIDLocked(nil)
-			r.mu.Unlock()
-		}
-
-		// Apply the snapshot, as Raft told us to.
-		if err := r.applySnapshot(ctx, inSnap, ready.Snapshot, ready.HardState); err != nil {
-			return multiraftbase.NewError(err)
-		}
-
-		// At this point, the Replica has data but no ReplicaID. We hope
-		// that it turns into a "real" Replica by means of receiving Raft
-		// messages addressed to it with a ReplicaID, but if that doesn't
-		// happen, at some point the Replica GC queue will have to grab it.
-		//
-		// NB: See the defer at the start of this block for the removal of the
-		// placeholder and processing of the range descriptor update.
-		return nil
 	}
 
 	if err := r.withRaftGroup(func(raftGroup *raft.RawNode) (bool, error) {
@@ -719,11 +566,11 @@ func (s *Store) HandleRaftUncoalescedRequest(
 }
 
 // GetReplica fetches a replica by Range ID. Returns an error if no replica is found.
-func (s *Store) GetReplica(rangeID protos.RangeID) (*Replica, error) {
+func (s *Store) GetReplica(rangeID multiraftbase.RangeID) (*Replica, error) {
 	if value, ok := s.mu.replicas.Load(int64(rangeID)); ok {
 		return (*Replica)(value), nil
 	}
-	return nil, protos.NewRangeNotFoundError(rangeID)
+	return nil, multiraftbase.NewRangeNotFoundError(rangeID)
 }
 
 // HandleRaftResponse implements the RaftMessageHandler interface.
@@ -737,7 +584,7 @@ func (s *Store) HandleRaftResponse(ctx context.Context, resp *multiraftbase.Raft
 			repl, err := s.GetReplica(resp.RangeID)
 			if err != nil {
 				// RangeNotFoundErrors are expected here; nothing else is.
-				if _, ok := err.(*protos.RangeNotFoundError); !ok {
+				if _, ok := err.(*multiraftbase.RangeNotFoundError); !ok {
 					helper.Logger.Printfln(5, err)
 				}
 				return nil
@@ -908,3 +755,36 @@ func (s *Store) Engine() engine.Engine { return s.engine }
 
 // StoreID accessor.
 func (s *Store) StoreID() StoreID { return s.Ident.StoreID }
+
+// NewStore returns a new instance of a store.
+func NewStore(cfg StoreConfig, eng engine.Engine, nodeDesc *multiraftbase.NodeDescriptor) *Store {
+	// TODO(tschottdorf): find better place to set these defaults.
+	cfg.SetDefaults()
+
+	s := &Store{
+		cfg:      cfg,
+		db:       cfg.DB, // TODO(tschottdorf): remove redundancy.
+		engine:   eng,
+		nodeDesc: nodeDesc,
+	}
+
+	s.raftEntryCache = newRaftEntryCache(cfg.RaftEntryCacheSize)
+	s.scheduler = newRaftScheduler(s.cfg.AmbientCtx, s.metrics, s, storeSchedulerConcurrency)
+
+	s.coalescedMu.Lock()
+	s.coalescedMu.heartbeats = map[multiraftbase.StoreIdent][]RaftHeartbeat{}
+	s.coalescedMu.heartbeatResponses = map[multiraftbase.StoreIdent][]RaftHeartbeat{}
+	s.coalescedMu.Unlock()
+	/*
+		if s.cfg.Gossip != nil {
+			// Add range scanner and configure with queues.
+			s.scanner = newReplicaScanner(
+				s.cfg.AmbientCtx, cfg.ScanInterval, cfg.ScanMaxIdleTime, newStoreReplicaVisitor(s),
+			)
+			s.replicateQueue = newReplicateQueue(s, s.cfg.Gossip, s.allocator, s.cfg.Clock)
+			s.raftLogQueue = newRaftLogQueue(s, s.db, s.cfg.Gossip)
+			s.scanner.AddQueues(s.replicateQueue, s.raftLogQueue)
+		}
+	*/
+	return s
+}
