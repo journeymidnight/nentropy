@@ -389,7 +389,7 @@ func (r *Replica) setReplicaIDRaftMuLockedMuLocked(replicaID multiraftbase.Repli
 
 // addReplicaToRangeMapLocked adds the replica to the replicas map.
 // addReplicaToRangeMapLocked requires that the store lock is held.
-func (s *Store) addReplicaToRangeMapLocked(repl *Replica) error {
+func (s *Store) -addReplicaToRangeMapLocked(repl *Replica) error {
 	if _, loaded := s.mu.replicas.LoadOrStore(int64(repl.GroupID), unsafe.Pointer(repl)); loaded {
 		return errors.Errorf("replica already exists")
 	}
@@ -568,7 +568,7 @@ func (s *Store) GetReplica(groupID multiraftbase.GroupID) (*Replica, error) {
 	if value, ok := s.mu.replicas.Load(int64(groupID)); ok {
 		return (*Replica)(value), nil
 	}
-	return nil, multiraftbase.NewRangeNotFoundError(groupID)
+	return nil, multiraftbase.NewGroupNotFoundError(groupID)
 }
 
 // HandleRaftResponse implements the RaftMessageHandler interface.

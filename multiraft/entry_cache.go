@@ -18,13 +18,13 @@ package multiraft
 import (
 	"github.com/biogo/store/llrb"
 	"github.com/coreos/etcd/raft/raftpb"
-	"github.com/journeymidnight/nentropy/protos"
+	"github.com/journeymidnight/nentropy/multiraft/multiraftbase"
 	"github.com/journeymidnight/nentropy/util/cache"
 	"github.com/journeymidnight/nentropy/util/syncutil"
 )
 
 type entryCacheKey struct {
-	GroupID protos.GroupID
+	GroupID multiraftbase.GroupID
 	Index   uint64
 }
 
@@ -100,7 +100,7 @@ func (rec *raftEntryCache) makeCacheEntry(key entryCacheKey, value raftpb.Entry)
 
 // addEntries adds the slice of raft entries, using the range ID and the
 // entry indexes as each cached entry's key.
-func (rec *raftEntryCache) addEntries(groupID protos.GroupID, ents []raftpb.Entry) {
+func (rec *raftEntryCache) addEntries(groupID multiraftbase.GroupID, ents []raftpb.Entry) {
 	if len(ents) == 0 {
 		return
 	}
@@ -116,7 +116,7 @@ func (rec *raftEntryCache) addEntries(groupID protos.GroupID, ents []raftpb.Entr
 
 // getTerm returns the term for the specified index and true for the second
 // return value. If the index is not present in the cache, false is returned.
-func (rec *raftEntryCache) getTerm(groupID protos.GroupID, index uint64) (uint64, bool) {
+func (rec *raftEntryCache) getTerm(groupID multiraftbase.GroupID, index uint64) (uint64, bool) {
 	rec.Lock()
 	defer rec.Unlock()
 
@@ -139,7 +139,7 @@ func (rec *raftEntryCache) getTerm(groupID protos.GroupID, index uint64) (uint64
 // 1) all entries exclusive of hi are fetched, 2) > maxBytes of
 // entries data is fetched, or 3) a cache miss occurs.
 func (rec *raftEntryCache) getEntries(
-	ents []raftpb.Entry, groupID protos.GroupID, lo, hi, maxBytes uint64,
+	ents []raftpb.Entry, groupID multiraftbase.GroupID, lo, hi, maxBytes uint64,
 ) ([]raftpb.Entry, uint64, uint64) {
 	rec.Lock()
 	defer rec.Unlock()
@@ -167,7 +167,7 @@ func (rec *raftEntryCache) getEntries(
 }
 
 // delEntries deletes entries between [lo, hi) for specified range.
-func (rec *raftEntryCache) delEntries(groupID protos.GroupID, lo, hi uint64) {
+func (rec *raftEntryCache) delEntries(groupID multiraftbase.GroupID, lo, hi uint64) {
 	rec.Lock()
 	defer rec.Unlock()
 	if lo >= hi {
@@ -188,6 +188,6 @@ func (rec *raftEntryCache) delEntries(groupID protos.GroupID, lo, hi uint64) {
 
 // clearTo clears the entries in the cache for specified range up to,
 // but not including the specified index.
-func (rec *raftEntryCache) clearTo(groupID protos.GroupID, index uint64) {
+func (rec *raftEntryCache) clearTo(groupID multiraftbase.GroupID, index uint64) {
 	rec.delEntries(groupID, 0, index)
 }

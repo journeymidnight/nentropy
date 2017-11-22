@@ -8,7 +8,7 @@ import (
 
 	"github.com/journeymidnight/nentropy/helper"
 	"github.com/journeymidnight/nentropy/multiraft/multiraftbase"
-	"github.com/journeymidnight/nentropy/protos"
+	"github.com/journeymidnight/nentropy/multiraftbase"
 	"github.com/pkg/errors"
 	"golang.org/x/net/context"
 
@@ -110,13 +110,13 @@ type queueImpl interface {
 	// and returns whether it should be queued and if so, at what priority.
 	// The Replica is guaranteed to be initialized.
 	shouldQueue(
-		context.Context, *Replica, protos.SystemConfig,
+		context.Context, *Replica, multiraftbase.SystemConfig,
 	) (shouldQueue bool, priority float64)
 
 	// process accepts lease status, a replica, and the system config
 	// and executes queue-specific work on it. The Replica is guaranteed
 	// to be initialized.
-	process(context.Context, *Replica, protos.SystemConfig) error
+	process(context.Context, *Replica, multiraftbase.SystemConfig) error
 
 	// timer returns a duration to wait between processing the next item
 	// from the queue. The duration of the last processing of a replica
@@ -180,10 +180,10 @@ type baseQueue struct {
 	queueConfig
 	incoming chan struct{} // Channel signaled when a new replica is added to the queue.
 	mu       struct {
-		sync.Locker                                 // Protects all variables in the mu struct
-		priorityQ   priorityQueue                   // The priority queue
-		replicas    map[protos.GroupID]*replicaItem // Map from GroupID to replicaItem (for updating priority)
-		purgatory   map[protos.GroupID]error        // Map of replicas to processing errors
+		sync.Locker                                        // Protects all variables in the mu struct
+		priorityQ   priorityQueue                          // The priority queue
+		replicas    map[multiraftbase.GroupID]*replicaItem // Map from GroupID to replicaItem (for updating priority)
+		purgatory   map[multiraftbase.GroupID]error        // Map of replicas to processing errors
 		stopped     bool
 		// Some tests in this package disable queues.
 		disabled bool
@@ -221,7 +221,7 @@ func newBaseQueue(
 		incoming:       make(chan struct{}, 1),
 	}
 	bq.mu.Locker = new(syncutil.Mutex)
-	bq.mu.replicas = map[protos.GroupID]*replicaItem{}
+	bq.mu.replicas = map[multiraftbase.GroupID]*replicaItem{}
 	bq.processMu = new(syncutil.Mutex)
 
 	return &bq
@@ -284,7 +284,7 @@ func (bq *baseQueue) MaybeAdd(repl *Replica) {
 	ctx := repl.AnnotateCtx(bq.AnnotateCtx(context.TODO()))
 
 	// Load the system config if it's needed.
-	var cfg protos.SystemConfig
+	var cfg multiraftbase.SystemConfig
 
 	bq.mu.Lock()
 	defer bq.mu.Unlock()
@@ -373,7 +373,7 @@ func (bq *baseQueue) addInternal(
 }
 
 // MaybeRemove removes the specified replica from the queue if enqueued.
-func (bq *baseQueue) MaybeRemove(groupID protos.GroupID) {
+func (bq *baseQueue) MaybeRemove(groupID multiraftbase.GroupID) {
 	bq.mu.Lock()
 	defer bq.mu.Unlock()
 
@@ -468,7 +468,7 @@ func (bq *baseQueue) processReplica(
 	defer bq.processMu.Unlock()
 
 	// Load the system config if it's needed.
-	var cfg protos.SystemConfig
+	var cfg multiraftbase.SystemConfig
 
 	// Also add the Replica annotations to ctx.
 	ctx = repl.AnnotateCtx(ctx)
@@ -534,7 +534,7 @@ func (bq *baseQueue) maybeAddToPurgatory(
 	}
 
 	// Otherwise, create purgatory and start processing.
-	bq.mu.purgatory = map[protos.GroupID]error{
+	bq.mu.purgatory = map[multiraftbase.GroupID]error{
 		repl.GroupID: triggeringErr,
 	}
 
@@ -546,7 +546,7 @@ func (bq *baseQueue) maybeAddToPurgatory(
 			case <-bq.impl.purgatoryChan():
 				// Remove all items from purgatory into a copied slice.
 				bq.mu.Lock()
-				ranges := make([]protos.GroupID, 0, len(bq.mu.purgatory))
+				ranges := make([]multiraftbase.GroupID, 0, len(bq.mu.purgatory))
 				for groupID := range bq.mu.purgatory {
 					item := bq.mu.replicas[groupID]
 					ranges = append(ranges, item.value)

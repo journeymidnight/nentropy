@@ -88,9 +88,9 @@ func (e *NodeNotReadyError) message(_ *Error) string {
 	return fmt.Sprintf("node %s was not ready", e.NodeId)
 }
 
-// NewRangeNotFoundError initializes a new RangeNotFoundError.
-func NewRangeNotFoundError(groupID GroupID) *RangeNotFoundError {
-	return &RangeNotFoundError{
+// NewGroupNotFoundError initializes a new GroupNotFoundError.
+func NewGroupNotFoundError(groupID GroupID) *GroupNotFoundError {
+	return &GroupNotFoundError{
 		GroupID: groupID,
 	}
 }

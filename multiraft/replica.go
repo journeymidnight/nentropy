@@ -5,7 +5,6 @@ import (
 	"github.com/coreos/etcd/raft/raftpb"
 	"github.com/journeymidnight/nentropy/helper"
 	"github.com/journeymidnight/nentropy/multiraft/multiraftbase"
-	"github.com/journeymidnight/nentropy/protos"
 	"github.com/journeymidnight/nentropy/util/syncutil"
 	"github.com/journeymidnight/nentropy/util/timeutil"
 	"github.com/pkg/errors"

@@ -69,7 +69,7 @@ message ErrorDetail {
     ReplicaTooOldError replica_too_old = 6;
     reserved 7;
     AmbiguousResultError ambiguous_result = 8;
-    RangeNotFoundError range_not_found = 9;
+    GroupNotFoundError group_not_found = 9;
 }
 
 // ErrPosition describes the position of an error in a Batch. A simple nullable
@@ -101,8 +101,8 @@ message Error {
 }
 // A RangeNotFoundError indicates that a command was sent to a range
 // which is not hosted on this store.
-message RangeNotFoundError {
+message GroupNotFoundError {
   option (gogoproto.equal) = true;
 
-  int64 range_id = 1 [(gogoproto.customname) = "GroupID", (gogoproto.casttype) = "GroupID"];
+  int64 group_id = 1 [(gogoproto.customname) = "GroupID", (gogoproto.casttype) = "GroupID"];
 }

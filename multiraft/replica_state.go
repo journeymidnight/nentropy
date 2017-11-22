@@ -5,18 +5,18 @@ import (
 
 	"github.com/cockroachdb/cockroach/pkg/util/hlc"
 	"github.com/coreos/etcd/raft/raftpb"
-	"github.com/journeymidnight/nentropy/mon/osd/engine"
 	"github.com/journeymidnight/nentropy/multiraft/keys"
 	"github.com/journeymidnight/nentropy/multiraft/multiraftbase"
+	"github.com/journeymidnight/nentropy/storage/engine"
 )
 
 type replicaStateLoader struct {
-	keys.RangeIDPrefixBuf
+	keys.GroupIDPrefixBuf
 }
 
 func makeReplicaStateLoader(groupID multiraftbase.GroupID) replicaStateLoader {
 	return replicaStateLoader{
-		RangeIDPrefixBuf: keys.MakeRangeIDPrefixBuf(groupID),
+		GroupIDPrefixBuf: keys.MakeGroupIDPrefixBuf(groupID),
 	}
 }
 
