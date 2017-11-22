@@ -34,9 +34,10 @@ var storeSchedulerConcurrency = envutil.EnvOrDefaultInt(
 // a store; the rest will have sane defaults set if omitted.
 type StoreConfig struct {
 	RaftConfig
-	Transport                  *RaftTransport
-	RPCContext                 *rpc.Context
-	RaftHeartbeatIntervalTicks int
+	Transport                   *RaftTransport
+	RPCContext                  *rpc.Context
+	RaftHeartbeatIntervalTicks  int
+	CoalescedHeartbeatsInterval time.Duration
 }
 
 type raftRequestInfo struct {
@@ -144,14 +145,11 @@ func (s *Store) processTick(ctx context.Context, id multiraftbase.GroupID) bool 
 func (s *Store) Start(ctx context.Context, stopper *stop.Stopper) error {
 	s.stopper = stopper
 
-	s.cfg.Transport.Listen(s.StoreID(), s)
+	s.cfg.Transport.Listen(s)
 	s.processRaft(ctx)
 }
 
 func (s *Store) processRaft(ctx context.Context) {
-	if s.cfg.TestingKnobs.DisableProcessRaft {
-		return
-	}
 
 	s.scheduler.Start(ctx, s.stopper)
 	// Wait for the scheduler worker goroutines to finish.
@@ -160,7 +158,7 @@ func (s *Store) processRaft(ctx context.Context) {
 	s.stopper.RunWorker(ctx, s.raftTickLoop)
 	s.stopper.RunWorker(ctx, s.coalescedHeartbeatsLoop)
 	s.stopper.AddCloser(stop.CloserFn(func() {
-		s.cfg.Transport.Stop(s.StoreID())
+		s.cfg.Transport.Stop()
 	}))
 }
 
@@ -168,14 +166,14 @@ func (s *Store) raftTickLoop(ctx context.Context) {
 	ticker := time.NewTicker(s.cfg.RaftTickInterval)
 	defer ticker.Stop()
 
-	var groupIDs []GroupID
+	var groupIDs []multiraftbase.GroupID
 
 	for {
 		select {
 		case <-ticker.C:
 			groupIDs = groupIDs[:0]
 
-			s.mu.replicas.Range(func(k int64, v unsafe.Pointer) bool {
+			s.mu.replicas.Range(func(k, v interface{}) bool {
 				// Fast-path handling of quiesced replicas. This avoids the overhead of
 				// queueing the replica on the Raft scheduler. This overhead is
 				// significant and there is overhead to filling the Raft scheduler with
@@ -253,7 +251,7 @@ func (s *Store) sendQueuedHeartbeatsToNode(
 	}
 
 	chReq := &multiraftbase.RaftMessageRequest{
-		GroupID: 0,
+		GroupID: "",
 		ToReplica: multiraftbase.ReplicaDescriptor{
 			NodeID:    to.NodeID,
 			StoreID:   to.StoreID,
@@ -272,7 +270,7 @@ func (s *Store) sendQueuedHeartbeatsToNode(
 
 	if !s.cfg.Transport.SendAsync(chReq) {
 		for _, beat := range beats {
-			if value, ok := s.mu.replicas.Load(int64(beat.GroupID)); ok {
+			if value, ok := s.mu.replicas.Load(beat.GroupID); ok {
 				(*Replica)(value).addUnreachableRemoteReplica(beat.ToReplicaID)
 			}
 		}

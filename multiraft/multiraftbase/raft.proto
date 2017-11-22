@@ -23,11 +23,12 @@ import "github.com/coreos/etcd/raft/raftpb/raft.proto";
 import "metadata.proto";
 import "state.proto";
 import "error.proto";
+import "gogoproto/gogo.proto";
 
 message RaftHeartbeat {
-    string group_name = 1;
-    uint32 from_replica_id = 2;
-    uint32 to_replica_id = 3;
+    string group_id = 1 [(gogoproto.customname) = "GroupID"];
+    uint32 from_replica_id = 2 [(gogoproto.customname) = "FromReplicaID", (gogoproto.casttype) = "ReplicaID"];
+    uint32 to_replica_id = 3 [(gogoproto.customname) = "ToReplicaID", (gogoproto.casttype) = "ReplicaID"];
     uint64 term = 4;
     uint64 commit = 5;
     bool quiesce = 6;
@@ -39,10 +40,10 @@ message RaftHeartbeat {
 // as a dummy message and discarded. A coalesced heartbeat request's replica
 // descriptor's range ID must be zero.
 message RaftMessageRequest {
-    string group_name = 1;
-    ReplicaDescriptor from_replica = 2;
-    ReplicaDescriptor to_replica = 3;
-    raftpb.Message message = 4;
+    string group_id = 1 [(gogoproto.customname) = "GroupID"];
+    ReplicaDescriptor from_replica = 2 [(gogoproto.nullable) = false];
+    ReplicaDescriptor to_replica = 3 [(gogoproto.nullable) = false];
+    raftpb.Message message = 4 [(gogoproto.nullable) = false];
     // Is this a quiesce request? A quiesce request is a MsgHeartbeat
     // which is requesting the recipient to stop ticking its local
     // replica as long as the current Raft state matches the heartbeat
@@ -53,8 +54,8 @@ message RaftMessageRequest {
     bool quiesce = 5;
     // A coalesced heartbeat request is any RaftMessageRequest with a nonzero number of
     // heartbeats or heartbeat_resps.
-    repeated RaftHeartbeat heartbeats = 6;
-    repeated RaftHeartbeat heartbeat_resps = 7;
+    repeated RaftHeartbeat heartbeats = 6 [(gogoproto.nullable) = false];
+    repeated RaftHeartbeat heartbeat_resps = 7 [(gogoproto.nullable) = false];
 }
 
 message RaftMessageRequestBatch {
@@ -62,7 +63,7 @@ message RaftMessageRequestBatch {
 }
 
 message RaftMessageResponse {
-    string group_name = 1;
+    string group_id = 1 [(gogoproto.customname) = "GroupID"];
     ReplicaDescriptor from_replica = 2;
     ReplicaDescriptor to_replica = 3;
     Error error = 4;
