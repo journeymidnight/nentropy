@@ -55,7 +55,7 @@ type Replica struct {
 		// case.
 		lastIndex, lastTerm uint64
 
-		RangeID multiraftbase.RangeID // Should only be set by the constructor.
+		GroupID multiraftbase.GroupID // Should only be set by the constructor.
 		// proposals stores the Raft in-flight commands which
 		// originated at this Replica, i.e. all commands for which
 		// propose has been called, but which have not yet
@@ -251,7 +251,7 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 	// just appended, and these entries need to be inlined when sending them to
 	// followers - populating the cache here saves a lot of that work.
 	r.mu.Lock()
-	r.store.raftEntryCache.addEntries(r.RangeID, rd.Entries)
+	r.store.raftEntryCache.addEntries(r.GroupID, rd.Entries)
 	r.mu.lastIndex = lastIndex
 	r.mu.lastTerm = lastTerm
 	r.mu.raftLogSize = raftLogSize
@@ -265,7 +265,7 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 	for _, e := range rd.CommittedEntries {
 		switch e.Type {
 		case raftpb.EntryNormal:
-			var commandID CmdIDKey
+			var commandID multiraftbase.CmdIDKey
 			var command multiraftbase.RaftCommand
 
 			// Process committed entries. etcd raft occasionally adds a nil entry
@@ -317,7 +317,7 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 				const expl = "while unmarshaling RaftCommand"
 				return stats, expl, errors.Wrap(err, expl)
 			}
-			commandID := CmdIDKey(ccCtx.CommandID)
+			commandID := multiraftbase.CmdIDKey(ccCtx.CommandID)
 			if changedRepl := r.processRaftCommand(
 				ctx, commandID, e.Term, e.Index, command,
 			); !changedRepl {
@@ -366,7 +366,7 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 // those cases, as one of the callers uses it to abort replica changes.
 func (r *Replica) processRaftCommand(
 	ctx context.Context,
-	idKey CmdIDKey,
+	idKey multiraftbase.CmdIDKey,
 	term, index uint64,
 	raftCmd multiraftbase.RaftCommand,
 ) bool {
@@ -413,13 +413,13 @@ func NewReplicaCorruptionError(err error) *multiraftbase.ReplicaCorruptionError 
 	return &multiraftbase.ReplicaCorruptionError{ErrorMsg: err.Error()}
 }
 
-func newReplica(rangeID roachpb.RangeID, store *Store) *Replica {
+func newReplica(groupID multiraftbase.GroupID, store *Store) *Replica {
 	r := &Replica{
 		AmbientContext: store.cfg.AmbientCtx,
-		RangeID:        rangeID,
+		GroupID:        groupID,
 		store:          store,
 	}
-	r.mu.stateLoader = makeReplicaStateLoader(rangeID)
+	r.mu.stateLoader = makeReplicaStateLoader(groupID)
 	if leaseHistoryMaxEntries > 0 {
 		r.leaseHistory = newLeaseHistory()
 	}
@@ -429,7 +429,7 @@ func newReplica(rangeID roachpb.RangeID, store *Store) *Replica {
 	// r.AmbientContext.AddLogTagStr("@", fmt.Sprintf("%x", unsafe.Pointer(r)))
 
 	r.raftMu.timedMutex = makeTimedMutex(raftMuLogger)
-	r.raftMu.stateLoader = makeReplicaStateLoader(rangeID)
+	r.raftMu.stateLoader = makeReplicaStateLoader(groupID)
 	return r
 }
 
@@ -439,7 +439,7 @@ func newReplica(rangeID roachpb.RangeID, store *Store) *Replica {
 // must be handled by the caller.
 func (r *Replica) applyRaftCommand(
 	ctx context.Context,
-	idKey CmdIDKey,
+	idKey multiraftbase.CmdIDKey,
 	writeBatch *multiraftbase.WriteBatch,
 ) *Error {
 	return nil
@@ -467,12 +467,12 @@ func (r *Replica) sendRaftMessage(ctx context.Context, msg raftpb.Message) {
 
 	if fromErr != nil {
 		helper.Logger.Printf(5, "failed to look up sender replica %d in r%d while sending %s: %s",
-			msg.From, r.RangeID, msg.Type, fromErr)
+			msg.From, r.GroupID, msg.Type, fromErr)
 		return
 	}
 	if toErr != nil {
 		helper.Logger.Printf(5, "failed to look up recipient replica %d in r%d while sending %s: %s",
-			msg.To, r.RangeID, msg.Type, toErr)
+			msg.To, r.GroupID, msg.Type, toErr)
 		return
 	}
 
@@ -481,7 +481,7 @@ func (r *Replica) sendRaftMessage(ctx context.Context, msg raftpb.Message) {
 	}
 
 	if !r.sendRaftMessageRequest(ctx, &multiraftbase.RaftMessageRequest{
-		RangeID:     r.RangeID,
+		GroupID:     r.GroupID,
 		ToReplica:   toReplica,
 		FromReplica: fromReplica,
 		Message:     msg,
@@ -516,7 +516,7 @@ func (r *Replica) maybeCoalesceHeartbeat(
 		return false
 	}
 	beat := multiraftbase.RaftHeartbeat{
-		RangeID:       r.RangeID,
+		GroupID:       r.GroupID,
 		ToReplicaID:   toReplica.ReplicaID,
 		FromReplicaID: fromReplica.ReplicaID,
 		Term:          msg.Term,
@@ -735,11 +735,11 @@ func (r *Replica) addUnreachableRemoteReplica(remoteReplica ReplicaID) {
 }
 
 func (r *Replica) initRaftMuLockedReplicaMuLocked(
-	desc *multiraftbase.PgDescriptor, replicaID multiraftbase.ReplicaID,
+	desc *multiraftbase.GroupDescriptor, replicaID multiraftbase.ReplicaID,
 ) error {
 	ctx := r.AnnotateCtx(context.TODO())
 	if r.mu.state.Desc != nil && r.isInitializedRLocked() {
-		log.Fatalf(ctx, "r%d: cannot reinitialize an initialized replica", desc.RangeID)
+		log.Fatalf(ctx, "r%d: cannot reinitialize an initialized replica", desc.GroupID)
 	}
 	if desc.IsInitialized() && replicaID != 0 {
 		return errors.Errorf("replicaID must be 0 when creating an initialized replica")

@@ -107,7 +107,7 @@ ReplicaDescriptor replica = 2;
 // range_id specifies the ID of the Raft consensus group which the key
 // range belongs to. This is used by the receiving node to route the
 // request to the correct range.
-int64 range_id = 3 [(gogoproto.customname) = "RangeID", (gogoproto.casttype) = "RangeID"];
+int64 range_id = 3 [(gogoproto.customname) = "GroupID", (gogoproto.casttype) = "GroupID"];
 // user_priority allows any command's priority to be biased from the
 // default random priority. It specifies a multiple. If set to 0.5,
 // the chosen priority will be 1/2x as likely to beat any default
@@ -176,11 +176,11 @@ option (gogoproto.equal) = true;
 // Log entries < this index are to be discarded.
 uint64 index = 1;
 
-// RangeID is used to double check that the correct range is being truncated.
+// GroupID is used to double check that the correct range is being truncated.
 // The header specifies a span, start and end keys, but not the range id
 // itself. The range may have changed from the one specified in the header
 // in the case of a merge.
-int64 range_id = 2 [(gogoproto.customname) = "RangeID", (gogoproto.casttype) = "RangeID"];
+int64 range_id = 2 [(gogoproto.customname) = "GroupID", (gogoproto.casttype) = "GroupID"];
 }
 
 // WriteBatch is the serialized representation of a RocksDB write

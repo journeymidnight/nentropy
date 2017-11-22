@@ -34,7 +34,7 @@ message RaftTruncatedState {
 
 message ReplicaState {
     uint64 raft_applied_index = 1;
-    PgDescriptor desc = 2;
+    GroupDescriptor desc = 2;
     // The truncation state of the Raft log.
     RaftTruncatedState truncated_state = 3;
 }

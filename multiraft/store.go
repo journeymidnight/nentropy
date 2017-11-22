@@ -168,12 +168,12 @@ func (s *Store) raftTickLoop(ctx context.Context) {
 	ticker := time.NewTicker(s.cfg.RaftTickInterval)
 	defer ticker.Stop()
 
-	var rangeIDs []RangeID
+	var groupIDs []GroupID
 
 	for {
 		select {
 		case <-ticker.C:
-			rangeIDs = rangeIDs[:0]
+			groupIDs = groupIDs[:0]
 
 			s.mu.replicas.Range(func(k int64, v unsafe.Pointer) bool {
 				// Fast-path handling of quiesced replicas. This avoids the overhead of
@@ -190,12 +190,12 @@ func (s *Store) raftTickLoop(ctx context.Context) {
 				// disruption. Replica.maybeTickQuiesced only grabs short-duration
 				// locks and not locks that are held during disk I/O.
 				if !(*Replica)(v).maybeTickQuiesced() {
-					rangeIDs = append(rangeIDs, multiraftbase.RangeID(k))
+					groupIDs = append(groupIDs, multiraftbase.GroupID(k))
 				}
 				return true
 			})
 
-			s.scheduler.EnqueueRaftTick(rangeIDs...)
+			s.scheduler.EnqueueRaftTick(groupIDs...)
 
 		case <-s.stopper.ShouldStop():
 			return
@@ -253,7 +253,7 @@ func (s *Store) sendQueuedHeartbeatsToNode(
 	}
 
 	chReq := &multiraftbase.RaftMessageRequest{
-		RangeID: 0,
+		GroupID: 0,
 		ToReplica: multiraftbase.ReplicaDescriptor{
 			NodeID:    to.NodeID,
 			StoreID:   to.StoreID,
@@ -272,12 +272,12 @@ func (s *Store) sendQueuedHeartbeatsToNode(
 
 	if !s.cfg.Transport.SendAsync(chReq) {
 		for _, beat := range beats {
-			if value, ok := s.mu.replicas.Load(int64(beat.RangeID)); ok {
+			if value, ok := s.mu.replicas.Load(int64(beat.GroupID)); ok {
 				(*Replica)(value).addUnreachableRemoteReplica(beat.ToReplicaID)
 			}
 		}
 		for _, resp := range resps {
-			if value, ok := s.mu.replicas.Load(int64(resp.RangeID)); ok {
+			if value, ok := s.mu.replicas.Load(int64(resp.GroupID)); ok {
 				(*Replica)(value).addUnreachableRemoteReplica(resp.ToReplicaID)
 			}
 		}
@@ -292,8 +292,8 @@ func (s *Store) HandleRaftRequest(
 	ctx context.Context, req *multiraftbase.RaftMessageRequest, respStream RaftMessageResponseStream,
 ) *multiraftbase.Error {
 	if len(req.Heartbeats)+len(req.HeartbeatResps) > 0 {
-		if req.RangeID != 0 {
-			helper.Logger.Fatalf(5, "coalesced heartbeats must have rangeID == 0")
+		if req.GroupID != 0 {
+			helper.Logger.Fatalf(5, "coalesced heartbeats must have groupID == 0")
 		}
 		s.uncoalesceBeats(ctx, req.Heartbeats, req.FromReplica, req.ToReplica, raftpb.MsgHeartbeat, respStream)
 		s.uncoalesceBeats(ctx, req.HeartbeatResps, req.FromReplica, req.ToReplica, raftpb.MsgHeartbeatResp, respStream)
@@ -325,7 +325,7 @@ func (s *Store) uncoalesceBeats(
 			Commit: beat.Commit,
 		}
 		beatReqs[i] = multiraftbase.RaftMessageRequest{
-			RangeID: beat.RangeID,
+			GroupID: beat.GroupID,
 			FromReplica: multiraftbase.ReplicaDescriptor{
 				NodeID:    fromReplica.NodeID,
 				StoreID:   fromReplica.StoreID,
@@ -348,20 +348,20 @@ func (s *Store) uncoalesceBeats(
 	}
 }
 
-// getOrCreateReplica returns a replica for the given RangeID, creating an
+// getOrCreateReplica returns a replica for the given GroupID, creating an
 // uninitialized replica if necessary. The caller must not hold the store's
 // lock. The returned replica has Replica.raftMu locked and it is the caller's
 // responsibility to unlock it.
 func (s *Store) getOrCreateReplica(
 	ctx context.Context,
-	rangeID multiraftbase.RangeID,
+	groupID multiraftbase.GroupID,
 	replicaID multiraftbase.ReplicaID,
 	creatingReplica *multiraftbase.ReplicaDescriptor,
 ) (_ *Replica, created bool, _ error) {
 	for {
 		r, created, err := s.tryGetOrCreateReplica(
 			ctx,
-			rangeID,
+			groupID,
 			replicaID,
 			creatingReplica,
 		)
@@ -392,7 +392,7 @@ func (r *Replica) setReplicaIDRaftMuLockedMuLocked(replicaID multiraftbase.Repli
 // addReplicaToRangeMapLocked adds the replica to the replicas map.
 // addReplicaToRangeMapLocked requires that the store lock is held.
 func (s *Store) addReplicaToRangeMapLocked(repl *Replica) error {
-	if _, loaded := s.mu.replicas.LoadOrStore(int64(repl.RangeID), unsafe.Pointer(repl)); loaded {
+	if _, loaded := s.mu.replicas.LoadOrStore(int64(repl.GroupID), unsafe.Pointer(repl)); loaded {
 		return errors.Errorf("replica already exists")
 	}
 	return nil
@@ -406,12 +406,12 @@ func (s *Store) addReplicaToRangeMapLocked(repl *Replica) error {
 // getOrCreateReplica.
 func (s *Store) tryGetOrCreateReplica(
 	ctx context.Context,
-	rangeID multiraftbase.RangeID,
+	groupID multiraftbase.GroupID,
 	replicaID multiraftbase.ReplicaID,
 	creatingReplica *multiraftbase.ReplicaDescriptor,
 ) (_ *Replica, created bool, _ error) {
 	// The common case: look up an existing (initialized) replica.
-	if value, ok := s.mu.replicas.Load(int64(rangeID)); ok {
+	if value, ok := s.mu.replicas.Load(int64(groupID)); ok {
 		repl := (*Replica)(value)
 
 		repl.raftMu.Lock()
@@ -426,7 +426,7 @@ func (s *Store) tryGetOrCreateReplica(
 	}
 
 	// Create a new replica and lock it for raft processing.
-	repl := newReplica(rangeID, s)
+	repl := newReplica(groupID, s)
 	repl.creatingReplica = creatingReplica
 	repl.raftMu.Lock()
 
@@ -448,11 +448,11 @@ func (s *Store) tryGetOrCreateReplica(
 		repl.raftMu.Unlock()
 		return nil, false, errRetry
 	}
-	s.mu.uninitReplicas[repl.RangeID] = repl
+	s.mu.uninitReplicas[repl.GroupID] = repl
 	s.mu.Unlock()
 
-	desc := &multiraftbase.PgDescriptor{
-		RangeID: rangeID,
+	desc := &multiraftbase.GroupDescriptor{
+		GroupID: groupID,
 		// TODO(bdarnell): other fields are unknown; need to populate them from
 		// snapshot.
 	}
@@ -462,9 +462,9 @@ func (s *Store) tryGetOrCreateReplica(
 		repl.mu.destroyed = errors.Wrapf(err, "%s: failed to initialize", repl)
 		repl.mu.Unlock()
 		s.mu.Lock()
-		s.mu.replicas.Delete(int64(rangeID))
-		delete(s.mu.uninitReplicas, rangeID)
-		s.replicaQueues.Delete(int64(rangeID))
+		s.mu.replicas.Delete(int64(groupID))
+		delete(s.mu.uninitReplicas, groupID)
+		s.replicaQueues.Delete(int64(groupID))
 		s.mu.Unlock()
 		repl.raftMu.Unlock()
 		return nil, false, err
@@ -479,7 +479,7 @@ func (s *Store) processRaftRequest(
 	// Lazily create the replica.
 	r, _, err := s.getOrCreateReplica(
 		ctx,
-		req.RangeID,
+		req.GroupID,
 		req.ToReplica.ReplicaID,
 		&req.FromReplica,
 	)
@@ -543,9 +543,9 @@ func (s *Store) HandleRaftUncoalescedRequest(
 		return s.processRaftRequest(ctx, req, IncomingSnapshot{})
 	}
 
-	value, ok := s.replicaQueues.Load(int64(req.RangeID))
+	value, ok := s.replicaQueues.Load(int64(req.GroupID))
 	if !ok {
-		value, _ = s.replicaQueues.LoadOrStore(int64(req.RangeID), unsafe.Pointer(&raftRequestQueue{}))
+		value, _ = s.replicaQueues.LoadOrStore(int64(req.GroupID), unsafe.Pointer(&raftRequestQueue{}))
 	}
 	q := (*raftRequestQueue)(value)
 	q.Lock()
@@ -561,16 +561,16 @@ func (s *Store) HandleRaftUncoalescedRequest(
 	})
 	q.Unlock()
 
-	s.scheduler.EnqueueRaftRequest(req.RangeID)
+	s.scheduler.EnqueueRaftRequest(req.GroupID)
 	return nil
 }
 
 // GetReplica fetches a replica by Range ID. Returns an error if no replica is found.
-func (s *Store) GetReplica(rangeID multiraftbase.RangeID) (*Replica, error) {
-	if value, ok := s.mu.replicas.Load(int64(rangeID)); ok {
+func (s *Store) GetReplica(groupID multiraftbase.GroupID) (*Replica, error) {
+	if value, ok := s.mu.replicas.Load(int64(groupID)); ok {
 		return (*Replica)(value), nil
 	}
-	return nil, multiraftbase.NewRangeNotFoundError(rangeID)
+	return nil, multiraftbase.NewRangeNotFoundError(groupID)
 }
 
 // HandleRaftResponse implements the RaftMessageHandler interface.
@@ -581,7 +581,7 @@ func (s *Store) HandleRaftResponse(ctx context.Context, resp *multiraftbase.Raft
 	case *multiraftbase.Error:
 		switch tErr := val.GetDetail().(type) {
 		case *multiraftbase.ReplicaTooOldError:
-			repl, err := s.GetReplica(resp.RangeID)
+			repl, err := s.GetReplica(resp.GroupID)
 			if err != nil {
 				// RangeNotFoundErrors are expected here; nothing else is.
 				if _, ok := err.(*multiraftbase.RangeNotFoundError); !ok {
@@ -615,7 +615,7 @@ func (s *Store) HandleRaftResponse(ctx context.Context, resp *multiraftbase.Raft
 			return val.GetDetail()
 		default:
 			helper.Logger.Printf(5, "got error from r%d, replica %s: %s",
-				resp.RangeID, resp.FromReplica, val)
+				resp.GroupID, resp.FromReplica, val)
 		}
 
 	default:
@@ -661,93 +661,7 @@ func newRaftConfig(
 func (s *Store) HandleSnapshot(
 	header *SnapshotRequest_Header, stream SnapshotResponseStream,
 ) error {
-	s.metrics.raftRcvdMessages[raftpb.MsgSnap].Inc(1)
-
-	if s.IsDraining() {
-		return stream.Send(&SnapshotResponse{
-			Status:  SnapshotResponse_DECLINED,
-			Message: storeDrainingMsg,
-		})
-	}
-
-	ctx := s.AnnotateCtx(stream.Context())
-	cleanup, rejectionMsg, err := s.reserveSnapshot(ctx, header)
-	if err != nil {
-		return err
-	}
-	if cleanup == nil {
-		return stream.Send(&SnapshotResponse{
-			Status:  SnapshotResponse_DECLINED,
-			Message: rejectionMsg,
-		})
-	}
-	defer cleanup()
-
-	sendSnapError := func(err error) error {
-		return stream.Send(&SnapshotResponse{
-			Status:  SnapshotResponse_ERROR,
-			Message: err.Error(),
-		})
-	}
-
-	// Check to see if the snapshot can be applied but don't attempt to add
-	// a placeholder here, because we're not holding the replica's raftMu.
-	// We'll perform this check again later after receiving the rest of the
-	// snapshot data - this is purely an optimization to prevent downloading
-	// a snapshot that we know we won't be able to apply.
-	if _, err := s.canApplySnapshot(ctx, header.State.Desc); err != nil {
-		return sendSnapError(
-			errors.Wrapf(err, "%s,r%d: cannot apply snapshot", s, header.State.Desc.RangeID),
-		)
-	}
-
-	if err := stream.Send(&SnapshotResponse{Status: SnapshotResponse_ACCEPTED}); err != nil {
-		return err
-	}
-	if log.V(2) {
-		log.Infof(ctx, "accepted snapshot reservation for r%d", header.State.Desc.RangeID)
-	}
-
-	var batches [][]byte
-	var logEntries [][]byte
-	for {
-		req, err := stream.Recv()
-		if err != nil {
-			return err
-		}
-		if req.Header != nil {
-			return sendSnapError(errors.New("client error: provided a header mid-stream"))
-		}
-
-		if req.KVBatch != nil {
-			batches = append(batches, req.KVBatch)
-		}
-		if req.LogEntries != nil {
-			logEntries = append(logEntries, req.LogEntries...)
-		}
-		if req.Final {
-			snapUUID, err := uuid.FromBytes(header.RaftMessageRequest.Message.Snapshot.Data)
-			if err != nil {
-				return sendSnapError(errors.Wrap(err, "invalid snapshot"))
-			}
-
-			inSnap := IncomingSnapshot{
-				SnapUUID:   snapUUID,
-				Batches:    batches,
-				LogEntries: logEntries,
-				State:      &header.State,
-				snapType:   snapTypeRaft,
-			}
-			if header.RaftMessageRequest.ToReplica.ReplicaID == 0 {
-				inSnap.snapType = snapTypePreemptive
-			}
-
-			if err := s.processRaftSnapshotRequest(ctx, &header.RaftMessageRequest, inSnap); err != nil {
-				return sendSnapError(errors.Wrap(err.GoError(), "failed to apply snapshot"))
-			}
-			return stream.Send(&SnapshotResponse{Status: SnapshotResponse_APPLIED})
-		}
-	}
+	return nil
 }
 
 // Engine accessor.

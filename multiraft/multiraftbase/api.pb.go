@@ -45,7 +45,7 @@
 		ReplicationTarget
 		ReplicaDescriptor
 		ReplicaIdent
-		PgDescriptor
+		GroupDescriptor
 		StoreCapacity
 		NodeDescriptor
 		StoreDescriptor
@@ -309,7 +309,7 @@ type Header struct {
 	// range_id specifies the ID of the Raft consensus group which the key
 	// range belongs to. This is used by the receiving node to route the
 	// request to the correct range.
-	RangeID RangeID `protobuf:"varint,3,opt,name=range_id,json=rangeId,proto3,casttype=RangeID" json:"range_id,omitempty"`
+	GroupID GroupID `protobuf:"varint,3,opt,name=range_id,json=rangeId,proto3,casttype=GroupID" json:"range_id,omitempty"`
 	// user_priority allows any command's priority to be biased from the
 	// default random priority. It specifies a multiple. If set to 0.5,
 	// the chosen priority will be 1/2x as likely to beat any default
@@ -339,9 +339,9 @@ func (m *Header) GetReplica() *ReplicaDescriptor {
 	return nil
 }
 
-func (m *Header) GetRangeID() RangeID {
+func (m *Header) GetRangeID() GroupID {
 	if m != nil {
-		return m.RangeID
+		return m.GroupID
 	}
 	return 0
 }
@@ -431,11 +431,11 @@ func (m *BatchResponse_Header) GetError() *Error {
 type TruncateLogRequest struct {
 	// Log entries < this index are to be discarded.
 	Index uint64 `protobuf:"varint,1,opt,name=index,proto3" json:"index,omitempty"`
-	// RangeID is used to double check that the correct range is being truncated.
+	// GroupID is used to double check that the correct range is being truncated.
 	// The header specifies a span, start and end keys, but not the range id
 	// itself. The range may have changed from the one specified in the header
 	// in the case of a merge.
-	RangeID RangeID `protobuf:"varint,2,opt,name=range_id,json=rangeId,proto3,casttype=RangeID" json:"range_id,omitempty"`
+	GroupID GroupID `protobuf:"varint,2,opt,name=range_id,json=rangeId,proto3,casttype=GroupID" json:"range_id,omitempty"`
 }
 
 func (m *TruncateLogRequest) Reset()                    { *m = TruncateLogRequest{} }
@@ -450,9 +450,9 @@ func (m *TruncateLogRequest) GetIndex() uint64 {
 	return 0
 }
 
-func (m *TruncateLogRequest) GetRangeID() RangeID {
+func (m *TruncateLogRequest) GetRangeID() GroupID {
 	if m != nil {
-		return m.RangeID
+		return m.GroupID
 	}
 	return 0
 }
@@ -619,7 +619,7 @@ func (this *TruncateLogRequest) Equal(that interface{}) bool {
 	if this.Index != that1.Index {
 		return false
 	}
-	if this.RangeID != that1.RangeID {
+	if this.GroupID != that1.GroupID {
 		return false
 	}
 	return true
@@ -1030,10 +1030,10 @@ func (m *Header) MarshalTo(dAtA []byte) (int, error) {
 		}
 		i += n9
 	}
-	if m.RangeID != 0 {
+	if m.GroupID != 0 {
 		dAtA[i] = 0x18
 		i++
-		i = encodeVarintApi(dAtA, i, uint64(m.RangeID))
+		i = encodeVarintApi(dAtA, i, uint64(m.GroupID))
 	}
 	if m.UserPriority != 0 {
 		dAtA[i] = 0x21
@@ -1186,10 +1186,10 @@ func (m *TruncateLogRequest) MarshalTo(dAtA []byte) (int, error) {
 		i++
 		i = encodeVarintApi(dAtA, i, uint64(m.Index))
 	}
-	if m.RangeID != 0 {
+	if m.GroupID != 0 {
 		dAtA[i] = 0x10
 		i++
-		i = encodeVarintApi(dAtA, i, uint64(m.RangeID))
+		i = encodeVarintApi(dAtA, i, uint64(m.GroupID))
 	}
 	return i, nil
 }
@@ -1378,8 +1378,8 @@ func (m *Header) Size() (n int) {
 		l = m.Replica.Size()
 		n += 1 + l + sovApi(uint64(l))
 	}
-	if m.RangeID != 0 {
-		n += 1 + sovApi(uint64(m.RangeID))
+	if m.GroupID != 0 {
+		n += 1 + sovApi(uint64(m.GroupID))
 	}
 	if m.UserPriority != 0 {
 		n += 9
@@ -1441,8 +1441,8 @@ func (m *TruncateLogRequest) Size() (n int) {
 	if m.Index != 0 {
 		n += 1 + sovApi(uint64(m.Index))
 	}
-	if m.RangeID != 0 {
-		n += 1 + sovApi(uint64(m.RangeID))
+	if m.GroupID != 0 {
+		n += 1 + sovApi(uint64(m.GroupID))
 	}
 	return n
 }
@@ -2307,9 +2307,9 @@ func (m *Header) Unmarshal(dAtA []byte) error {
 			iNdEx = postIndex
 		case 3:
 			if wireType != 0 {
-				return fmt.Errorf("proto: wrong wireType = %d for field RangeID", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field GroupID", wireType)
 			}
-			m.RangeID = 0
+			m.GroupID = 0
 			for shift := uint(0); ; shift += 7 {
 				if shift >= 64 {
 					return ErrIntOverflowApi
@@ -2319,7 +2319,7 @@ func (m *Header) Unmarshal(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				m.RangeID |= (RangeID(b) & 0x7F) << shift
+				m.GroupID |= (GroupID(b) & 0x7F) << shift
 				if b < 0x80 {
 					break
 				}
@@ -2763,9 +2763,9 @@ func (m *TruncateLogRequest) Unmarshal(dAtA []byte) error {
 			}
 		case 2:
 			if wireType != 0 {
-				return fmt.Errorf("proto: wrong wireType = %d for field RangeID", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field GroupID", wireType)
 			}
-			m.RangeID = 0
+			m.GroupID = 0
 			for shift := uint(0); ; shift += 7 {
 				if shift >= 64 {
 					return ErrIntOverflowApi
@@ -2775,7 +2775,7 @@ func (m *TruncateLogRequest) Unmarshal(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				m.RangeID |= (RangeID(b) & 0x7F) << shift
+				m.GroupID |= (GroupID(b) & 0x7F) << shift
 				if b < 0x80 {
 					break
 				}

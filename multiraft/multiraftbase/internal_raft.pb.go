@@ -36,7 +36,7 @@ func (m *RaftTombstone) GetNextReplicaID() ReplicaID {
 // all of the range's data and metadata, including the raft log, sequence cache, etc.
 type RaftSnapshotData struct {
 	// The latest RangeDescriptor
-	PgDescriptor *PgDescriptor                `protobuf:"bytes,1,opt,name=pg_descriptor,json=pgDescriptor" json:"pg_descriptor,omitempty"`
+	GroupDescriptor *GroupDescriptor                `protobuf:"bytes,1,opt,name=pg_descriptor,json=pgDescriptor" json:"pg_descriptor,omitempty"`
 	KV           []*RaftSnapshotData_KeyValue `protobuf:"bytes,2,rep,name=KV" json:"KV,omitempty"`
 	// These are really raftpb.Entry, but we model them as raw bytes to avoid
 	// roundtripping through memory.
@@ -48,9 +48,9 @@ func (m *RaftSnapshotData) String() string            { return proto.CompactText
 func (*RaftSnapshotData) ProtoMessage()               {}
 func (*RaftSnapshotData) Descriptor() ([]byte, []int) { return fileDescriptorInternalRaft, []int{1} }
 
-func (m *RaftSnapshotData) GetPgDescriptor() *PgDescriptor {
+func (m *RaftSnapshotData) GetPgDescriptor() *GroupDescriptor {
 	if m != nil {
-		return m.PgDescriptor
+		return m.GroupDescriptor
 	}
 	return nil
 }
@@ -138,11 +138,11 @@ func (m *RaftSnapshotData) MarshalTo(dAtA []byte) (int, error) {
 	_ = i
 	var l int
 	_ = l
-	if m.PgDescriptor != nil {
+	if m.GroupDescriptor != nil {
 		dAtA[i] = 0xa
 		i++
-		i = encodeVarintInternalRaft(dAtA, i, uint64(m.PgDescriptor.Size()))
-		n1, err := m.PgDescriptor.MarshalTo(dAtA[i:])
+		i = encodeVarintInternalRaft(dAtA, i, uint64(m.GroupDescriptor.Size()))
+		n1, err := m.GroupDescriptor.MarshalTo(dAtA[i:])
 		if err != nil {
 			return 0, err
 		}
@@ -240,8 +240,8 @@ func (m *RaftTombstone) Size() (n int) {
 func (m *RaftSnapshotData) Size() (n int) {
 	var l int
 	_ = l
-	if m.PgDescriptor != nil {
-		l = m.PgDescriptor.Size()
+	if m.GroupDescriptor != nil {
+		l = m.GroupDescriptor.Size()
 		n += 1 + l + sovInternalRaft(uint64(l))
 	}
 	if len(m.KV) > 0 {
@@ -386,7 +386,7 @@ func (m *RaftSnapshotData) Unmarshal(dAtA []byte) error {
 		switch fieldNum {
 		case 1:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field PgDescriptor", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field GroupDescriptor", wireType)
 			}
 			var msglen int
 			for shift := uint(0); ; shift += 7 {
@@ -410,10 +410,10 @@ func (m *RaftSnapshotData) Unmarshal(dAtA []byte) error {
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			if m.PgDescriptor == nil {
-				m.PgDescriptor = &PgDescriptor{}
+			if m.GroupDescriptor == nil {
+				m.GroupDescriptor = &GroupDescriptor{}
 			}
-			if err := m.PgDescriptor.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+			if err := m.GroupDescriptor.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
 				return err
 			}
 			iNdEx = postIndex

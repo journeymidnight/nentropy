@@ -335,7 +335,7 @@ func (m *Error) GetIndex() *ErrPosition {
 // A RangeNotFoundError indicates that a command was sent to a range
 // which is not hosted on this store.
 type RangeNotFoundError struct {
-	RangeID RangeID `protobuf:"varint,1,opt,name=range_id,json=rangeId,proto3,casttype=RangeID" json:"range_id,omitempty"`
+	GroupID GroupID `protobuf:"varint,1,opt,name=range_id,json=rangeId,proto3,casttype=GroupID" json:"range_id,omitempty"`
 }
 
 func (m *RangeNotFoundError) Reset()                    { *m = RangeNotFoundError{} }
@@ -343,9 +343,9 @@ func (m *RangeNotFoundError) String() string            { return proto.CompactTe
 func (*RangeNotFoundError) ProtoMessage()               {}
 func (*RangeNotFoundError) Descriptor() ([]byte, []int) { return fileDescriptorError, []int{11} }
 
-func (m *RangeNotFoundError) GetRangeID() RangeID {
+func (m *RangeNotFoundError) GetRangeID() GroupID {
 	if m != nil {
-		return m.RangeID
+		return m.GroupID
 	}
 	return 0
 }
@@ -389,7 +389,7 @@ func (this *RangeNotFoundError) Equal(that interface{}) bool {
 	} else if this == nil {
 		return false
 	}
-	if this.RangeID != that1.RangeID {
+	if this.GroupID != that1.GroupID {
 		return false
 	}
 	return true
@@ -779,10 +779,10 @@ func (m *RangeNotFoundError) MarshalTo(dAtA []byte) (int, error) {
 	_ = i
 	var l int
 	_ = l
-	if m.RangeID != 0 {
+	if m.GroupID != 0 {
 		dAtA[i] = 0x8
 		i++
-		i = encodeVarintError(dAtA, i, uint64(m.RangeID))
+		i = encodeVarintError(dAtA, i, uint64(m.GroupID))
 	}
 	return i, nil
 }
@@ -964,8 +964,8 @@ func (m *Error) Size() (n int) {
 func (m *RangeNotFoundError) Size() (n int) {
 	var l int
 	_ = l
-	if m.RangeID != 0 {
-		n += 1 + sovError(uint64(m.RangeID))
+	if m.GroupID != 0 {
+		n += 1 + sovError(uint64(m.GroupID))
 	}
 	return n
 }
@@ -2188,9 +2188,9 @@ func (m *RangeNotFoundError) Unmarshal(dAtA []byte) error {
 		switch fieldNum {
 		case 1:
 			if wireType != 0 {
-				return fmt.Errorf("proto: wrong wireType = %d for field RangeID", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field GroupID", wireType)
 			}
-			m.RangeID = 0
+			m.GroupID = 0
 			for shift := uint(0); ; shift += 7 {
 				if shift >= 64 {
 					return ErrIntOverflowError
@@ -2200,7 +2200,7 @@ func (m *RangeNotFoundError) Unmarshal(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				m.RangeID |= (RangeID(b) & 0x7F) << shift
+				m.GroupID |= (GroupID(b) & 0x7F) << shift
 				if b < 0x80 {
 					break
 				}

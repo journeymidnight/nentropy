@@ -43,7 +43,7 @@ func (m *RaftTruncatedState) GetTerm() uint64 {
 
 type ReplicaState struct {
 	RaftAppliedIndex uint64        `protobuf:"varint,1,opt,name=raft_applied_index,json=raftAppliedIndex,proto3" json:"raft_applied_index,omitempty"`
-	Desc             *PgDescriptor `protobuf:"bytes,2,opt,name=desc" json:"desc,omitempty"`
+	Desc             *GroupDescriptor `protobuf:"bytes,2,opt,name=desc" json:"desc,omitempty"`
 	// The truncation state of the Raft log.
 	TruncatedState *RaftTruncatedState `protobuf:"bytes,3,opt,name=truncated_state,json=truncatedState" json:"truncated_state,omitempty"`
 }
@@ -60,7 +60,7 @@ func (m *ReplicaState) GetRaftAppliedIndex() uint64 {
 	return 0
 }
 
-func (m *ReplicaState) GetDesc() *PgDescriptor {
+func (m *ReplicaState) GetDesc() *GroupDescriptor {
 	if m != nil {
 		return m.Desc
 	}
@@ -668,7 +668,7 @@ func (m *ReplicaState) Unmarshal(dAtA []byte) error {
 				return io.ErrUnexpectedEOF
 			}
 			if m.Desc == nil {
-				m.Desc = &PgDescriptor{}
+				m.Desc = &GroupDescriptor{}
 			}
 			if err := m.Desc.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
 				return err

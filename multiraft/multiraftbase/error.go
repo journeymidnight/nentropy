@@ -89,9 +89,9 @@ func (e *NodeNotReadyError) message(_ *Error) string {
 }
 
 // NewRangeNotFoundError initializes a new RangeNotFoundError.
-func NewRangeNotFoundError(rangeID RangeID) *RangeNotFoundError {
+func NewRangeNotFoundError(groupID GroupID) *RangeNotFoundError {
 	return &RangeNotFoundError{
-		RangeID: rangeID,
+		GroupID: groupID,
 	}
 }
 

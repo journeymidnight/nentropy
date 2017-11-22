@@ -104,5 +104,5 @@ message Error {
 message RangeNotFoundError {
   option (gogoproto.equal) = true;
 
-  int64 range_id = 1 [(gogoproto.customname) = "RangeID", (gogoproto.casttype) = "RangeID"];
+  int64 range_id = 1 [(gogoproto.customname) = "GroupID", (gogoproto.casttype) = "GroupID"];
 }

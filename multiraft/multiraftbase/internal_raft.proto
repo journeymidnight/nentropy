@@ -18,7 +18,7 @@ bytes key = 1;
 bytes value = 2;
 }
 // The latest RangeDescriptor
-PgDescriptor pg_descriptor = 1;
+GroupDescriptor pg_descriptor = 1;
 repeated KeyValue KV = 2 [(gogoproto.customname) = "KV"];
 // These are really raftpb.Entry, but we model them as raw bytes to avoid
 // roundtripping through memory.

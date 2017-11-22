@@ -58,7 +58,7 @@ func (q *raftGroupIDQueue) PushBack(id multiraftbase.GroupID) {
 	q.len++
 	if !q.back().PushBack(id) {
 		panic(fmt.Sprintf(
-			"unable to push rangeID to chunk: len=%d, cap=%d",
+			"unable to push groupID to chunk: len=%d, cap=%d",
 			q.back().Len(), q.back().WriteCap()))
 	}
 }

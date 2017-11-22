@@ -14,16 +14,16 @@ type replicaStateLoader struct {
 	keys.RangeIDPrefixBuf
 }
 
-func makeReplicaStateLoader(rangeID multiraftbase.RangeID) replicaStateLoader {
+func makeReplicaStateLoader(groupID multiraftbase.GroupID) replicaStateLoader {
 	return replicaStateLoader{
-		RangeIDPrefixBuf: keys.MakeRangeIDPrefixBuf(rangeID),
+		RangeIDPrefixBuf: keys.MakeRangeIDPrefixBuf(groupID),
 	}
 }
 
 func loadHardState(
-	ctx context.Context, reader engine.Reader, rangeID multiraftbase.RangeID,
+	ctx context.Context, reader engine.Reader, groupID multiraftbase.GroupID,
 ) (raftpb.HardState, error) {
-	rsl := makeReplicaStateLoader(rangeID)
+	rsl := makeReplicaStateLoader(groupID)
 	return rsl.loadHardState(ctx, reader)
 }
 
@@ -72,9 +72,9 @@ func (rsl replicaStateLoader) setLastIndex(
 }
 
 func loadTruncatedState(
-	ctx context.Context, reader engine.Reader, rangeID multiraftbase.RangeID,
+	ctx context.Context, reader engine.Reader, groupID multiraftbase.GroupID,
 ) (multiraftbase.RaftTruncatedState, error) {
-	rsl := makeReplicaStateLoader(rangeID)
+	rsl := makeReplicaStateLoader(groupID)
 	return rsl.loadTruncatedState(ctx, reader)
 }
 
@@ -121,15 +121,15 @@ func (rsl replicaStateLoader) loadAppliedIndex(
 
 // loadState loads a ReplicaState from disk. The exception is the Desc field,
 // which is updated transactionally, and is populated from the supplied
-// PgDescriptor under the convention that that is the latest committed
+// GroupDescriptor under the convention that that is the latest committed
 // version.
 func (rsl replicaStateLoader) load(
-	ctx context.Context, reader engine.Reader, desc *multiraftbase.PgDescriptor,
+	ctx context.Context, reader engine.Reader, desc *multiraftbase.GroupDescriptor,
 ) (storagebase.ReplicaState, error) {
 	var s storagebase.ReplicaState
 	// TODO(tschottdorf): figure out whether this is always synchronous with
 	// on-disk state (likely iffy during Split/ChangeReplica triggers).
-	s.Desc = protoutil.Clone(desc).(*multiraftbase.PgDescriptor)
+	s.Desc = protoutil.Clone(desc).(*multiraftbase.GroupDescriptor)
 	// Read the range lease.
 	lease, err := rsl.loadLease(ctx, reader)
 	if err != nil {
@@ -171,9 +171,9 @@ func (rsl replicaStateLoader) load(
 // updated through Raft.
 
 func loadLastIndex(
-	ctx context.Context, reader engine.Reader, rangeID roachpb.RangeID,
+	ctx context.Context, reader engine.Reader, groupID roachpb.GroupID,
 ) (uint64, error) {
-	rsl := makeReplicaStateLoader(rangeID)
+	rsl := makeReplicaStateLoader(groupID)
 	return rsl.loadLastIndex(ctx, reader)
 }
 

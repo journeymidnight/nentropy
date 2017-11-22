@@ -24,7 +24,7 @@ import (
 )
 
 type entryCacheKey struct {
-	RangeID protos.RangeID
+	GroupID protos.GroupID
 	Index   uint64
 }
 
@@ -33,9 +33,9 @@ type entryCacheKey struct {
 func (a *entryCacheKey) Compare(b llrb.Comparable) int {
 	bk := b.(*entryCacheKey)
 	switch {
-	case a.RangeID < bk.RangeID:
+	case a.GroupID < bk.GroupID:
 		return -1
-	case a.RangeID > bk.RangeID:
+	case a.GroupID > bk.GroupID:
 		return 1
 	case a.Index < bk.Index:
 		return -1
@@ -55,7 +55,7 @@ func (a *entryCacheKey) Compare(b llrb.Comparable) int {
 type raftEntryCache struct {
 	syncutil.Mutex                     // protects Cache for concurrent access.
 	bytes          uint64              // total size of the cache in bytes
-	cache          *cache.OrderedCache // LRU cache of log entries, keyed by rangeID / log index
+	cache          *cache.OrderedCache // LRU cache of log entries, keyed by groupID / log index
 	fromKey        entryCacheKey       // used to avoid allocations on lookup
 	toKey          entryCacheKey       // ^^^
 }
@@ -100,7 +100,7 @@ func (rec *raftEntryCache) makeCacheEntry(key entryCacheKey, value raftpb.Entry)
 
 // addEntries adds the slice of raft entries, using the range ID and the
 // entry indexes as each cached entry's key.
-func (rec *raftEntryCache) addEntries(rangeID protos.RangeID, ents []raftpb.Entry) {
+func (rec *raftEntryCache) addEntries(groupID protos.GroupID, ents []raftpb.Entry) {
 	if len(ents) == 0 {
 		return
 	}
@@ -109,24 +109,24 @@ func (rec *raftEntryCache) addEntries(rangeID protos.RangeID, ents []raftpb.Entr
 
 	for _, e := range ents {
 		rec.bytes += uint64(e.Size())
-		entry := rec.makeCacheEntry(entryCacheKey{RangeID: rangeID, Index: e.Index}, e)
+		entry := rec.makeCacheEntry(entryCacheKey{GroupID: groupID, Index: e.Index}, e)
 		rec.cache.AddEntry(entry)
 	}
 }
 
 // getTerm returns the term for the specified index and true for the second
 // return value. If the index is not present in the cache, false is returned.
-func (rec *raftEntryCache) getTerm(rangeID protos.RangeID, index uint64) (uint64, bool) {
+func (rec *raftEntryCache) getTerm(groupID protos.GroupID, index uint64) (uint64, bool) {
 	rec.Lock()
 	defer rec.Unlock()
 
-	rec.fromKey = entryCacheKey{RangeID: rangeID, Index: index}
+	rec.fromKey = entryCacheKey{GroupID: groupID, Index: index}
 	k, v, ok := rec.cache.Ceil(&rec.fromKey)
 	if !ok {
 		return 0, false
 	}
 	ecKey := k.(*entryCacheKey)
-	if ecKey.RangeID != rangeID || ecKey.Index != index {
+	if ecKey.GroupID != groupID || ecKey.Index != index {
 		return 0, false
 	}
 	ent := v.(*raftpb.Entry)
@@ -139,15 +139,15 @@ func (rec *raftEntryCache) getTerm(rangeID protos.RangeID, index uint64) (uint64
 // 1) all entries exclusive of hi are fetched, 2) > maxBytes of
 // entries data is fetched, or 3) a cache miss occurs.
 func (rec *raftEntryCache) getEntries(
-	ents []raftpb.Entry, rangeID protos.RangeID, lo, hi, maxBytes uint64,
+	ents []raftpb.Entry, groupID protos.GroupID, lo, hi, maxBytes uint64,
 ) ([]raftpb.Entry, uint64, uint64) {
 	rec.Lock()
 	defer rec.Unlock()
 	var bytes uint64
 	nextIndex := lo
 
-	rec.fromKey = entryCacheKey{RangeID: rangeID, Index: lo}
-	rec.toKey = entryCacheKey{RangeID: rangeID, Index: hi}
+	rec.fromKey = entryCacheKey{GroupID: groupID, Index: lo}
+	rec.toKey = entryCacheKey{GroupID: groupID, Index: hi}
 	rec.cache.DoRange(func(k, v interface{}) bool {
 		ecKey := k.(*entryCacheKey)
 		if ecKey.Index != nextIndex {
@@ -167,15 +167,15 @@ func (rec *raftEntryCache) getEntries(
 }
 
 // delEntries deletes entries between [lo, hi) for specified range.
-func (rec *raftEntryCache) delEntries(rangeID protos.RangeID, lo, hi uint64) {
+func (rec *raftEntryCache) delEntries(groupID protos.GroupID, lo, hi uint64) {
 	rec.Lock()
 	defer rec.Unlock()
 	if lo >= hi {
 		return
 	}
 	var keys []*entryCacheKey
-	rec.fromKey = entryCacheKey{RangeID: rangeID, Index: lo}
-	rec.toKey = entryCacheKey{RangeID: rangeID, Index: hi}
+	rec.fromKey = entryCacheKey{GroupID: groupID, Index: lo}
+	rec.toKey = entryCacheKey{GroupID: groupID, Index: hi}
 	rec.cache.DoRange(func(k, v interface{}) bool {
 		keys = append(keys, k.(*entryCacheKey))
 		return false
@@ -188,6 +188,6 @@ func (rec *raftEntryCache) delEntries(rangeID protos.RangeID, lo, hi uint64) {
 
 // clearTo clears the entries in the cache for specified range up to,
 // but not including the specified index.
-func (rec *raftEntryCache) clearTo(rangeID protos.RangeID, index uint64) {
-	rec.delEntries(rangeID, 0, index)
+func (rec *raftEntryCache) clearTo(groupID protos.GroupID, index uint64) {
+	rec.delEntries(groupID, 0, index)
 }

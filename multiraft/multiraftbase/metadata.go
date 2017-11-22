@@ -39,7 +39,7 @@ func (r ReplicaID) String() string {
 
 // GetReplicaDescriptor returns the replica which matches the specified store
 // ID.
-func (r PgDescriptor) GetReplicaDescriptor(storeID StoreID) (ReplicaDescriptor, bool) {
+func (r GroupDescriptor) GetReplicaDescriptor(storeID StoreID) (ReplicaDescriptor, bool) {
 	for _, repDesc := range r.Replicas {
 		if repDesc.StoreID == storeID {
 			return repDesc, true

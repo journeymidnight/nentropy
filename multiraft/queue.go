@@ -40,7 +40,7 @@ type purgatoryError interface {
 
 // A replicaItem holds a replica and its priority for use with a priority queue.
 type replicaItem struct {
-	value    multiraftbase.RangeID
+	value    multiraftbase.GroupID
 	priority float64
 	// The index is needed by update and is maintained by the heap.Interface methods.
 	index int // The index of the item in the heap.
@@ -182,8 +182,8 @@ type baseQueue struct {
 	mu       struct {
 		sync.Locker                                 // Protects all variables in the mu struct
 		priorityQ   priorityQueue                   // The priority queue
-		replicas    map[protos.RangeID]*replicaItem // Map from RangeID to replicaItem (for updating priority)
-		purgatory   map[protos.RangeID]error        // Map of replicas to processing errors
+		replicas    map[protos.GroupID]*replicaItem // Map from GroupID to replicaItem (for updating priority)
+		purgatory   map[protos.GroupID]error        // Map of replicas to processing errors
 		stopped     bool
 		// Some tests in this package disable queues.
 		disabled bool
@@ -221,7 +221,7 @@ func newBaseQueue(
 		incoming:       make(chan struct{}, 1),
 	}
 	bq.mu.Locker = new(syncutil.Mutex)
-	bq.mu.replicas = map[protos.RangeID]*replicaItem{}
+	bq.mu.replicas = map[protos.GroupID]*replicaItem{}
 	bq.processMu = new(syncutil.Mutex)
 
 	return &bq
@@ -307,7 +307,7 @@ func (bq *baseQueue) MaybeAdd(repl *Replica) {
 // the replica is already queued at a lower priority, updates the existing
 // priority. Expects the queue lock to be held by caller.
 func (bq *baseQueue) addInternal(
-	ctx context.Context, desc *multiraftbase.PgDescriptor, should bool, priority float64,
+	ctx context.Context, desc *multiraftbase.GroupDescriptor, should bool, priority float64,
 ) (bool, error) {
 	if bq.mu.stopped {
 		return false, errQueueStopped
@@ -327,7 +327,7 @@ func (bq *baseQueue) addInternal(
 	}
 
 	// If the replica is currently in purgatory, don't re-add it.
-	if _, ok := bq.mu.purgatory[desc.RangeID]; ok {
+	if _, ok := bq.mu.purgatory[desc.GroupID]; ok {
 		return false, nil
 	}
 
@@ -338,7 +338,7 @@ func (bq *baseQueue) addInternal(
 		return false, errReplicaNotAddable
 	}
 
-	item, ok := bq.mu.replicas[desc.RangeID]
+	item, ok := bq.mu.replicas[desc.GroupID]
 	if ok {
 		// Replica has already been added but at a lower priority; update priority.
 		// Don't lower it since the previous queuer may have known more than this
@@ -355,7 +355,7 @@ func (bq *baseQueue) addInternal(
 	if log.V(3) {
 		log.Infof(ctx, "adding: priority=%0.3f", priority)
 	}
-	item = &replicaItem{value: desc.RangeID, priority: priority}
+	item = &replicaItem{value: desc.GroupID, priority: priority}
 	bq.add(item)
 
 	// If adding this replica has pushed the queue past its maximum size,
@@ -373,7 +373,7 @@ func (bq *baseQueue) addInternal(
 }
 
 // MaybeRemove removes the specified replica from the queue if enqueued.
-func (bq *baseQueue) MaybeRemove(rangeID protos.RangeID) {
+func (bq *baseQueue) MaybeRemove(groupID protos.GroupID) {
 	bq.mu.Lock()
 	defer bq.mu.Unlock()
 
@@ -381,7 +381,7 @@ func (bq *baseQueue) MaybeRemove(rangeID protos.RangeID) {
 		return
 	}
 
-	if item, ok := bq.mu.replicas[rangeID]; ok {
+	if item, ok := bq.mu.replicas[groupID]; ok {
 		ctx := bq.AnnotateCtx(context.TODO())
 		if log.V(3) {
 			log.Infof(ctx, "%s: removing", item.value)
@@ -516,12 +516,12 @@ func (bq *baseQueue) maybeAddToPurgatory(
 	defer bq.mu.Unlock()
 
 	// First, check whether the replica has already been re-added to queue.
-	if _, ok := bq.mu.replicas[repl.RangeID]; ok {
+	if _, ok := bq.mu.replicas[repl.GroupID]; ok {
 		return
 	}
 
-	item := &replicaItem{value: repl.RangeID}
-	bq.mu.replicas[repl.RangeID] = item
+	item := &replicaItem{value: repl.GroupID}
+	bq.mu.replicas[repl.GroupID] = item
 
 	defer func() {
 		bq.purgatory.Update(int64(len(bq.mu.purgatory)))
@@ -529,13 +529,13 @@ func (bq *baseQueue) maybeAddToPurgatory(
 
 	// If purgatory already exists, just add to the map and we're done.
 	if bq.mu.purgatory != nil {
-		bq.mu.purgatory[repl.RangeID] = triggeringErr
+		bq.mu.purgatory[repl.GroupID] = triggeringErr
 		return
 	}
 
 	// Otherwise, create purgatory and start processing.
-	bq.mu.purgatory = map[protos.RangeID]error{
-		repl.RangeID: triggeringErr,
+	bq.mu.purgatory = map[protos.GroupID]error{
+		repl.GroupID: triggeringErr,
 	}
 
 	workerCtx := bq.AnnotateCtx(context.Background())
@@ -546,9 +546,9 @@ func (bq *baseQueue) maybeAddToPurgatory(
 			case <-bq.impl.purgatoryChan():
 				// Remove all items from purgatory into a copied slice.
 				bq.mu.Lock()
-				ranges := make([]protos.RangeID, 0, len(bq.mu.purgatory))
-				for rangeID := range bq.mu.purgatory {
-					item := bq.mu.replicas[rangeID]
+				ranges := make([]protos.GroupID, 0, len(bq.mu.purgatory))
+				for groupID := range bq.mu.purgatory {
+					item := bq.mu.replicas[groupID]
 					ranges = append(ranges, item.value)
 					bq.remove(item)
 				}

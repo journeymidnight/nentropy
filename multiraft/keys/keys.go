@@ -34,6 +34,6 @@ func (b RangeIDPrefixBuf) RaftLastIndexKey() roachpb.Key {
 
 // MakeRangeIDPrefixBuf creates a new range ID prefix buf suitable for
 // generating the various range ID local keys.
-func MakeRangeIDPrefixBuf(rangeID roachpb.RangeID) RangeIDPrefixBuf {
-	return RangeIDPrefixBuf(MakeRangeIDPrefix(rangeID))
+func MakeRangeIDPrefixBuf(groupID roachpb.GroupID) RangeIDPrefixBuf {
+	return RangeIDPrefixBuf(MakeRangeIDPrefix(groupID))
 }

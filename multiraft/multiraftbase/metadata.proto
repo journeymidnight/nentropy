@@ -32,18 +32,19 @@ message ReplicaIdent {
     ReplicaDescriptor replica = 3;
 }
 
-// RangeDescriptor is the value stored in a range metadata key.
+// GroupDescriptor is the value stored in a range metadata key.
 // A range is described using an inclusive start key, a non-inclusive end key,
 // and a list of replicas where the range is stored.
-message PgDescriptor {
+message GroupDescriptor {
     int64 pool_id = 1;
 
     int64 pg_id = 2;
+    string group_id = 3[(gogoproto.customname) = "GroupID"];
 
-    repeated ReplicaDescriptor replicas = 3;
+    repeated ReplicaDescriptor replicas = 4;
 
     // next_replica_id is a counter used to generate replica IDs.
-    int32 next_replica_id = 4;
+    int32 next_replica_id = 5;
 }
 
 // StoreCapacity contains capacity information for a storage device.
