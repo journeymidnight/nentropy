@@ -2,15 +2,13 @@ package rpc
 
 import (
 	"fmt"
-	"github.com/cockroachdb/cockroach/pkg/roachpb"
-	"github.com/cockroachdb/cockroach/pkg/util/envutil"
-	"github.com/cockroachdb/cockroach/pkg/util/grpcutil"
-	"github.com/cockroachdb/cockroach/pkg/util/stop"
 	"github.com/journeymidnight/nentropy/base"
 	"github.com/journeymidnight/nentropy/helper"
+	"github.com/journeymidnight/nentropy/util/envutil"
+	"github.com/journeymidnight/nentropy/util/stop"
+	"github.com/pkg/errors"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
 	"math"
 	"net"
@@ -59,8 +57,7 @@ type Context struct {
 
 // NewContext creates an rpc Context with the supplied values.
 func NewContext(
-	baseCtx *base.Config, stopper *stop.Stopper,
-) *Context {
+	baseCtx *base.Config, stopper *stop.Stopper) *Context {
 	ctx := &Context{
 		Config: baseCtx,
 	}
@@ -79,7 +76,7 @@ func NewContext(
 				// conn. We need to set the error in case we win the race against the
 				// real initialization code.
 				if meta.dialErr == nil {
-					meta.dialErr = &roachpb.NodeUnavailableError{}
+					meta.dialErr = errors.New("Node Unavailable")
 				}
 			})
 			ctx.removeConn(k.(string), meta)
@@ -93,7 +90,7 @@ func NewContext(
 func (ctx *Context) removeConn(key string, meta *connMeta) {
 	ctx.conns.Delete(key)
 	if conn := meta.conn; conn != nil {
-		if err := conn.Close(); err != nil && !grpcutil.IsClosedConnection(err) {
+		if err := conn.Close(); err != nil {
 			helper.Logger.Printf(5, "failed to close client connection: %s", err)
 		}
 	}
@@ -153,25 +150,6 @@ func (ctx *Context) GRPCDial(target string, opts ...grpc.DialOption) (*grpc.Clie
 		helper.Logger.Println(5, fmt.Sprintf("dialing %s", target))
 
 		meta.conn, meta.dialErr = grpc.DialContext(ctx.masterCtx, target, dialOpts...)
-		//if ctx.GetLocalInternalServerForAddr(target) == nil && meta.dialErr == nil {
-		//	if err := ctx.Stopper.RunTask(
-		//		ctx.masterCtx, "rpc.Context: grpc heartbeat", func(masterCtx context.Context) {
-		//			ctx.Stopper.RunWorker(masterCtx, func(masterCtx context.Context) {
-		//				err := ctx.runHeartbeat(meta, target)
-		//				if err != nil && !grpcutil.IsClosedConnection(err) {
-		//					log.Errorf(masterCtx, "removing connection to %s due to error: %s", target, err)
-		//				}
-		//				ctx.removeConn(target, meta)
-		//			})
-		//		}); err != nil {
-		//		meta.dialErr = err
-		//		// removeConn and ctx's cleanup worker both lock ctx.conns. However,
-		//		// to avoid racing with meta's initialization, the cleanup worker
-		//		// blocks on meta.Do while holding ctx.conns. Invoke removeConn
-		//		// asynchronously to avoid deadlock.
-		//		go ctx.removeConn(target, meta)
-		//	}
-		//}
 	})
 
 	return meta.conn, meta.dialErr
@@ -179,7 +157,7 @@ func (ctx *Context) GRPCDial(target string, opts ...grpc.DialOption) (*grpc.Clie
 
 // NewServer is a thin wrapper around grpc.NewServer that registers a heartbeat
 // service.
-func NewServer(ctx *Context) *grpc.Server {
+func NewServer() *grpc.Server {
 	opts := []grpc.ServerOption{
 		// The limiting factor for lowering the max message size is the fact
 		// that a single large kv can be sent over the network in one message.

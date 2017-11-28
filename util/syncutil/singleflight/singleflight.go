@@ -9,7 +9,7 @@ package singleflight
 import (
 	"sync"
 
-	"github.com/cockroachdb/cockroach/pkg/util/syncutil"
+	"github.com/journeymidnight/nentropy/util/syncutil"
 )
 
 // call is an in-flight or completed singleflight.Do call

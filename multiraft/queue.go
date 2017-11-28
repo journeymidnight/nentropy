@@ -435,15 +435,14 @@ func (bq *baseQueue) processLoop(stopper *stop.Stopper) {
 						annotatedCtx, fmt.Sprintf("storage.%s: processing replica", bq.name),
 						func(annotatedCtx context.Context) {
 							start := timeutil.Now()
-							if err := bq.processReplica(annotatedCtx, repl, clock); err != nil {
+							if err := bq.processReplica(annotatedCtx, repl); err != nil {
 								// Maybe add failing replica to purgatory if the queue supports it.
-								bq.maybeAddToPurgatory(annotatedCtx, repl, err, clock, stopper)
+								bq.maybeAddToPurgatory(annotatedCtx, repl, err, stopper)
 							}
 							duration = timeutil.Since(start)
 							if log.V(2) {
 								log.Infof(annotatedCtx, "done %s", duration)
 							}
-							bq.processingNanos.Inc(duration.Nanoseconds())
 						}) != nil {
 						return
 					}
@@ -522,10 +521,6 @@ func (bq *baseQueue) maybeAddToPurgatory(
 
 	item := &replicaItem{value: repl.GroupID}
 	bq.mu.replicas[repl.GroupID] = item
-
-	defer func() {
-		bq.purgatory.Update(int64(len(bq.mu.purgatory)))
-	}()
 
 	// If purgatory already exists, just add to the map and we're done.
 	if bq.mu.purgatory != nil {
@@ -608,7 +603,6 @@ func (bq *baseQueue) pop() *Replica {
 			return nil
 		}
 		item := heap.Pop(&bq.mu.priorityQ).(*replicaItem)
-		bq.pending.Update(int64(bq.mu.priorityQ.Len()))
 		delete(bq.mu.replicas, item.value)
 		bq.mu.Unlock()
 		repl, _ = bq.store.GetReplica(item.value)
@@ -619,7 +613,6 @@ func (bq *baseQueue) pop() *Replica {
 // add adds an element to the priority queue. Caller must hold mutex.
 func (bq *baseQueue) add(item *replicaItem) {
 	heap.Push(&bq.mu.priorityQ, item)
-	bq.pending.Update(int64(bq.mu.priorityQ.Len()))
 	bq.mu.replicas[item.value] = item
 }
 
@@ -628,10 +621,15 @@ func (bq *baseQueue) add(item *replicaItem) {
 func (bq *baseQueue) remove(item *replicaItem) {
 	if _, ok := bq.mu.purgatory[item.value]; ok {
 		delete(bq.mu.purgatory, item.value)
-		bq.purgatory.Update(int64(len(bq.mu.purgatory)))
 	} else {
 		heap.Remove(&bq.mu.priorityQ, item.index)
-		bq.pending.Update(int64(bq.mu.priorityQ.Len()))
 	}
 	delete(bq.mu.replicas, item.value)
+}
+
+// IsDestroyed returns a non-nil error if the replica has been destroyed.
+func (r *Replica) IsDestroyed() error {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.mu.destroyed
 }

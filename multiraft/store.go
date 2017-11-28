@@ -1,10 +1,10 @@
 package multiraft
 
 import (
+	"errors"
 	"github.com/coreos/etcd/raft"
 	"github.com/coreos/etcd/raft/raftpb"
 	"github.com/journeymidnight/nentropy/helper"
-	"github.com/journeymidnight/nentropy/multiraft/keys"
 	"github.com/journeymidnight/nentropy/multiraft/multiraftbase"
 	"github.com/journeymidnight/nentropy/rpc"
 	"github.com/journeymidnight/nentropy/storage/engine"
@@ -15,12 +15,9 @@ import (
 	"golang.org/x/net/context"
 	"runtime"
 	"sync"
-	"sync/atomic"
 	"time"
 	"unsafe"
 )
-
-const ()
 
 // Engines is a container of engines, allowing convenient closing.
 type Engines map[string]engine.Engine
@@ -33,6 +30,7 @@ var storeSchedulerConcurrency = envutil.EnvOrDefaultInt(
 // All fields holding a pointer or an interface are required to create
 // a store; the rest will have sane defaults set if omitted.
 type StoreConfig struct {
+	AmbientCtx helper.AmbientContext
 	RaftConfig
 	Transport                   *RaftTransport
 	RPCContext                  *rpc.Context
@@ -57,7 +55,8 @@ type Store struct {
 	cfg   StoreConfig
 	mu    struct {
 		sync.Mutex
-		replicas sync.Map //map[multiraftbase.GroupID]*Replica
+		replicas       sync.Map //map[multiraftbase.GroupID]*Replica
+		uninitReplicas map[multiraftbase.GroupID]*Replica
 	}
 	engines        Engines
 	raftEntryCache *raftEntryCache
@@ -346,6 +345,8 @@ func (s *Store) uncoalesceBeats(
 	}
 }
 
+var errRetry = errors.New("retry: orphaned replica")
+
 // getOrCreateReplica returns a replica for the given GroupID, creating an
 // uninitialized replica if necessary. The caller must not hold the store's
 // lock. The returned replica has Replica.raftMu locked and it is the caller's
@@ -389,9 +390,9 @@ func (r *Replica) setReplicaIDRaftMuLockedMuLocked(replicaID multiraftbase.Repli
 
 // addReplicaToRangeMapLocked adds the replica to the replicas map.
 // addReplicaToRangeMapLocked requires that the store lock is held.
-func (s *Store) -addReplicaToRangeMapLocked(repl *Replica) error {
+func (s *Store) addReplicaToRangeMapLocked(repl *Replica) error {
 	if _, loaded := s.mu.replicas.LoadOrStore(int64(repl.GroupID), unsafe.Pointer(repl)); loaded {
-		return errors.Errorf("replica already exists")
+		return errors.New("replica already exists")
 	}
 	return nil
 }
@@ -457,7 +458,7 @@ func (s *Store) tryGetOrCreateReplica(
 	if err := repl.initRaftMuLockedReplicaMuLocked(desc, replicaID); err != nil {
 		// Mark the replica as destroyed and remove it from the replicas maps to
 		// ensure nobody tries to use it
-		repl.mu.destroyed = errors.Wrapf(err, "%s: failed to initialize", repl)
+		repl.mu.destroyed = errors.New("failed to initialize")
 		repl.mu.Unlock()
 		s.mu.Lock()
 		s.mu.replicas.Delete(int64(groupID))
@@ -490,7 +491,7 @@ func (s *Store) processRaftRequest(
 
 	if req.Quiesce {
 		if req.Message.Type != raftpb.MsgHeartbeat {
-			log.Fatalf(ctx, "unexpected quiesce: %+v", req)
+			helper.Logger.Fatalf(ctx, "unexpected quiesce: %+v", req)
 		}
 		status := r.RaftStatus()
 		if status != nil && status.Term == req.Message.Term && status.Commit == req.Message.Commit {
@@ -520,7 +521,6 @@ func (s *Store) processRaftRequest(
 		// Mimic the behavior in processRaft.
 		helper.Logger.Fatalf(5, "%s: %s", log.Safe(expl), err) // TODO(bdarnell)
 	}
-	removePlaceholder = false
 	return nil
 }
 
@@ -547,7 +547,7 @@ func (s *Store) HandleRaftUncoalescedRequest(
 	}
 	q := (*raftRequestQueue)(value)
 	q.Lock()
-	if len(q.infos) >= replicaRequestQueueSize {
+	if len(q.infos) >= 100 {
 		q.Unlock()
 		// TODO(peter): Return an error indicating the request was dropped. Note
 		// that dropping the request is safe. Raft will retry.
@@ -571,6 +571,11 @@ func (s *Store) GetReplica(groupID multiraftbase.GroupID) (*Replica, error) {
 	return nil, multiraftbase.NewGroupNotFoundError(groupID)
 }
 
+// AnnotateCtx is a convenience wrapper; see AmbientContext.
+func (s *Store) AnnotateCtx(ctx context.Context) context.Context {
+	return s.cfg.AmbientCtx.AnnotateCtx(ctx)
+}
+
 // HandleRaftResponse implements the RaftMessageHandler interface.
 // It requires that s.mu is not held.
 func (s *Store) HandleRaftResponse(ctx context.Context, resp *multiraftbase.RaftMessageResponse) error {
@@ -582,8 +587,8 @@ func (s *Store) HandleRaftResponse(ctx context.Context, resp *multiraftbase.Raft
 			repl, err := s.GetReplica(resp.GroupID)
 			if err != nil {
 				// RangeNotFoundErrors are expected here; nothing else is.
-				if _, ok := err.(*multiraftbase.RangeNotFoundError); !ok {
-					helper.Logger.Printfln(5, err)
+				if _, ok := err.(*multiraftbase.GroupNotFoundError); !ok {
+					helper.Logger.Println(5, err)
 				}
 				return nil
 			}
@@ -598,19 +603,6 @@ func (s *Store) HandleRaftResponse(ctx context.Context, resp *multiraftbase.Raft
 				repl.cancelPendingCommandsLocked()
 			}
 			repl.mu.Unlock()
-			replCtx := repl.AnnotateCtx(ctx)
-			added, err := s.replicaGCQueue.Add(
-				repl, replicaGCPriorityRemoved,
-			)
-			if err != nil {
-				helper.Logger.Printf(5, "unable to add to replica GC queue: %s", err)
-			} else if added {
-				helper.Logger.Printf(5, "added to replica GC queue (peer suggestion)")
-			}
-		case *multiraftbase.StoreNotFoundError:
-			helper.Logger.Printf(5, "raft error: node %d claims to not contain store %d for replica %s: %s",
-				resp.FromReplica.NodeID, resp.FromReplica.StoreID, resp.FromReplica, val)
-			return val.GetDetail()
 		default:
 			helper.Logger.Printf(5, "got error from r%d, replica %s: %s",
 				resp.GroupID, resp.FromReplica, val)
@@ -637,12 +629,12 @@ func newRaftConfig(
 		// achieving the same thing. PreVote is more compatible with
 		// quiesced ranges, so we want to switch to it once we've worked
 		// out the bugs.
-		PreVote:     enablePreVote,
-		CheckQuorum: !enablePreVote,
+		PreVote:     true,
+		CheckQuorum: false,
 
 		// MaxSizePerMsg controls how many Raft log entries the leader will send to
 		// followers in a single MsgApp.
-		MaxSizePerMsg: uint64(raftMaxSizePerMsg),
+		MaxSizePerMsg: uint64(16 * 1024),
 		// MaxInflightMsgs controls how many "inflight" messages Raft will send to
 		// a follower without hearing a response. The total number of Raft log
 		// entries is a combination of this setting and MaxSizePerMsg. The current
@@ -650,23 +642,23 @@ func newRaftConfig(
 		// acknowledgement. With an average entry size of 1 KB that translates to
 		// ~1024 commands that might be executed in the handling of a single
 		// raft.Ready operation.
-		MaxInflightMsgs: raftMaxInflightMsgs,
+		MaxInflightMsgs: 64,
 	}
 }
 
 // HandleSnapshot reads an incoming streaming snapshot and applies it if
 // possible.
 func (s *Store) HandleSnapshot(
-	header *SnapshotRequest_Header, stream SnapshotResponseStream,
+	header *multiraftbase.SnapshotRequest_Header, stream SnapshotResponseStream,
 ) error {
 	return nil
 }
 
 // Engine accessor.
-func (s *Store) Engine() engine.Engine { return s.engine }
+func (s *Store) Engine() engine.Engine { return s.engines["system"] }
 
 // StoreID accessor.
-func (s *Store) StoreID() StoreID { return s.Ident.StoreID }
+func (s *Store) StoreID() multiraftbase.StoreID { return s.Ident.StoreID }
 
 // NewStore returns a new instance of a store.
 func NewStore(cfg StoreConfig, eng engine.Engine, nodeDesc *multiraftbase.NodeDescriptor) *Store {
@@ -674,18 +666,15 @@ func NewStore(cfg StoreConfig, eng engine.Engine, nodeDesc *multiraftbase.NodeDe
 	cfg.SetDefaults()
 
 	s := &Store{
-		cfg:      cfg,
-		db:       cfg.DB, // TODO(tschottdorf): remove redundancy.
-		engine:   eng,
-		nodeDesc: nodeDesc,
+		cfg: cfg,
 	}
 
-	s.raftEntryCache = newRaftEntryCache(cfg.RaftEntryCacheSize)
-	s.scheduler = newRaftScheduler(s.cfg.AmbientCtx, s.metrics, s, storeSchedulerConcurrency)
+	s.raftEntryCache = newRaftEntryCache(16 * 1024 * 1024)
+	s.scheduler = newRaftScheduler(s, storeSchedulerConcurrency)
 
 	s.coalescedMu.Lock()
-	s.coalescedMu.heartbeats = map[multiraftbase.StoreIdent][]RaftHeartbeat{}
-	s.coalescedMu.heartbeatResponses = map[multiraftbase.StoreIdent][]RaftHeartbeat{}
+	s.coalescedMu.heartbeats = map[multiraftbase.StoreIdent][]multiraftbase.RaftHeartbeat{}
+	s.coalescedMu.heartbeatResponses = map[multiraftbase.StoreIdent][]multiraftbase.RaftHeartbeat{}
 	s.coalescedMu.Unlock()
 	/*
 		if s.cfg.Gossip != nil {

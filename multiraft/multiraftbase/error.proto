@@ -49,16 +49,21 @@ message ReplicaCorruptionError {
 // recipient of the raft message believes the sender of the raft
 // message to have been removed from the raft group
 message ReplicaTooOldError {
+    option (gogoproto.equal) = true;
     // replica_id is the ID of the replica that is too old.
-    int32 replica_id = 1;
+    int32 replica_id = 1[(gogoproto.customname) = "ReplicaID",
+                        (gogoproto.casttype) = "ReplicaID"];
 }
 
 message NodeNotReadyError {
-    string node_id = 1;
+    string node_id = 1[(gogoproto.customname) = "ReplicaID", (gogoproto.casttype) = "ReplicaID"];
 }
 
 // ErrorDetail is a union type containing all available errors.
 message ErrorDetail {
+    option (gogoproto.equal) = true;
+    option (gogoproto.onlyone) = true;
+
     NodeUnavailableError node_unavailable = 1;
     NodeNotReadyError node_not_ready = 2;
     SendError send = 3;
@@ -82,6 +87,8 @@ message ErrPosition {
 // Error is a generic representation including a string message
 // and information about retryability.
 message Error {
+    option (gogoproto.goproto_stringer) = false;
+    option (gogoproto.equal) = true;
     // message is a human-readable error message.
     string message = 1;
 
@@ -99,7 +106,7 @@ message Error {
     // which can be used by the receiver to update its local HLC.
 
 }
-// A RangeNotFoundError indicates that a command was sent to a range
+// A GroupNotFoundError indicates that a command was sent to a range
 // which is not hosted on this store.
 message GroupNotFoundError {
   option (gogoproto.equal) = true;

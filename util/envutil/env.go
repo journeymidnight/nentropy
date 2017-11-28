@@ -25,7 +25,7 @@ import (
 	"time"
 
 	"github.com/cockroachdb/cockroach/pkg/util/humanizeutil"
-	"github.com/cockroachdb/cockroach/pkg/util/syncutil"
+	"github.com/journeymidnight/nentropy/util/syncutil"
 )
 
 type envVarInfo struct {
@@ -207,19 +207,6 @@ func EnvOrDefaultInt(name string, value int) int {
 func EnvOrDefaultInt64(name string, value int64) int64 {
 	if str, present := getEnv(name, 1); present {
 		v, err := strconv.ParseInt(str, 0, 64)
-		if err != nil {
-			panic(fmt.Sprintf("error parsing %s: %s", name, err))
-		}
-		return v
-	}
-	return value
-}
-
-// EnvOrDefaultBytes returns the value set by the specified environment
-// variable, if any, otherwise the specified default value.
-func EnvOrDefaultBytes(name string, value int64) int64 {
-	if str, present := getEnv(name, 1); present {
-		v, err := humanizeutil.ParseBytes(str)
 		if err != nil {
 			panic(fmt.Sprintf("error parsing %s: %s", name, err))
 		}

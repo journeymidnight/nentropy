@@ -95,6 +95,14 @@ func NewGroupNotFoundError(groupID GroupID) *GroupNotFoundError {
 	}
 }
 
+func (e *GroupNotFoundError) Error() string {
+	return e.message(nil)
+}
+
+func (e *GroupNotFoundError) message(_ *Error) string {
+	return fmt.Sprintf("r%s was not found", e.GroupID)
+}
+
 // NewAmbiguousResultError initializes a new AmbiguousResultError with
 // an explanatory message.
 func NewAmbiguousResultError(msg string) *AmbiguousResultError {

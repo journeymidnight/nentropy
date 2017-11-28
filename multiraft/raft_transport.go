@@ -344,38 +344,6 @@ func (t *RaftTransport) RaftMessageBatch(stream MultiRaft_RaftMessageBatchServer
 
 // RaftSnapshot handles incoming streaming snapshot requests.
 func (t *RaftTransport) RaftSnapshot(stream MultiRaft_RaftSnapshotServer) error {
-	//errCh := make(chan error, 1)
-	//if err := t.rpcContext.Stopper.RunAsyncTask(
-	//	stream.Context(), "storage.RaftTransport: processing snapshot",
-	//	func(ctx context.Context) {
-	//		errCh <- func() error {
-	//			req, err := stream.Recv()
-	//			if err != nil {
-	//				return err
-	//			}
-	//			if req.Header == nil {
-	//				return stream.Send(&SnapshotResponse{
-	//					Status:  SnapshotResponse_ERROR,
-	//					Message: "client error: no header in first snapshot request message"})
-	//			}
-	//			rmr := req.Header.RaftMessageRequest
-	//			handler, ok := t.getHandler()
-	//			if !ok {
-	//				log.Warningf(ctx, "unable to accept Raft message from %+v: no handler registered for %+v",
-	//					rmr.FromReplica, rmr.ToReplica)
-	//				return roachpb.NewStoreNotFoundError(rmr.ToReplica.StoreID)
-	//			}
-	//			return handler.HandleSnapshot(req.Header, stream)
-	//		}()
-	//	}); err != nil {
-	//	return err
-	//}
-	//select {
-	//case <-t.rpcContext.Stopper.ShouldStop():
-	//	return nil
-	//case err := <-errCh:
-	//	return err
-	//}
 	return nil
 }
 

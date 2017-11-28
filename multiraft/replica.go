@@ -1,6 +1,7 @@
 package multiraft
 
 import (
+	"github.com/cockroachdb/cockroach/pkg/roachpb"
 	"github.com/coreos/etcd/raft"
 	"github.com/coreos/etcd/raft/raftpb"
 	"github.com/journeymidnight/nentropy/helper"
@@ -9,6 +10,7 @@ import (
 	"github.com/journeymidnight/nentropy/util/timeutil"
 	"github.com/pkg/errors"
 	"golang.org/x/net/context"
+	"time"
 )
 
 // endCmds holds necessary information to end a batch after Raft
@@ -21,14 +23,11 @@ type endCmds struct {
 // removeCmdsFromCommandQueue removes a batch's set of commands for the
 // replica's command queue.
 func (r *Replica) removeCmdsFromCommandQueue() {
-	r.cmdQMu.Lock()
-	r.cmdQMu.Unlock()
 }
 
 // done removes pending commands from the command queue and updates
 // the timestamp cache using the final timestamp of each command.
 func (ec *endCmds) done(br *multiraftbase.BatchResponse, pErr *multiraftbase.Error) {
-	ec.repl.removeCmdsFromCommandQueue(ec.cmds)
 }
 
 // A Replica is a contiguous keyspace with writes managed via an
@@ -40,11 +39,18 @@ func (ec *endCmds) done(br *multiraftbase.BatchResponse, pErr *multiraftbase.Err
 type Replica struct {
 	helper.AmbientContext
 
+	// TODO(tschottdorf): Duplicates r.mu.state.desc.RangeID; revisit that.
+	GroupID multiraftbase.GroupID // Should only be set by the constructor.
+
 	store *Store
+
+	creatingReplica *multiraftbase.ReplicaDescriptor
 
 	mu struct {
 		// Protects all fields in the mu struct.
 		syncutil.RWMutex
+		// Has the replica been destroyed.
+		destroyed error
 		// The state of the Raft state machine.
 		state multiraftbase.ReplicaState
 		// Last index/term persisted to the raft log (not necessarily
@@ -64,16 +70,16 @@ type Replica struct {
 		// map must only be referenced while Replica.mu is held, except if the
 		// element is removed from the map first. The notable exception is the
 		// contained RaftCommand, which we treat as immutable.
-		proposals         map[CmdIDKey]*ProposalData
+		proposals         map[multiraftbase.CmdIDKey]*ProposalData
 		internalRaftGroup *raft.RawNode
 		// The ID of the replica within the Raft group. May be 0 if the replica has
 		// been created from a preemptive snapshot (i.e. before being added to the
 		// Raft group). The replica ID will be non-zero whenever the replica is
 		// part of a Raft group.
-		replicaID ReplicaID
+		replicaID multiraftbase.ReplicaID
 		// The ID of the leader replica within the Raft group. Used to determine
 		// when the leadership changes.
-		leaderID ReplicaID
+		leaderID multiraftbase.ReplicaID
 
 		// Counts calls to Replica.tick()
 		ticks int
@@ -84,6 +90,17 @@ type Replica struct {
 		// Is the range quiescent? Quiescent ranges are not Tick()'d and unquiesce
 		// whenever a Raft operation is performed.
 		quiescent bool
+
+		lastToReplica, lastFromReplica multiraftbase.ReplicaDescriptor
+		// The most recent commit index seen in a message from the leader. Used by
+		// the follower to estimate the number of Raft log entries it is
+		// behind. This field is only valid when the Replica is a follower.
+		estimatedCommitIndex uint64
+		// raftLogSize is the approximate size in bytes of the persisted raft log.
+		// On server restart, this value is assumed to be zero to avoid costly scans
+		// of the raft log. This will be correct when all log entries predating this
+		// process have been truncated.
+		raftLogSize int64
 	}
 
 	// raftMu protects Raft processing the replica.
@@ -100,7 +117,7 @@ type Replica struct {
 	}
 	unreachablesMu struct {
 		syncutil.Mutex
-		remotes map[ReplicaID]struct{}
+		remotes map[multiraftbase.ReplicaID]struct{}
 	}
 }
 
@@ -140,6 +157,18 @@ func (r *Replica) handleRaftReady(inSnap IncomingSnapshot) (handleRaftReadyStats
 	return r.handleRaftReadyRaftMuLocked(inSnap)
 }
 
+//go:generate stringer -type refreshRaftReason
+type refreshRaftReason int
+
+const (
+	noReason refreshRaftReason = iota
+	reasonNewLeader
+	reasonNewLeaderOrConfigChange
+	reasonSnapshotApplied
+	reasonReplicaIDChanged
+	reasonTicks
+)
+
 // handleRaftReadyLocked is the same as handleRaftReady but requires that the
 // replica's raftMu be held.
 //
@@ -178,8 +207,8 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 	}
 
 	refreshReason := noReason
-	if rd.SoftState != nil && leaderID != ReplicaID(rd.SoftState.Lead) {
-		leaderID = ReplicaID(rd.SoftState.Lead)
+	if rd.SoftState != nil && leaderID != multiraftbase.ReplicaID(rd.SoftState.Lead) {
+		leaderID = multiraftbase.ReplicaID(rd.SoftState.Lead)
 	}
 
 	if !raft.IsEmptySnap(rd.Snapshot) {
@@ -189,29 +218,26 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 	// Use a more efficient write-only batch because we don't need to do any
 	// reads from the batch. Any reads are performed via the "distinct" batch
 	// which passes the reads through to the underlying DB.
-	batch := r.store.Engine().NewWriteOnlyBatch()
+	batch := r.store.Engine().NewBatch()
 	defer batch.Close()
 
-	// We know that all of the writes from here forward will be to distinct keys.
-	writer := batch.Distinct()
 	prevLastIndex := lastIndex
 	if len(rd.Entries) > 0 {
 		// All of the entries are appended to distinct keys, returning a new
 		// last index.
 		if lastIndex, lastTerm, raftLogSize, err = r.append(
-			ctx, writer, lastIndex, lastTerm, raftLogSize, thinEntries,
+			ctx, batch, lastIndex, lastTerm, raftLogSize, rd.Entries,
 		); err != nil {
 			const expl = "during append"
 			return stats, expl, errors.Wrap(err, expl)
 		}
 	}
 	if !raft.IsEmptyHardState(rd.HardState) {
-		if err := r.raftMu.stateLoader.setHardState(ctx, writer, rd.HardState); err != nil {
+		if err := r.raftMu.stateLoader.setHardState(ctx, batch, rd.HardState); err != nil {
 			const expl = "during setHardState"
 			return stats, expl, errors.Wrap(err, expl)
 		}
 	}
-	writer.Close()
 	// Synchronously commit the batch with the Raft log entries and Raft hard
 	// state as we're promising not to lose this data.
 	//
@@ -226,7 +252,7 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 	// were not persisted to disk, it wouldn't be a problem because raft does not
 	// infer the that entries are persisted on the node that sends a snapshot.
 	start := timeutil.Now()
-	if err := batch.Commit(syncRaftLog.Get(&r.store.cfg.Settings.SV) && rd.MustSync); err != nil {
+	if err := batch.Commit(); err != nil {
 		const expl = "while committing batch"
 		return stats, expl, errors.Wrap(err, expl)
 	}
@@ -306,7 +332,7 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 				const expl = "while unmarshaling ConfChange"
 				return stats, expl, errors.Wrap(err, expl)
 			}
-			var ccCtx ConfChangeContext
+			var ccCtx multiraftbase.ConfChangeContext
 			if err := ccCtx.Unmarshal(cc.Context); err != nil {
 				const expl = "while unmarshaling ConfChangeContext"
 				return stats, expl, errors.Wrap(err, expl)
@@ -419,14 +445,18 @@ func newReplica(groupID multiraftbase.GroupID, store *Store) *Replica {
 		store:          store,
 	}
 	r.mu.stateLoader = makeReplicaStateLoader(groupID)
-	if leaseHistoryMaxEntries > 0 {
-		r.leaseHistory = newLeaseHistory()
-	}
 
 	// Add replica pointer value. NB: this was historically useful for debugging
 	// replica GC issues, but is a distraction at the moment.
 	// r.AmbientContext.AddLogTagStr("@", fmt.Sprintf("%x", unsafe.Pointer(r)))
 
+	raftMuLogger := thresholdLogger(
+		r.AnnotateCtx(context.Background()),
+		500*time.Millisecond,
+		func(ctx context.Context, msg string, args ...interface{}) {
+			helper.Logger.Printf(5, "raftMu: "+msg, args...)
+		},
+	)
 	r.raftMu.timedMutex = makeTimedMutex(raftMuLogger)
 	r.raftMu.stateLoader = makeReplicaStateLoader(groupID)
 	return r
@@ -440,12 +470,12 @@ func (r *Replica) applyRaftCommand(
 	ctx context.Context,
 	idKey multiraftbase.CmdIDKey,
 	writeBatch *multiraftbase.WriteBatch,
-) *Error {
+) *multiraftbase.Error {
 	return nil
 }
 
 func (r *Replica) getReplicaDescriptorByIDRLocked(
-	replicaID ReplicaID, fallback multiraftbase.ReplicaDescriptor,
+	replicaID multiraftbase.ReplicaID, fallback multiraftbase.ReplicaDescriptor,
 ) (multiraftbase.ReplicaDescriptor, error) {
 	if repDesc, ok := r.mu.state.Desc.GetReplicaDescriptorByID(replicaID); ok {
 		return repDesc, nil
@@ -460,8 +490,8 @@ func (r *Replica) getReplicaDescriptorByIDRLocked(
 // sendRaftMessage sends a Raft message.
 func (r *Replica) sendRaftMessage(ctx context.Context, msg raftpb.Message) {
 	r.mu.Lock()
-	fromReplica, fromErr := r.getReplicaDescriptorByIDRLocked(ReplicaID(msg.From), r.mu.lastToReplica)
-	toReplica, toErr := r.getReplicaDescriptorByIDRLocked(ReplicaID(msg.To), r.mu.lastFromReplica)
+	fromReplica, fromErr := r.getReplicaDescriptorByIDRLocked(multiraftbase.ReplicaID(msg.From), r.mu.lastToReplica)
+	toReplica, toErr := r.getReplicaDescriptorByIDRLocked(multiraftbase.ReplicaID(msg.To), r.mu.lastFromReplica)
 	r.mu.Unlock()
 
 	if fromErr != nil {
@@ -486,7 +516,6 @@ func (r *Replica) sendRaftMessage(ctx context.Context, msg raftpb.Message) {
 		Message:     msg,
 	}) {
 		if err := r.withRaftGroup(func(raftGroup *raft.RawNode) (bool, error) {
-			r.mu.droppedMessages++
 			raftGroup.ReportUnreachable(msg.To)
 			return true, nil
 		}); err != nil {
@@ -711,7 +740,7 @@ func (r *Replica) maybeTickQuiesced() bool {
 		done = true
 	} else if r.mu.quiescent {
 		done = true
-		if !enablePreVote {
+		if !true {
 			// NB: It is safe to call TickQuiesced without holding Replica.raftMu
 			// because that method simply increments a counter without performing any
 			// other logic.
@@ -738,16 +767,11 @@ func (r *Replica) initRaftMuLockedReplicaMuLocked(
 ) error {
 	ctx := r.AnnotateCtx(context.TODO())
 	if r.mu.state.Desc != nil && r.isInitializedRLocked() {
-		log.Fatalf(ctx, "r%d: cannot reinitialize an initialized replica", desc.GroupID)
+		helper.Logger.Fatalf(5, "r%d: cannot reinitialize an initialized replica", desc.GroupID)
 	}
 	if desc.IsInitialized() && replicaID != 0 {
 		return errors.Errorf("replicaID must be 0 when creating an initialized replica")
 	}
-
-	r.cmdQMu.Lock()
-	r.cmdQMu.queues[spanGlobal] = NewCommandQueue(true /* optimizeOverlap */)
-	r.cmdQMu.queues[spanLocal] = NewCommandQueue(false /* !optimizeOverlap */)
-	r.cmdQMu.Unlock()
 
 	r.mu.proposals = map[CmdIDKey]*ProposalData{}
 	// Clear the internal raft group in case we're being reset. Since we're
@@ -760,7 +784,6 @@ func (r *Replica) initRaftMuLockedReplicaMuLocked(
 	if r.mu.state, err = r.mu.stateLoader.load(ctx, r.store.Engine(), desc); err != nil {
 		return err
 	}
-	r.rangeStr.store(0, r.mu.state.Desc)
 
 	r.mu.lastIndex, err = r.mu.stateLoader.loadLastIndex(ctx, r.store.Engine())
 	if err != nil {
@@ -783,11 +806,63 @@ func (r *Replica) initRaftMuLockedReplicaMuLocked(
 		}
 		replicaID = repDesc.ReplicaID
 	}
-	r.rangeStr.store(replicaID, r.mu.state.Desc)
 
 	if err := r.setReplicaIDRaftMuLockedMuLocked(replicaID); err != nil {
 		return err
 	}
 
 	return nil
+}
+
+// Desc returns the authoritative range descriptor, acquiring a replica lock in
+// the process.
+func (r *Replica) Desc() *multiraftbase.GroupDescriptor {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.mu.state.Desc
+}
+
+// setLastReplicaDescriptors sets the the most recently seen replica
+// descriptors to those contained in the *RaftMessageRequest, acquiring r.mu
+// to do so.
+func (r *Replica) setLastReplicaDescriptors(req *multiraftbase.RaftMessageRequest) {
+	r.mu.Lock()
+	r.mu.lastFromReplica = req.FromReplica
+	r.mu.lastToReplica = req.ToReplica
+	r.mu.Unlock()
+}
+
+// mark the replica as quiesced. Returns true if the Replica is successfully
+// quiesced and false otherwise.
+func (r *Replica) quiesce() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.quiesceLocked()
+}
+
+func (r *Replica) quiesceLocked() bool {
+	ctx := r.AnnotateCtx(context.TODO())
+	if len(r.mu.proposals) != 0 {
+		helper.Logger.Printf(5, "not quiescing: %d pending commands", len(r.mu.proposals))
+		return false
+	}
+	if !r.mu.quiescent {
+		helper.Logger.Printf(5, "quiescing")
+		r.mu.quiescent = true
+	}
+	return true
+}
+
+func (r *Replica) unquiesceLocked() {
+	if r.mu.quiescent {
+		r.mu.quiescent = false
+	}
+}
+
+func (r *Replica) setEstimatedCommitIndexLocked(commit uint64) {
+	// The estimated commit index only ratchets up to account for Raft messages
+	// arriving out of order.
+	if r.mu.estimatedCommitIndex < commit {
+		r.mu.estimatedCommitIndex = commit
+	}
 }

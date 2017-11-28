@@ -23,8 +23,7 @@ import (
 
 	"golang.org/x/net/context"
 
-	"github.com/cockroachdb/cockroach/pkg/util/syncutil"
-	"github.com/journeymidnight/nentropy/protos"
+	"github.com/journeymidnight/nentropy/util/syncutil"
 	"github.com/opentracing/opentracing-go"
 )
 
@@ -34,7 +33,7 @@ const asyncTaskNamePrefix = "[async] "
 // is no more capacity for async tasks, as limited by the semaphore.
 var ErrThrottled = errors.New("throttled on async limiting semaphore")
 
-var errUnavailable = &protos.NodeUnavailableError{}
+var errUnavailable = errors.New("Unavailable")
 
 func register(s *Stopper) {
 	trackedStoppers.Lock()

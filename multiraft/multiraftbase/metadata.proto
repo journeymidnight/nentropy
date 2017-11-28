@@ -39,7 +39,7 @@ message GroupDescriptor {
     int64 pool_id = 1;
 
     int64 pg_id = 2;
-    string group_id = 3[(gogoproto.customname) = "GroupID"];
+    string group_id = 3[(gogoproto.customname) = "GroupID", (gogoproto.casttype) = "GroupID"];
 
     repeated ReplicaDescriptor replicas = 4;
 

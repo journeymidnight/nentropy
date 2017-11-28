@@ -3,7 +3,9 @@ package multiraft
 import (
 	"golang.org/x/net/context"
 
-	"github.com/cockroachdb/cockroach/pkg/util/hlc"
+	"encoding/binary"
+	"errors"
+	"github.com/cockroachdb/cockroach/pkg/util/protoutil"
 	"github.com/coreos/etcd/raft/raftpb"
 	"github.com/journeymidnight/nentropy/multiraft/keys"
 	"github.com/journeymidnight/nentropy/multiraft/multiraftbase"
@@ -18,13 +20,6 @@ func makeReplicaStateLoader(groupID multiraftbase.GroupID) replicaStateLoader {
 	return replicaStateLoader{
 		GroupIDPrefixBuf: keys.MakeGroupIDPrefixBuf(groupID),
 	}
-}
-
-func loadHardState(
-	ctx context.Context, reader engine.Reader, groupID multiraftbase.GroupID,
-) (raftpb.HardState, error) {
-	rsl := makeReplicaStateLoader(groupID)
-	return rsl.loadHardState(ctx, reader)
 }
 
 func (rsl replicaStateLoader) loadHardState(
@@ -87,36 +82,21 @@ func (rsl replicaStateLoader) setHardState(
 // loadAppliedIndex returns the Raft applied index and the lease applied index.
 func (rsl replicaStateLoader) loadAppliedIndex(
 	ctx context.Context, reader engine.Reader,
-) (uint64, uint64, error) {
+) (uint64, error) {
 	var appliedIndex uint64
-	v, _, err := engine.MVCCGet(ctx, reader, rsl.RaftAppliedIndexKey(),
-		hlc.Timestamp{}, true, nil)
+	v, err := reader.Get(rsl.RaftAppliedIndexKey())
 	if err != nil {
-		return 0, 0, err
+		return 0, err
 	}
 	if v != nil {
-		int64AppliedIndex, err := v.GetInt()
-		if err != nil {
-			return 0, 0, err
+		int64AppliedIndex, n := binary.Varint(v)
+		if n == 0 {
+			return 0, errors.New("Error convert to int")
 		}
 		appliedIndex = uint64(int64AppliedIndex)
 	}
-	// TODO(tschottdorf): code duplication.
-	var leaseAppliedIndex uint64
-	v, _, err = engine.MVCCGet(ctx, reader, rsl.LeaseAppliedIndexKey(),
-		hlc.Timestamp{}, true, nil)
-	if err != nil {
-		return 0, 0, err
-	}
-	if v != nil {
-		int64LeaseAppliedIndex, err := v.GetInt()
-		if err != nil {
-			return 0, 0, err
-		}
-		leaseAppliedIndex = uint64(int64LeaseAppliedIndex)
-	}
 
-	return appliedIndex, leaseAppliedIndex, nil
+	return appliedIndex, nil
 }
 
 // loadState loads a ReplicaState from disk. The exception is the Desc field,
@@ -125,39 +105,22 @@ func (rsl replicaStateLoader) loadAppliedIndex(
 // version.
 func (rsl replicaStateLoader) load(
 	ctx context.Context, reader engine.Reader, desc *multiraftbase.GroupDescriptor,
-) (storagebase.ReplicaState, error) {
-	var s storagebase.ReplicaState
+) (multiraftbase.ReplicaState, error) {
+	var s multiraftbase.ReplicaState
 	// TODO(tschottdorf): figure out whether this is always synchronous with
 	// on-disk state (likely iffy during Split/ChangeReplica triggers).
 	s.Desc = protoutil.Clone(desc).(*multiraftbase.GroupDescriptor)
-	// Read the range lease.
-	lease, err := rsl.loadLease(ctx, reader)
-	if err != nil {
-		return storagebase.ReplicaState{}, err
-	}
-	s.Lease = &lease
 
-	if s.GCThreshold, err = rsl.loadGCThreshold(ctx, reader); err != nil {
-		return storagebase.ReplicaState{}, err
-	}
-
-	if s.TxnSpanGCThreshold, err = rsl.loadTxnSpanGCThreshold(ctx, reader); err != nil {
-		return storagebase.ReplicaState{}, err
-	}
-
-	if s.RaftAppliedIndex, s.LeaseAppliedIndex, err = rsl.loadAppliedIndex(ctx, reader); err != nil {
-		return storagebase.ReplicaState{}, err
-	}
-
-	if s.Stats, err = rsl.loadMVCCStats(ctx, reader); err != nil {
-		return storagebase.ReplicaState{}, err
+	var err error
+	if s.RaftAppliedIndex, err = rsl.loadAppliedIndex(ctx, reader); err != nil {
+		return multiraftbase.ReplicaState{}, err
 	}
 
 	// The truncated state should not be optional (i.e. the pointer is
 	// pointless), but it is and the migration is not worth it.
 	truncState, err := rsl.loadTruncatedState(ctx, reader)
 	if err != nil {
-		return storagebase.ReplicaState{}, err
+		return multiraftbase.ReplicaState{}, err
 	}
 	s.TruncatedState = &truncState
 
@@ -171,7 +134,7 @@ func (rsl replicaStateLoader) load(
 // updated through Raft.
 
 func loadLastIndex(
-	ctx context.Context, reader engine.Reader, groupID roachpb.GroupID,
+	ctx context.Context, reader engine.Reader, groupID multiraftbase.GroupID,
 ) (uint64, error) {
 	rsl := makeReplicaStateLoader(groupID)
 	return rsl.loadLastIndex(ctx, reader)
@@ -181,13 +144,12 @@ func (rsl replicaStateLoader) loadLastIndex(
 	ctx context.Context, reader engine.Reader,
 ) (uint64, error) {
 	var lastIndex uint64
-	v, _, err := engine.MVCCGet(ctx, reader, rsl.RaftLastIndexKey(),
-		hlc.Timestamp{}, true /* consistent */, nil)
+	v, err := reader.Get(rsl.RaftLastIndexKey())
 	if err != nil {
 		return 0, err
 	}
 	if v != nil {
-		int64LastIndex, err := v.GetInt()
+		int64LastIndex, err := binary.Varint(v)
 		if err != nil {
 			return 0, err
 		}
@@ -208,11 +170,9 @@ func (rsl replicaStateLoader) loadLastIndex(
 // range. If there is no error, nil is returned.
 func (rsl replicaStateLoader) loadReplicaDestroyedError(
 	ctx context.Context, reader engine.Reader,
-) (*roachpb.Error, error) {
-	var v roachpb.Error
-	found, err := engine.MVCCGetProto(ctx, reader,
-		rsl.RangeReplicaDestroyedErrorKey(),
-		hlc.Timestamp{}, true /* consistent */, nil, &v)
+) (*multiraftbase.Error, error) {
+	var v multiraftbase.Error
+	found, err := reader.Get(rsl.GroupReplicaDestroyedErrorKey())
 	if err != nil {
 		return nil, err
 	}

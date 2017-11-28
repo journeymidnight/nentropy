@@ -40,7 +40,8 @@ message RaftHeartbeat {
 // as a dummy message and discarded. A coalesced heartbeat request's replica
 // descriptor's range ID must be zero.
 message RaftMessageRequest {
-    string group_id = 1 [(gogoproto.customname) = "GroupID"];
+    string group_id = 1 [(gogoproto.customname) = "GroupID",
+                        (gogoproto.casttype) = "github.com/journeymidnight/nentropy/multiraft/multiraftbase.GroupID"];
     ReplicaDescriptor from_replica = 2 [(gogoproto.nullable) = false];
     ReplicaDescriptor to_replica = 3 [(gogoproto.nullable) = false];
     raftpb.Message message = 4 [(gogoproto.nullable) = false];
@@ -62,11 +63,18 @@ message RaftMessageRequestBatch {
     repeated RaftMessageRequest requests = 1;
 }
 
+message RaftMessageResponseUnion {
+    option (gogoproto.onlyone) = true;
+
+    Error error = 1;
+}
+
 message RaftMessageResponse {
-    string group_id = 1 [(gogoproto.customname) = "GroupID"];
-    ReplicaDescriptor from_replica = 2;
-    ReplicaDescriptor to_replica = 3;
-    Error error = 4;
+    string group_id = 1 [(gogoproto.customname) = "GroupID",
+                        (gogoproto.casttype) = "github.com/journeymidnight/nentropy/multiraft/multiraftbase.GroupID"];
+    ReplicaDescriptor from_replica = 2[(gogoproto.nullable) = false];
+    ReplicaDescriptor to_replica = 3[(gogoproto.nullable) = false];
+    RaftMessageResponseUnion union = 4[(gogoproto.nullable) = false];
 }
 
 // SnapshotRequest is the request used to send streaming snapshot requests.
@@ -134,14 +142,14 @@ message SnapshotResponse {
 
 // ConfChangeContext is encoded in the raftpb.ConfChange.Context field.
 message ConfChangeContext {
-    string command_id = 1;
+    string command_id = 1[(gogoproto.customname) = "CommandID"];
 
     // Payload is the application-level command (i.e. an encoded
     // storagebase.RaftCommand).
     bytes payload = 2;
 
     // Replica contains full details about the replica being added or removed.
-    ReplicaDescriptor replica = 3;
+    ReplicaDescriptor replica = 3[(gogoproto.nullable) = false];
 }
 
 service MultiRaft {

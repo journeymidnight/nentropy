@@ -24,7 +24,7 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/cockroachdb/cockroach/pkg/util/timeutil"
+	"github.com/journeymidnight/nentropy/util/timeutil"
 )
 
 var btreeMinDegree = flag.Int("btree_min_degree", DefaultBTreeMinimumDegree, "B-Tree minimum degree")

@@ -25,8 +25,8 @@ import (
 
 	"github.com/biogo/store/llrb"
 
-	"github.com/cockroachdb/cockroach/pkg/util/interval"
-	"github.com/cockroachdb/cockroach/pkg/util/log"
+	"github.com/journeymidnight/nentropy/helper"
+	"github.com/journeymidnight/nentropy/util/interval"
 )
 
 // EvictionPolicy is the cache eviction policy enum.
@@ -517,14 +517,14 @@ func (ic *IntervalCache) doGet(i interval.Interface) bool {
 
 func (ic *IntervalCache) add(e *Entry) {
 	if err := ic.tree.Insert(e, false); err != nil {
-		log.Error(context.TODO(), err)
+		helper.Logger.Println(5, err)
 	}
 }
 
 func (ic *IntervalCache) del(key interface{}) {
 	ic.tmpEntry.Key = key
 	if err := ic.tree.Delete(&ic.tmpEntry, false); err != nil {
-		log.Error(context.TODO(), err)
+		helper.Logger.Println(5, err)
 	}
 }
 

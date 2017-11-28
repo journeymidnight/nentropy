@@ -25,7 +25,7 @@ type ProposalData struct {
 	// commands by their MaxLeaseIndex, and doing so should be ok with a stop-
 	// the-world migration. However, various test facilities depend on the
 	// command ID for e.g. replay protection.
-	idKey CmdIDKey
+	idKey multiraftbase.CmdIDKey
 
 	// proposedAtTicks is the (logical) time at which this command was
 	// last (re-)proposed.
