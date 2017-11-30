@@ -67,3 +67,9 @@ func (b GroupIDPrefixBuf) RaftAppliedIndexKey() multiraftbase.Key {
 func (b GroupIDPrefixBuf) GroupReplicaDestroyedErrorKey() multiraftbase.Key {
 	return append([]byte("replica-destroyed-"), []byte("rrde")...)
 }
+
+// RangeDescriptorKey returns a range-local key for the descriptor
+// for the range with specified key.
+func GroupDescriptorKey(groupID multiraftbase.GroupID) multiraftbase.Key {
+	return MakeGroupIDPrefix(groupID)
+}

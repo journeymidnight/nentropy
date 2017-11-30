@@ -1,7 +1,7 @@
 package multiraft
 
 import (
-	"github.com/cockroachdb/cockroach/pkg/roachpb"
+	"github.com/cockroachdb/cockroach/pkg/util/encoding"
 	"github.com/coreos/etcd/raft"
 	"github.com/coreos/etcd/raft/raftpb"
 	"github.com/journeymidnight/nentropy/helper"
@@ -10,6 +10,7 @@ import (
 	"github.com/journeymidnight/nentropy/util/timeutil"
 	"github.com/pkg/errors"
 	"golang.org/x/net/context"
+	"math/rand"
 	"time"
 )
 
@@ -77,6 +78,9 @@ type Replica struct {
 		// Raft group). The replica ID will be non-zero whenever the replica is
 		// part of a Raft group.
 		replicaID multiraftbase.ReplicaID
+		// The minimum allowed ID for this replica. Initialized from
+		// RaftTombstone.NextReplicaID.
+		minReplicaID multiraftbase.ReplicaID
 		// The ID of the leader replica within the Raft group. Used to determine
 		// when the leadership changes.
 		leaderID multiraftbase.ReplicaID
@@ -167,6 +171,8 @@ const (
 	reasonSnapshotApplied
 	reasonReplicaIDChanged
 	reasonTicks
+
+	defaultReplicaRaftMuWarnThreshold = 500 * time.Millisecond
 )
 
 // handleRaftReadyLocked is the same as handleRaftReady but requires that the
@@ -438,6 +444,13 @@ func NewReplicaCorruptionError(err error) *multiraftbase.ReplicaCorruptionError 
 	return &multiraftbase.ReplicaCorruptionError{ErrorMsg: err.Error()}
 }
 
+func NewReplica(
+	desc *multiraftbase.GroupDescriptor, store *Store, replicaID multiraftbase.ReplicaID,
+) (*Replica, error) {
+	r := newReplica(desc.GroupID, store)
+	return r, r.init(desc, replicaID)
+}
+
 func newReplica(groupID multiraftbase.GroupID, store *Store) *Replica {
 	r := &Replica{
 		AmbientContext: store.cfg.AmbientCtx,
@@ -460,6 +473,16 @@ func newReplica(groupID multiraftbase.GroupID, store *Store) *Replica {
 	r.raftMu.timedMutex = makeTimedMutex(raftMuLogger)
 	r.raftMu.stateLoader = makeReplicaStateLoader(groupID)
 	return r
+}
+
+func (r *Replica) init(
+	desc *multiraftbase.GroupDescriptor, replicaID multiraftbase.ReplicaID,
+) error {
+	r.raftMu.Lock()
+	defer r.raftMu.Unlock()
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.initRaftMuLockedReplicaMuLocked(desc, replicaID)
 }
 
 // applyRaftCommand applies a raft command from the replicated log to the
@@ -584,14 +607,7 @@ func (r *Replica) withRaftGroupLocked(
 		return nil
 	}
 
-	if shouldCampaignOnCreation {
-		// Special handling of idle replicas: we campaign their Raft group upon
-		// creation if we gossiped our store descriptor more than the election
-		// timeout in the past.
-		shouldCampaignOnCreation = (r.mu.internalRaftGroup == nil) && r.store.canCampaignIdleReplica()
-	}
-
-	ctx := r.AnnotateCtx(context.TODO())
+	_ := r.AnnotateCtx(context.TODO())
 
 	if r.mu.internalRaftGroup == nil {
 		raftGroup, err := raft.NewRawNode(newRaftConfig(
@@ -599,7 +615,7 @@ func (r *Replica) withRaftGroupLocked(
 			uint64(r.mu.replicaID),
 			r.mu.state.RaftAppliedIndex,
 			r.store.cfg,
-			helper.Logger,
+			*helper.Logger.Logger,
 		), nil)
 		if err != nil {
 			return err
@@ -649,6 +665,12 @@ func (r *Replica) withRaftGroupLocked(
 		r.unquiesceAndWakeLeaderLocked()
 	}
 	return err
+}
+
+func makeIDKey() multiraftbase.CmdIDKey {
+	idKeyBuf := make([]byte, 0, raftCommandIDLen)
+	idKeyBuf = encoding.EncodeUint64Ascending(idKeyBuf, uint64(rand.Int63()))
+	return multiraftbase.CmdIDKey(idKeyBuf)
 }
 
 func (r *Replica) unquiesceAndWakeLeaderLocked() {
@@ -740,7 +762,7 @@ func (r *Replica) maybeTickQuiesced() bool {
 		done = true
 	} else if r.mu.quiescent {
 		done = true
-		if !true {
+		if !enablePreVote {
 			// NB: It is safe to call TickQuiesced without holding Replica.raftMu
 			// because that method simply increments a counter without performing any
 			// other logic.
@@ -751,12 +773,64 @@ func (r *Replica) maybeTickQuiesced() bool {
 	return done
 }
 
+func (r *Replica) setReplicaIDRaftMuLockedMuLocked(replicaID multiraftbase.ReplicaID) error {
+	if r.mu.replicaID == replicaID {
+		// The common case: the replica ID is unchanged.
+		return nil
+	}
+	if replicaID == 0 {
+		// If the incoming message does not have a new replica ID it is a
+		// preemptive snapshot. We'll update minReplicaID if the snapshot is
+		// accepted.
+		return nil
+	}
+
+	//	previousReplicaID := r.mu.replicaID
+	r.mu.replicaID = replicaID
+
+	if replicaID >= r.mu.minReplicaID {
+		r.mu.minReplicaID = replicaID + 1
+	}
+
+	r.mu.internalRaftGroup = nil
+	if r.mu.internalRaftGroup == nil {
+		raftGroup, err := raft.NewRawNode(newRaftConfig(
+			raft.Storage((*replicaRaftStorage)(r)),
+			uint64(r.mu.replicaID),
+			r.mu.state.RaftAppliedIndex,
+			r.store.cfg,
+			*helper.Logger.Logger,
+		), nil)
+		if err != nil {
+			return err
+		}
+		r.mu.internalRaftGroup = raftGroup
+
+		helper.Logger.Panicln(5, "campaigning")
+		if err := raftGroup.Campaign(); err != nil {
+			return err
+		}
+
+	}
+	// If there was a previous replica, repropose its pending commands under
+	// this new incarnation.
+	//if previousReplicaID != 0 {
+	//	if log.V(1) {
+	//		log.Infof(r.AnnotateCtx(context.TODO()), "changed replica ID from %d to %d",
+	//			previousReplicaID, replicaID)
+	//	}
+	//	// repropose all pending commands under new replicaID.
+	//	r.refreshProposalsLocked(0, reasonReplicaIDChanged)
+	//}
+	return nil
+}
+
 // addUnreachableRemoteReplica adds the given remote ReplicaID to be reported
 // as unreachable on the next tick.
-func (r *Replica) addUnreachableRemoteReplica(remoteReplica ReplicaID) {
+func (r *Replica) addUnreachableRemoteReplica(remoteReplica multiraftbase.ReplicaID) {
 	r.unreachablesMu.Lock()
 	if r.unreachablesMu.remotes == nil {
-		r.unreachablesMu.remotes = make(map[ReplicaID]struct{})
+		r.unreachablesMu.remotes = make(map[multiraftbase.ReplicaID]struct{})
 	}
 	r.unreachablesMu.remotes[remoteReplica] = struct{}{}
 	r.unreachablesMu.Unlock()
@@ -773,7 +847,7 @@ func (r *Replica) initRaftMuLockedReplicaMuLocked(
 		return errors.Errorf("replicaID must be 0 when creating an initialized replica")
 	}
 
-	r.mu.proposals = map[CmdIDKey]*ProposalData{}
+	r.mu.proposals = map[multiraftbase.CmdIDKey]*ProposalData{}
 	// Clear the internal raft group in case we're being reset. Since we're
 	// reloading the raft state below, it isn't safe to use the existing raft
 	// group.
@@ -791,13 +865,13 @@ func (r *Replica) initRaftMuLockedReplicaMuLocked(
 	}
 	r.mu.lastTerm = invalidLastTerm
 
-	pErr, err := r.mu.stateLoader.loadReplicaDestroyedError(ctx, r.store.Engine())
+	_, err = r.mu.stateLoader.loadReplicaDestroyedError(ctx, r.store.Engine())
 	if err != nil {
 		return err
 	}
 
 	if replicaID == 0 {
-		repDesc, ok := desc.GetReplicaDescriptor(r.store.StoreID())
+		repDesc, ok := desc.GetReplicaDescriptor(r.store.nodeDesc.NodeID)
 		if !ok {
 			// This is intentionally not an error and is the code path exercised
 			// during preemptive snapshots. The replica ID will be sent when the

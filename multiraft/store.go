@@ -1,10 +1,10 @@
 package multiraft
 
 import (
-	"errors"
 	"github.com/coreos/etcd/raft"
 	"github.com/coreos/etcd/raft/raftpb"
 	"github.com/journeymidnight/nentropy/helper"
+	"github.com/journeymidnight/nentropy/multiraft/keys"
 	"github.com/journeymidnight/nentropy/multiraft/multiraftbase"
 	"github.com/journeymidnight/nentropy/rpc"
 	"github.com/journeymidnight/nentropy/storage/engine"
@@ -12,7 +12,9 @@ import (
 	"github.com/journeymidnight/nentropy/util/stop"
 	"github.com/journeymidnight/nentropy/util/syncutil"
 	"github.com/journeymidnight/nentropy/util/timeutil"
+	"github.com/pkg/errors"
 	"golang.org/x/net/context"
+	"log"
 	"runtime"
 	"sync"
 	"time"
@@ -24,6 +26,9 @@ type Engines map[string]engine.Engine
 
 var storeSchedulerConcurrency = envutil.EnvOrDefaultInt(
 	"NENTROPY_SCHEDULER_CONCURRENCY", 8*runtime.NumCPU())
+
+var enablePreVote = envutil.EnvOrDefaultBool(
+	"COCKROACH_ENABLE_PREVOTE", false)
 
 // A StoreConfig encompasses the auxiliary objects and configuration
 // required to create a store.
@@ -62,7 +67,9 @@ type Store struct {
 	raftEntryCache *raftEntryCache
 	started        int32
 	stopper        *stop.Stopper
-	replicaQueues  sync.Map // map[multiraftbase.GroupID]*raftRequestQueue
+	nodeDesc       *multiraftbase.NodeDescriptor
+	//	replicaGCQueue     *replicaGCQueue
+	replicaQueues sync.Map // map[multiraftbase.GroupID]*raftRequestQueue
 	//	raftRequestQueues map[multiraftbase.GroupID]*raftRequestQueue
 	scheduler *raftScheduler
 
@@ -86,8 +93,15 @@ func (s *Store) processReady(ctx context.Context, id multiraftbase.GroupID) {
 	start := timeutil.Now()
 	r := (*Replica)(value)
 	stats, expl, err := r.handleRaftReady(IncomingSnapshot{})
+
 	if err != nil {
-		helper.Logger.Fatalf(5, "%s", err) // TODO(bdarnell)
+		helper.Logger.Fatalf(5, "%v, %s", expl, err) // TODO(bdarnell)
+	}
+
+	elapsed := timeutil.Since(start)
+	if elapsed >= defaultReplicaRaftMuWarnThreshold {
+		helper.Logger.Printf(5, "handle raft ready: %.1fs [processed=%d]",
+			elapsed.Seconds(), stats.processed)
 	}
 	if !r.IsInitialized() {
 	}
@@ -131,7 +145,7 @@ func (s *Store) processTick(ctx context.Context, id multiraftbase.GroupID) bool 
 		return false
 	}
 
-	start := timeutil.Now()
+	//start := timeutil.Now()
 	r := (*Replica)(value)
 	exists, err := r.tick()
 	if err != nil {
@@ -146,6 +160,7 @@ func (s *Store) Start(ctx context.Context, stopper *stop.Stopper) error {
 
 	s.cfg.Transport.Listen(s)
 	s.processRaft(ctx)
+	return nil
 }
 
 func (s *Store) processRaft(ctx context.Context) {
@@ -374,24 +389,10 @@ func (s *Store) getOrCreateReplica(
 	}
 }
 
-func (r *Replica) setReplicaIDRaftMuLockedMuLocked(replicaID multiraftbase.ReplicaID) error {
-	if r.mu.replicaID == replicaID {
-		// The common case: the replica ID is unchanged.
-		return nil
-	}
-	if replicaID == 0 {
-		// If the incoming message does not have a new replica ID it is a
-		// preemptive snapshot. We'll update minReplicaID if the snapshot is
-		// accepted.
-		return nil
-	}
-	return nil
-}
-
 // addReplicaToRangeMapLocked adds the replica to the replicas map.
 // addReplicaToRangeMapLocked requires that the store lock is held.
 func (s *Store) addReplicaToRangeMapLocked(repl *Replica) error {
-	if _, loaded := s.mu.replicas.LoadOrStore(int64(repl.GroupID), unsafe.Pointer(repl)); loaded {
+	if _, loaded := s.mu.replicas.LoadOrStore(repl.GroupID, repl); loaded {
 		return errors.New("replica already exists")
 	}
 	return nil
@@ -491,7 +492,7 @@ func (s *Store) processRaftRequest(
 
 	if req.Quiesce {
 		if req.Message.Type != raftpb.MsgHeartbeat {
-			helper.Logger.Fatalf(ctx, "unexpected quiesce: %+v", req)
+			helper.Logger.Fatalf(5, "unexpected quiesce: %+v", req)
 		}
 		status := r.RaftStatus()
 		if status != nil && status.Term == req.Message.Term && status.Commit == req.Message.Commit {
@@ -615,7 +616,7 @@ func (s *Store) HandleRaftResponse(ctx context.Context, resp *multiraftbase.Raft
 }
 
 func newRaftConfig(
-	strg raft.Storage, id uint64, appliedIndex uint64, storeCfg StoreConfig, logger raft.Logger,
+	strg raft.Storage, id uint64, appliedIndex uint64, storeCfg StoreConfig, logger log.Logger,
 ) *raft.Config {
 	return &raft.Config{
 		ID:            id,
@@ -660,6 +661,8 @@ func (s *Store) Engine() engine.Engine { return s.engines["system"] }
 // StoreID accessor.
 func (s *Store) StoreID() multiraftbase.StoreID { return s.Ident.StoreID }
 
+func (s *Store) NodeID() multiraftbase.NodeID { return s.nodeDesc.NodeID }
+
 // NewStore returns a new instance of a store.
 func NewStore(cfg StoreConfig, eng engine.Engine, nodeDesc *multiraftbase.NodeDescriptor) *Store {
 	// TODO(tschottdorf): find better place to set these defaults.
@@ -671,7 +674,7 @@ func NewStore(cfg StoreConfig, eng engine.Engine, nodeDesc *multiraftbase.NodeDe
 
 	s.raftEntryCache = newRaftEntryCache(16 * 1024 * 1024)
 	s.scheduler = newRaftScheduler(s, storeSchedulerConcurrency)
-
+	s.nodeDesc = nodeDesc
 	s.coalescedMu.Lock()
 	s.coalescedMu.heartbeats = map[multiraftbase.StoreIdent][]multiraftbase.RaftHeartbeat{}
 	s.coalescedMu.heartbeatResponses = map[multiraftbase.StoreIdent][]multiraftbase.RaftHeartbeat{}
@@ -688,4 +691,118 @@ func NewStore(cfg StoreConfig, eng engine.Engine, nodeDesc *multiraftbase.NodeDe
 		}
 	*/
 	return s
+}
+
+// addReplicaInternalLocked adds the replica to the replicas map and the
+// replicasByKey btree. Returns an error if a replica with
+// the same Range ID or a KeyRange that overlaps has already been added to
+// this store. addReplicaInternalLocked requires that the store lock is held.
+func (s *Store) addReplicaInternalLocked(repl *Replica) error {
+	if !repl.IsInitialized() {
+		return errors.Errorf("attempted to add uninitialized range %s", repl)
+	}
+
+	// TODO(spencer): will need to determine which range is
+	// newer, and keep that one.
+	if err := s.addReplicaToRangeMapLocked(repl); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (s *Store) BootstrapGroup(initialValues []multiraftbase.KeyValue, group *multiraftbase.GroupDescriptor) error {
+	desc := *group
+	if err := desc.Validate(); err != nil {
+		return err
+	}
+	batch := s.Engine().NewBatch()
+	defer batch.Close()
+	encoded, _ := desc.Marshal()
+	batch.Put(keys.GroupDescriptorKey(desc.GroupID), encoded)
+	// Now add all passed-in default entries.
+	for _, kv := range initialValues {
+		// Initialize the checksums.
+		if err := batch.Put(kv.Key, kv.Value.GetRawBytes()); err != nil {
+			return err
+		}
+	}
+	err := batch.Commit()
+	if err != nil {
+		return err
+	}
+	rep, err := NewReplica(&desc, s, 0)
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	err = s.addReplicaInternalLocked(rep)
+	s.mu.Unlock()
+	if err != nil {
+		return err
+	}
+	//if _, ok := desc.GetReplicaDescriptor(s.NodeID()); !ok {
+	//	// We are no longer a member of the range, but we didn't GC the replica
+	//	// before shutting down. Add the replica to the GC queue.
+	//	if added, err := s.replicaGCQueue.Add(rep, replicaGCPriorityRemoved); err != nil {
+	//		helper.Logger.Printf(5, "%s: unable to add replica to GC queue: %s", rep, err)
+	//	} else if added {
+	//		helper.Logger.Printf(5, "%s: added to replica GC queue", rep)
+	//	}
+	//}
+	if r.mu.internalRaftGroup == nil {
+		raftGroup, err := raft.NewRawNode(newRaftConfig(
+			raft.Storage((*replicaRaftStorage)(r)),
+			uint64(r.mu.replicaID),
+			r.mu.state.RaftAppliedIndex,
+			r.store.cfg,
+			&raftLogger{ctx: ctx},
+		), nil)
+		if err != nil {
+			return err
+		}
+		r.mu.internalRaftGroup = raftGroup
+
+		if !shouldCampaignOnCreation {
+			// Automatically campaign and elect a leader for this group if there's
+			// exactly one known node for this group.
+			//
+			// A grey area for this being correct happens in the case when we're
+			// currently in the process of adding a second node to the group, with
+			// the change committed but not applied.
+			//
+			// Upon restarting, the first node would immediately elect itself and
+			// only then apply the config change, where really it should be applying
+			// first and then waiting for the majority (which would now require two
+			// votes, not only its own).
+			//
+			// However, in that special case, the second node has no chance to be
+			// elected leader while the first node restarts (as it's aware of the
+			// configuration and knows it needs two votes), so the worst that could
+			// happen is both nodes ending up in candidate state, timing out and then
+			// voting again. This is expected to be an extremely rare event.
+			//
+			// TODO(peter): It would be more natural for this campaigning to only be
+			// done when proposing a command (see defaultProposeRaftCommandLocked).
+			// Unfortunately, we enqueue the right hand side of a split for Raft
+			// ready processing if the range only has a single replica (see
+			// splitPostApply). Doing so implies we need to be campaigning
+			// that right hand side range when raft ready processing is
+			// performed. Perhaps we should move the logic for campaigning single
+			// replica ranges there so that normally we only eagerly campaign when
+			// proposing.
+			shouldCampaignOnCreation = r.isSoloReplicaRLocked()
+		}
+		if shouldCampaignOnCreation {
+			log.VEventf(ctx, 3, "campaigning")
+			if err := raftGroup.Campaign(); err != nil {
+				return err
+			}
+			if fn := r.store.cfg.TestingKnobs.OnCampaign; fn != nil {
+				fn(r)
+			}
+		}
+	}
+
+	return nil
 }

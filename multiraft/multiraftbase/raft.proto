@@ -26,7 +26,7 @@ import "error.proto";
 import "gogoproto/gogo.proto";
 
 message RaftHeartbeat {
-    string group_id = 1 [(gogoproto.customname) = "GroupID"];
+    string group_id = 1 [(gogoproto.customname) = "GroupID", (gogoproto.casttype) = "GroupID"];
     uint32 from_replica_id = 2 [(gogoproto.customname) = "FromReplicaID", (gogoproto.casttype) = "ReplicaID"];
     uint32 to_replica_id = 3 [(gogoproto.customname) = "ToReplicaID", (gogoproto.casttype) = "ReplicaID"];
     uint64 term = 4;

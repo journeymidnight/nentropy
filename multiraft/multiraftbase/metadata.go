@@ -5,14 +5,11 @@ import (
 
 	"encoding/binary"
 	"github.com/journeymidnight/nentropy/protos"
+	"github.com/pkg/errors"
 )
 
 // CmdIDKey is a Raft command id.
 type CmdIDKey string
-
-// NodeID is a custom type for a cockroach node ID. (not a raft node ID)
-// 0 is not a valid NodeID.
-type NodeID int32
 
 // String implements the fmt.Stringer interface.
 // It is used to format the ID for use in Gossip keys.
@@ -40,9 +37,9 @@ func (r ReplicaID) String() string {
 
 // GetReplicaDescriptor returns the replica which matches the specified store
 // ID.
-func (r GroupDescriptor) GetReplicaDescriptor(storeID StoreID) (ReplicaDescriptor, bool) {
+func (r GroupDescriptor) GetReplicaDescriptor(nodeID NodeID) (ReplicaDescriptor, bool) {
 	for _, repDesc := range r.Replicas {
-		if repDesc.StoreID == storeID {
+		if repDesc.NodeID == nodeID {
 			return repDesc, true
 		}
 	}
@@ -78,4 +75,40 @@ func (v *Value) SetInt(i int64) {
 	n := binary.PutVarint(v.RawBytes[headerSize:], i)
 	v.RawBytes = v.RawBytes[:headerSize+n]
 	v.setTag(ValueType_INT)
+}
+
+// Validate performs some basic validation of the contents of a replica descriptor.
+func (r ReplicaDescriptor) Validate() error {
+	if r.NodeID == "" {
+		return errors.Errorf("NodeID must not be empty")
+	}
+	if r.StoreID == 0 {
+		return errors.Errorf("StoreID must not be zero")
+	}
+	if r.ReplicaID == 0 {
+		return errors.Errorf("ReplicaID must not be zero")
+	}
+	return nil
+}
+
+// Validate performs some basic validation of the contents of a range descriptor.
+func (r GroupDescriptor) Validate() error {
+	if r.PoolId == 0 {
+		return errors.Errorf("PoolId must be non-zero")
+	}
+	seen := map[ReplicaID]struct{}{}
+	for i, rep := range r.Replicas {
+		if err := rep.Validate(); err != nil {
+			return errors.Errorf("replica %d is invalid: %s", i, err)
+		}
+		if _, ok := seen[rep.ReplicaID]; ok {
+			return errors.Errorf("ReplicaID %d was reused", rep.ReplicaID)
+		}
+		seen[rep.ReplicaID] = struct{}{}
+		if rep.ReplicaID >= r.NextReplicaID {
+			return errors.Errorf("ReplicaID %d must be less than NextReplicaID %d",
+				rep.ReplicaID, r.NextReplicaID)
+		}
+	}
+	return nil
 }

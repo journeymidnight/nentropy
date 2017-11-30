@@ -172,12 +172,14 @@ func (rsl replicaStateLoader) loadReplicaDestroyedError(
 	ctx context.Context, reader engine.Reader,
 ) (*multiraftbase.Error, error) {
 	var v multiraftbase.Error
-	found, err := reader.Get(rsl.GroupReplicaDestroyedErrorKey())
+	value, err := reader.Get(rsl.GroupReplicaDestroyedErrorKey())
 	if err != nil {
 		return nil, err
 	}
+	found := value != nil
 	if !found {
 		return nil, nil
 	}
+	err = v.Unmarshal(value)
 	return &v, nil
 }

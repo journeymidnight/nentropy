@@ -41,10 +41,10 @@ message GroupDescriptor {
     int64 pg_id = 2;
     string group_id = 3[(gogoproto.customname) = "GroupID", (gogoproto.casttype) = "GroupID"];
 
-    repeated ReplicaDescriptor replicas = 4;
+    repeated ReplicaDescriptor replicas = 4 [(gogoproto.nullable) = false];
 
     // next_replica_id is a counter used to generate replica IDs.
-    int32 next_replica_id = 5;
+    int32 next_replica_id = 5 [(gogoproto.customname) = "NextReplicaID", (gogoproto.casttype) = "ReplicaID"];
 }
 
 // StoreCapacity contains capacity information for a storage device.

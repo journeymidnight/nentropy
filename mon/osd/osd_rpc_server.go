@@ -6,8 +6,8 @@ import (
 )
 
 func (s *OsdServer) CreatePg(ctx context.Context, in *protos.CreatePgRequest) (*protos.CreatePgReply, error) {
-
-	return &protos.CreatePgReply{}, nil
+	err := s.store.BootstrapGroup(in.GroupDescriptor)
+	return &protos.CreatePgReply{}, err
 }
 
 func (s *OsdServer) DeletePg(ctx context.Context, in *protos.DeletePgRequest) (*protos.DeletePgReply, error) {

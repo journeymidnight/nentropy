@@ -16,7 +16,7 @@
 
 // Use protos/gen.sh to generate .pb.go files.
 syntax = "proto3";
-
+import "github.com/journeymidnight/nentropy/multiraft/multiraftbase/metadata.proto";
 package protos;
 
 
@@ -27,7 +27,7 @@ service OsdRpc {
 
 message CreatePgRequest {
     string pg_name = 1;
-
+    multiraftbase.GroupDescriptor group_descriptor = 2;
 }
 
 message CreatePgReply {

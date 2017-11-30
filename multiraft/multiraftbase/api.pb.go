@@ -39,7 +39,7 @@
 		ErrorDetail
 		ErrPosition
 		Error
-		RangeNotFoundError
+		GroupNotFoundError
 		RaftTombstone
 		RaftSnapshotData
 		Attributes
@@ -57,6 +57,7 @@
 		RaftHeartbeat
 		RaftMessageRequest
 		RaftMessageRequestBatch
+		RaftMessageResponseUnion
 		RaftMessageResponse
 		SnapshotRequest
 		SnapshotResponse
