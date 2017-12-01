@@ -56,7 +56,7 @@ message ReplicaTooOldError {
 }
 
 message NodeNotReadyError {
-    string node_id = 1[(gogoproto.customname) = "ReplicaID", (gogoproto.casttype) = "ReplicaID"];
+    string node_id = 1[(gogoproto.customname) = "NodeID", (gogoproto.casttype) = "NodeID"];
 }
 
 // ErrorDetail is a union type containing all available errors.

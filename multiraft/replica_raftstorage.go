@@ -338,9 +338,8 @@ func (r *Replica) append(
 		key := r.raftMu.stateLoader.RaftLogKey(ent.Index)
 		data, err := ent.Marshal()
 		if err != nil {
-
+			return 0, 0, 0, err
 		}
-		var err error
 		err = batch.Put(key, data)
 		if err != nil {
 			return 0, 0, 0, err
@@ -362,6 +361,8 @@ func (r *Replica) append(
 	if err := r.raftMu.stateLoader.setLastIndex(ctx, batch, lastIndex); err != nil {
 		return 0, 0, 0, err
 	}
+
+	raftLogSize := prevRaftLogSize + diff.SysBytes
 
 	return lastIndex, lastTerm, 0, nil
 }

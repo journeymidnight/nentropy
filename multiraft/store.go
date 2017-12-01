@@ -7,6 +7,7 @@ import (
 	"github.com/coreos/etcd/raft/raftpb"
 	"github.com/journeymidnight/nentropy/base"
 	"github.com/journeymidnight/nentropy/helper"
+	"github.com/journeymidnight/nentropy/log"
 	"github.com/journeymidnight/nentropy/multiraft/keys"
 	"github.com/journeymidnight/nentropy/multiraft/multiraftbase"
 	"github.com/journeymidnight/nentropy/rpc"
@@ -17,7 +18,7 @@ import (
 	"github.com/journeymidnight/nentropy/util/timeutil"
 	"github.com/pkg/errors"
 	"golang.org/x/net/context"
-	"log"
+
 	"runtime"
 	"sync"
 	"time"
@@ -634,7 +635,7 @@ func (s *Store) HandleRaftResponse(ctx context.Context, resp *multiraftbase.Raft
 }
 
 func newRaftConfig(
-	strg raft.Storage, id uint64, appliedIndex uint64, storeCfg StoreConfig, logger log.Logger,
+	strg raft.Storage, id uint64, appliedIndex uint64, storeCfg StoreConfig, logger log.RaftLogger,
 ) *raft.Config {
 	return &raft.Config{
 		ID:            id,
@@ -642,7 +643,7 @@ func newRaftConfig(
 		ElectionTick:  storeCfg.RaftElectionTimeoutTicks,
 		HeartbeatTick: storeCfg.RaftHeartbeatIntervalTicks,
 		Storage:       strg,
-		Logger:        logger,
+		Logger:        &logger,
 
 		// TODO(bdarnell): PreVote and CheckQuorum are two ways of
 		// achieving the same thing. PreVote is more compatible with

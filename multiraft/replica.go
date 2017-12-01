@@ -6,9 +6,9 @@ import (
 	"github.com/coreos/etcd/raft"
 	"github.com/coreos/etcd/raft/raftpb"
 	"github.com/journeymidnight/nentropy/helper"
+	"github.com/journeymidnight/nentropy/log"
 	"github.com/journeymidnight/nentropy/multiraft/multiraftbase"
 	"github.com/journeymidnight/nentropy/util/syncutil"
-	"github.com/journeymidnight/nentropy/util/timeutil"
 	"github.com/pkg/errors"
 	"golang.org/x/net/context"
 	"math/rand"
@@ -195,7 +195,7 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 	lastTerm := r.mu.lastTerm
 	raftLogSize := r.mu.raftLogSize
 	leaderID := r.mu.leaderID
-	lastLeaderID := leaderID
+	//lastLeaderID := leaderID
 
 	err := r.withRaftGroupLocked(false, func(raftGroup *raft.RawNode) (bool, error) {
 		if hasReady = raftGroup.HasReady(); hasReady {
@@ -228,7 +228,7 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 	batch := r.store.Engine().NewBatch()
 	defer batch.Close()
 
-	prevLastIndex := lastIndex
+	//prevLastIndex := lastIndex
 	if len(rd.Entries) > 0 {
 		// All of the entries are appended to distinct keys, returning a new
 		// last index.
@@ -258,22 +258,22 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 	// uncommitted log entries, and even if they did include log entries that
 	// were not persisted to disk, it wouldn't be a problem because raft does not
 	// infer the that entries are persisted on the node that sends a snapshot.
-	start := timeutil.Now()
+	//start := timeutil.Now()
 	if err := batch.Commit(); err != nil {
 		const expl = "while committing batch"
 		return stats, expl, errors.Wrap(err, expl)
 	}
 
-	if len(rd.Entries) > 0 {
-		// We may have just overwritten parts of the log which contain
-		// sideloaded SSTables from a previous term (and perhaps discarded some
-		// entries that we didn't overwrite). Remove any such leftover on-disk
-		// payloads (we can do that now because we've committed the deletion
-		// just above).
-		firstPurge := rd.Entries[0].Index // first new entry written
-		purgeTerm := rd.Entries[0].Term - 1
-		lastPurge := prevLastIndex // old end of the log, include in deletion
-	}
+	//if len(rd.Entries) > 0 {
+	//	// We may have just overwritten parts of the log which contain
+	//	// sideloaded SSTables from a previous term (and perhaps discarded some
+	//	// entries that we didn't overwrite). Remove any such leftover on-disk
+	//	// payloads (we can do that now because we've committed the deletion
+	//	// just above).
+	//	firstPurge := rd.Entries[0].Index // first new entry written
+	//	purgeTerm := rd.Entries[0].Term - 1
+	//	lastPurge := prevLastIndex // old end of the log, include in deletion
+	//}
 
 	// Update protected state (last index, last term, raft log size and raft
 	// leader ID) and set raft log entry cache. We clear any older, uncommitted
@@ -422,7 +422,7 @@ func (r *Replica) processRaftCommand(
 	var response proposalResult
 	var writeBatch *multiraftbase.WriteBatch
 	{
-		var pErr *multiraftbase.Error
+		var _ *multiraftbase.Error
 		if raftCmd.WriteBatch != nil {
 			writeBatch = raftCmd.WriteBatch
 		}
@@ -616,7 +616,7 @@ func (r *Replica) withRaftGroupLocked(
 			uint64(r.mu.replicaID),
 			r.mu.state.RaftAppliedIndex,
 			r.store.cfg,
-			*helper.Logger.Logger,
+			log.RaftLogger{helper.Logger},
 		), nil)
 		if err != nil {
 			return err

@@ -74,9 +74,9 @@ func (e *Error) setGoError(err error) {
 	return
 }
 
-func NewNodeNotReadyError(nodeID string) *NodeNotReadyError {
+func NewNodeNotReadyError(nodeID NodeID) *NodeNotReadyError {
 	return &NodeNotReadyError{
-		NodeId: nodeID,
+		NodeID: nodeID,
 	}
 }
 
@@ -107,6 +107,14 @@ func (e *GroupNotFoundError) message(_ *Error) string {
 // an explanatory message.
 func NewAmbiguousResultError(msg string) *AmbiguousResultError {
 	return &AmbiguousResultError{Message: msg}
+}
+
+func (e *AmbiguousResultError) Error() string {
+	return e.message(nil)
+}
+
+func (e *AmbiguousResultError) message(_ *Error) string {
+	return fmt.Sprintf("result is ambiguous (%s)", e.Message)
 }
 
 // StoreID is a custom type for a cockroach store ID.
