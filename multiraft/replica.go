@@ -1,6 +1,7 @@
 package multiraft
 
 import (
+	"github.com/cockroachdb/cockroach/pkg/roachpb"
 	"github.com/cockroachdb/cockroach/pkg/util/encoding"
 	"github.com/coreos/etcd/raft"
 	"github.com/coreos/etcd/raft/raftpb"
@@ -939,4 +940,10 @@ func (r *Replica) setEstimatedCommitIndexLocked(commit uint64) {
 	if r.mu.estimatedCommitIndex < commit {
 		r.mu.estimatedCommitIndex = commit
 	}
+}
+
+func (r *Replica) Send(
+	ctx context.Context, ba multiraftbase.BatchRequest,
+) (*multiraftbase.BatchResponse, *multiraftbase.Error) {
+
 }

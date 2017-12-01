@@ -5,6 +5,7 @@ import (
 	"github.com/cockroachdb/cockroach/pkg/roachpb"
 	"github.com/coreos/etcd/raft"
 	"github.com/coreos/etcd/raft/raftpb"
+	"github.com/journeymidnight/nentropy/base"
 	"github.com/journeymidnight/nentropy/helper"
 	"github.com/journeymidnight/nentropy/multiraft/keys"
 	"github.com/journeymidnight/nentropy/multiraft/multiraftbase"
@@ -38,7 +39,7 @@ var enablePreVote = envutil.EnvOrDefaultBool(
 // a store; the rest will have sane defaults set if omitted.
 type StoreConfig struct {
 	AmbientCtx helper.AmbientContext
-	RaftConfig
+	base.RaftConfig
 	Transport                   *RaftTransport
 	RPCContext                  *rpc.Context
 	RaftHeartbeatIntervalTicks  int
@@ -139,6 +140,12 @@ func (s *Store) processRequestQueue(ctx context.Context, id multiraftbase.GroupI
 			}
 		}
 	}
+}
+
+func (s *Store) Send(
+	ctx context.Context, ba multiraftbase.BatchRequest,
+) (br *multiraftbase.BatchResponse, pErr *multiraftbase.Error) {
+	// repl.Send()
 }
 
 func (s *Store) processTick(ctx context.Context, id multiraftbase.GroupID) bool {

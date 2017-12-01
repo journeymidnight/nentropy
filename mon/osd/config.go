@@ -21,8 +21,11 @@ import (
 	"fmt"
 	"github.com/cockroachdb/cockroach/pkg/storage"
 	"github.com/cockroachdb/cockroach/pkg/util/humanizeutil"
+	"github.com/elastic/gosigar"
 	"github.com/journeymidnight/nentropy/base"
+	"github.com/journeymidnight/nentropy/helper"
 	"github.com/journeymidnight/nentropy/log"
+	"github.com/journeymidnight/nentropy/storage/engine"
 	"github.com/pkg/errors"
 	"golang.org/x/net/context"
 	"time"
@@ -77,6 +80,7 @@ func (c *Config) parseCmdArgs() {
 }
 
 type Config struct {
+	AmbientCtx helper.AmbientContext
 	*base.Config
 	base.RaftConfig
 	id                  int    //[1-256]
@@ -114,99 +118,8 @@ func MakeConfig() *Config {
 	return &cfg
 }
 
-func (e *Engines) Close() {
-	for _, eng := range *e {
-		eng.Close()
-	}
-	*e = nil
-}
+func (cfg *Config) CreateSysEngine(ctx context.Context) (engine.Engine, error) {
 
-// CreateEngines creates Engines based on the specs in cfg.Stores.
-func (cfg *Config) CreateEngines(ctx context.Context) (Engines, error) {
-	engines := Engines(nil)
-	defer engines.Close()
-
-	if cfg.enginesCreated {
-		return Engines{}, errors.Errorf("engines already created")
-	}
-	cfg.enginesCreated = true
-
-	var details []string
-
-	details = append(details, fmt.Sprintf("RocksDB cache size: %s", humanizeutil.IBytes(cfg.CacheSize)))
-	cache := engine.NewRocksDBCache(cfg.CacheSize)
-	defer cache.Release()
-
-	var physicalStores int
-	for _, spec := range cfg.Stores.Specs {
-		if !spec.InMemory {
-			physicalStores++
-		}
-	}
-	openFileLimitPerStore, err := setOpenFileLimit(physicalStores)
-	if err != nil {
-		return Engines{}, err
-	}
-
-	skipSizeCheck := cfg.TestingKnobs.Store != nil &&
-		cfg.TestingKnobs.Store.(*storage.StoreTestingKnobs).SkipMinSizeCheck
-	for i, spec := range cfg.Stores.Specs {
-		var sizeInBytes = spec.SizeInBytes
-		if spec.InMemory {
-			if spec.SizePercent > 0 {
-				sysMem, err := GetTotalMemory(ctx)
-				if err != nil {
-					return Engines{}, errors.Errorf("could not retrieve system memory")
-				}
-				sizeInBytes = int64(float64(sysMem) * spec.SizePercent / 100)
-			}
-			if sizeInBytes != 0 && !skipSizeCheck && sizeInBytes < base.MinimumStoreSize {
-				return Engines{}, errors.Errorf("%f%% of memory is only %s bytes, which is below the minimum requirement of %s",
-					spec.SizePercent, humanizeutil.IBytes(sizeInBytes), humanizeutil.IBytes(base.MinimumStoreSize))
-			}
-			details = append(details, fmt.Sprintf("store %d: in-memory, size %s",
-				i, humanizeutil.IBytes(sizeInBytes)))
-			engines = append(engines, engine.NewInMem(spec.Attributes, sizeInBytes))
-		} else {
-			if spec.SizePercent > 0 {
-				fileSystemUsage := gosigar.FileSystemUsage{}
-				if err := fileSystemUsage.Get(spec.Path); err != nil {
-					return Engines{}, err
-				}
-				sizeInBytes = int64(float64(fileSystemUsage.Total) * spec.SizePercent / 100)
-			}
-			if sizeInBytes != 0 && !skipSizeCheck && sizeInBytes < base.MinimumStoreSize {
-				return Engines{}, errors.Errorf("%f%% of %s's total free space is only %s bytes, which is below the minimum requirement of %s",
-					spec.SizePercent, spec.Path, humanizeutil.IBytes(sizeInBytes), humanizeutil.IBytes(base.MinimumStoreSize))
-			}
-
-			details = append(details, fmt.Sprintf("store %d: RocksDB, max size %s, max open file limit %d",
-				i, humanizeutil.IBytes(sizeInBytes), openFileLimitPerStore))
-			rocksDBConfig := engine.RocksDBConfig{
-				Attrs:                   spec.Attributes,
-				Dir:                     spec.Path,
-				MaxSizeBytes:            sizeInBytes,
-				MaxOpenFiles:            openFileLimitPerStore,
-				WarnLargeBatchThreshold: 500 * time.Millisecond,
-				Settings:                cfg.Settings,
-			}
-
-			eng, err := engine.NewRocksDB(rocksDBConfig, cache)
-			if err != nil {
-				return Engines{}, err
-			}
-			engines = append(engines, eng)
-		}
-	}
-
-	log.Infof(ctx, "%d storage engine%s initialized",
-		len(engines), util.Pluralize(int64(len(engines))))
-	for _, s := range details {
-		log.Info(ctx, s)
-	}
-	enginesCopy := engines
-	engines = nil
-	return enginesCopy, nil
 }
 
 const (

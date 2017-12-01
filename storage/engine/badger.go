@@ -72,6 +72,10 @@ func (b *BadgerDB) Clear(key []byte) error {
 	return err
 }
 
+func (b *BadgerDB) Close() {
+
+}
+
 func (b *BadgerDB) Put(key []byte, value []byte) error {
 	wb := make([]*badger.Entry, 0, 1)
 	wb = badger.EntriesSet(wb, key, value)

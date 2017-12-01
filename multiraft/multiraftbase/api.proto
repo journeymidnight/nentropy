@@ -132,7 +132,7 @@ int32 gateway_node_id = 11 [(gogoproto.customname) = "GatewayNodeID", (gogoproto
 message BatchRequest {
 option (gogoproto.goproto_stringer) = false;
 
-Header header = 1 [(gogoproto.embed) = true];
+Header header = 1 [(gogoproto.nullable) = false, (gogoproto.embed) = true];
 repeated RequestUnion requests = 2;
 }
 
