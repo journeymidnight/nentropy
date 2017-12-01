@@ -1,6 +1,8 @@
 package multiraft
 
 import (
+	"fmt"
+	"github.com/cockroachdb/cockroach/pkg/roachpb"
 	"github.com/coreos/etcd/raft"
 	"github.com/coreos/etcd/raft/raftpb"
 	"github.com/journeymidnight/nentropy/helper"
@@ -304,7 +306,7 @@ func (s *Store) HandleRaftRequest(
 	ctx context.Context, req *multiraftbase.RaftMessageRequest, respStream RaftMessageResponseStream,
 ) *multiraftbase.Error {
 	if len(req.Heartbeats)+len(req.HeartbeatResps) > 0 {
-		if req.GroupID != 0 {
+		if req.GroupID != "" {
 			helper.Logger.Fatalf(5, "coalesced heartbeats must have groupID == 0")
 		}
 		s.uncoalesceBeats(ctx, req.Heartbeats, req.FromReplica, req.ToReplica, raftpb.MsgHeartbeat, respStream)
@@ -413,7 +415,16 @@ func (s *Store) tryGetOrCreateReplica(
 	// The common case: look up an existing (initialized) replica.
 	if value, ok := s.mu.replicas.Load(int64(groupID)); ok {
 		repl := (*Replica)(value)
-
+		if creatingReplica != nil {
+			// Drop messages that come from a node that we believe was once a member of
+			// the group but has been removed.
+			desc := repl.Desc()
+			_, found := desc.GetReplicaDescriptorByID(creatingReplica.ReplicaID)
+			// It's not a current member of the group. Is it from the past?
+			if !found && creatingReplica.ReplicaID < desc.NextReplicaID {
+				return nil, false, multiraftbase.NewReplicaTooOldError(creatingReplica.ReplicaID)
+			}
+		}
 		repl.raftMu.Lock()
 		repl.mu.Lock()
 		if err := repl.setReplicaIDRaftMuLockedMuLocked(replicaID); err != nil {
@@ -520,7 +531,7 @@ func (s *Store) processRaftRequest(
 
 	if _, expl, err := r.handleRaftReadyRaftMuLocked(inSnap); err != nil {
 		// Mimic the behavior in processRaft.
-		helper.Logger.Fatalf(5, "%s: %s", log.Safe(expl), err) // TODO(bdarnell)
+		helper.Logger.Fatalf(5, "%v: %s", expl, err) // TODO(bdarnell)
 	}
 	return nil
 }
@@ -731,16 +742,21 @@ func (s *Store) BootstrapGroup(initialValues []multiraftbase.KeyValue, group *mu
 	if err != nil {
 		return err
 	}
-	rep, err := NewReplica(&desc, s, 0)
-	if err != nil {
-		return err
+	replicaDesc, found := group.GetReplicaDescriptor(s.nodeDesc.NodeID)
+	if !found {
+		return errors.New(fmt.Sprintf("send to wrong node %s", s.nodeDesc.NodeID))
 	}
-	s.mu.Lock()
-	err = s.addReplicaInternalLocked(rep)
-	s.mu.Unlock()
-	if err != nil {
-		return err
-	}
+	r, _, err := s.getOrCreateReplica(context.Background(), group.GroupID, replicaDesc.ReplicaID, nil)
+	//r, err := NewReplica(&desc, s, 0)
+	//if err != nil {
+	//	return err
+	//}
+	//s.mu.Lock()
+	//err = s.addReplicaInternalLocked(r)
+	//s.mu.Unlock()
+	//if err != nil {
+	//	return err
+	//}
 	//if _, ok := desc.GetReplicaDescriptor(s.NodeID()); !ok {
 	//	// We are no longer a member of the range, but we didn't GC the replica
 	//	// before shutting down. Add the replica to the GC queue.
@@ -750,59 +766,27 @@ func (s *Store) BootstrapGroup(initialValues []multiraftbase.KeyValue, group *mu
 	//		helper.Logger.Printf(5, "%s: added to replica GC queue", rep)
 	//	}
 	//}
+	peers := []raft.Peer{}
+	replicaDescs := group.GetReplicas()
+	for _, desc := range replicaDescs {
+		peers = append(peers, raft.Peer{ID: uint64(desc.ReplicaID)})
+	}
+
+	r.mu.Lock()
 	if r.mu.internalRaftGroup == nil {
 		raftGroup, err := raft.NewRawNode(newRaftConfig(
 			raft.Storage((*replicaRaftStorage)(r)),
 			uint64(r.mu.replicaID),
 			r.mu.state.RaftAppliedIndex,
 			r.store.cfg,
-			&raftLogger{ctx: ctx},
-		), nil)
+			*helper.Logger.Logger,
+		), peers)
 		if err != nil {
 			return err
 		}
 		r.mu.internalRaftGroup = raftGroup
-
-		if !shouldCampaignOnCreation {
-			// Automatically campaign and elect a leader for this group if there's
-			// exactly one known node for this group.
-			//
-			// A grey area for this being correct happens in the case when we're
-			// currently in the process of adding a second node to the group, with
-			// the change committed but not applied.
-			//
-			// Upon restarting, the first node would immediately elect itself and
-			// only then apply the config change, where really it should be applying
-			// first and then waiting for the majority (which would now require two
-			// votes, not only its own).
-			//
-			// However, in that special case, the second node has no chance to be
-			// elected leader while the first node restarts (as it's aware of the
-			// configuration and knows it needs two votes), so the worst that could
-			// happen is both nodes ending up in candidate state, timing out and then
-			// voting again. This is expected to be an extremely rare event.
-			//
-			// TODO(peter): It would be more natural for this campaigning to only be
-			// done when proposing a command (see defaultProposeRaftCommandLocked).
-			// Unfortunately, we enqueue the right hand side of a split for Raft
-			// ready processing if the range only has a single replica (see
-			// splitPostApply). Doing so implies we need to be campaigning
-			// that right hand side range when raft ready processing is
-			// performed. Perhaps we should move the logic for campaigning single
-			// replica ranges there so that normally we only eagerly campaign when
-			// proposing.
-			shouldCampaignOnCreation = r.isSoloReplicaRLocked()
-		}
-		if shouldCampaignOnCreation {
-			log.VEventf(ctx, 3, "campaigning")
-			if err := raftGroup.Campaign(); err != nil {
-				return err
-			}
-			if fn := r.store.cfg.TestingKnobs.OnCampaign; fn != nil {
-				fn(r)
-			}
-		}
 	}
+	r.mu.Unlock()
 
 	return nil
 }

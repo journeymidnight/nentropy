@@ -40,6 +40,7 @@
 		ErrPosition
 		Error
 		GroupNotFoundError
+		StoreNotFoundError
 		RaftTombstone
 		RaftSnapshotData
 		Attributes

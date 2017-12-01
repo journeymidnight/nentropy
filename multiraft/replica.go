@@ -793,25 +793,25 @@ func (r *Replica) setReplicaIDRaftMuLockedMuLocked(replicaID multiraftbase.Repli
 	}
 
 	r.mu.internalRaftGroup = nil
-	if r.mu.internalRaftGroup == nil {
-		raftGroup, err := raft.NewRawNode(newRaftConfig(
-			raft.Storage((*replicaRaftStorage)(r)),
-			uint64(r.mu.replicaID),
-			r.mu.state.RaftAppliedIndex,
-			r.store.cfg,
-			*helper.Logger.Logger,
-		), nil)
-		if err != nil {
-			return err
-		}
-		r.mu.internalRaftGroup = raftGroup
-
-		helper.Logger.Panicln(5, "campaigning")
-		if err := raftGroup.Campaign(); err != nil {
-			return err
-		}
-
-	}
+	//if r.mu.internalRaftGroup == nil {
+	//	raftGroup, err := raft.NewRawNode(newRaftConfig(
+	//		raft.Storage((*replicaRaftStorage)(r)),
+	//		uint64(r.mu.replicaID),
+	//		r.mu.state.RaftAppliedIndex,
+	//		r.store.cfg,
+	//		*helper.Logger.Logger,
+	//	), nil)
+	//	if err != nil {
+	//		return err
+	//	}
+	//	r.mu.internalRaftGroup = raftGroup
+	//
+	//	helper.Logger.Panicln(5, "campaigning")
+	//	if err := raftGroup.Campaign(); err != nil {
+	//		return err
+	//	}
+	//
+	//}
 	// If there was a previous replica, repropose its pending commands under
 	// this new incarnation.
 	//if previousReplicaID != 0 {

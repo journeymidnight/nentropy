@@ -108,3 +108,36 @@ func (e *GroupNotFoundError) message(_ *Error) string {
 func NewAmbiguousResultError(msg string) *AmbiguousResultError {
 	return &AmbiguousResultError{Message: msg}
 }
+
+// StoreID is a custom type for a cockroach store ID.
+type StoreID int32
+
+// NewStoreNotFoundError initializes a new StoreNotFoundError.
+func NewStoreNotFoundError(storeID StoreID) *StoreNotFoundError {
+	return &StoreNotFoundError{
+		StoreID: storeID,
+	}
+}
+
+func (e *StoreNotFoundError) Error() string {
+	return e.message(nil)
+}
+
+func (e *StoreNotFoundError) message(_ *Error) string {
+	return fmt.Sprintf("store %d was not found", e.StoreID)
+}
+
+// NewReplicaTooOldError initializes a new ReplicaTooOldError.
+func NewReplicaTooOldError(replicaID ReplicaID) *ReplicaTooOldError {
+	return &ReplicaTooOldError{
+		ReplicaID: replicaID,
+	}
+}
+
+func (e *ReplicaTooOldError) Error() string {
+	return e.message(nil)
+}
+
+func (*ReplicaTooOldError) message(_ *Error) string {
+	return "sender replica too old, discarding message"
+}

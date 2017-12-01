@@ -113,3 +113,11 @@ message GroupNotFoundError {
 
   int64 group_id = 1 [(gogoproto.customname) = "GroupID", (gogoproto.casttype) = "GroupID"];
 }
+
+// A StoreNotFoundError indicates that a command was sent to a store
+// which is not hosted on this node.
+message StoreNotFoundError {
+    option (gogoproto.equal) = true;
+
+    int64 store_id = 1 [(gogoproto.customname) = "StoreID", (gogoproto.casttype) = "StoreID"];
+}

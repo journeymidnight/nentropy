@@ -6,7 +6,7 @@ import (
 )
 
 func (s *OsdServer) CreatePg(ctx context.Context, in *protos.CreatePgRequest) (*protos.CreatePgReply, error) {
-	err := s.store.BootstrapGroup(in.GroupDescriptor)
+	err := s.store.BootstrapGroup(nil, in.GroupDescriptor)
 	return &protos.CreatePgReply{}, err
 }
 

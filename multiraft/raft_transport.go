@@ -269,7 +269,7 @@ func (t *RaftTransport) handleRaftRequest(
 	if !ok {
 		log.Warningf(ctx, "unable to accept Raft message from %+v: no handler registered for %+v",
 			req.FromReplica, req.ToReplica)
-		return NewError(NewNodeNotReadyError(req.ToReplica.NodeId))
+		return NewError(NewNodeNotReadyError(req.ToReplica.NodeID))
 	}
 
 	return handler.HandleRaftRequest(ctx, req, respStream)
@@ -279,13 +279,13 @@ func (t *RaftTransport) handleRaftRequest(
 // given request and error.
 func newRaftMessageResponse(req *RaftMessageRequest, err *Error) *RaftMessageResponse {
 	resp := &RaftMessageResponse{
-		GroupName: req.GroupName,
+		GroupID: req.GroupID,
 		// From and To are reversed in the response.
 		ToReplica:   req.FromReplica,
 		FromReplica: req.ToReplica,
 	}
 	if err != nil {
-		resp.Error = err
+		resp.Union.Error = err
 	}
 	return resp
 }
@@ -319,7 +319,7 @@ func (t *RaftTransport) RaftMessageBatch(stream MultiRaft_RaftMessageBatchServer
 				}
 
 				if stats == nil {
-					stats = t.getStats(batch.Requests[0].FromReplica.NodeId)
+					stats = t.getStats(batch.Requests[0].FromReplica.NodeID)
 				}
 
 				for i := range batch.Requests {
@@ -417,7 +417,7 @@ func (t *RaftTransport) processQueue(
 						handler, ok := t.getHandler()
 						if !ok {
 							log.Warningf(ctx, "no handler found for node %s",
-								resp.ToReplica.NodeId)
+								resp.ToReplica.NodeID)
 							continue
 						}
 						if err := handler.HandleRaftResponse(ctx, resp); err != nil {
@@ -486,7 +486,7 @@ func (t *RaftTransport) getQueue(nodeID string) (chan *RaftMessageRequest, bool)
 // returns false if the outgoing queue is full and calls s.onError when the
 // recipient closes the stream.
 func (t *RaftTransport) SendAsync(req *RaftMessageRequest) bool {
-	if req.GroupName == "" && len(req.Heartbeats) == 0 && len(req.HeartbeatResps) == 0 {
+	if req.GroupID == "" && len(req.Heartbeats) == 0 && len(req.HeartbeatResps) == 0 {
 		// Coalesced heartbeats are addressed to range 0; everything else
 		// needs an explicit range ID.
 		panic("only messages with coalesced heartbeats or heartbeat responses may be sent to range ID 0")
@@ -494,7 +494,7 @@ func (t *RaftTransport) SendAsync(req *RaftMessageRequest) bool {
 	if req.Message.Type == raftpb.MsgSnap {
 		panic("snapshots must be sent using SendSnapshot")
 	}
-	toNodeID := req.ToReplica.NodeId
+	toNodeID := req.ToReplica.NodeID
 
 	stats := t.getStats(toNodeID)
 

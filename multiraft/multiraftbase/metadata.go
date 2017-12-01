@@ -17,16 +17,6 @@ func (n NodeID) String() string {
 	return strconv.FormatInt(int64(n), 10)
 }
 
-// StoreID is a custom type for a cockroach store ID.
-type StoreID int32
-
-// NewStoreNotFoundError initializes a new StoreNotFoundError.
-func NewStoreNotFoundError(storeID StoreID) *protos.StoreNotFoundError {
-	return &protos.StoreNotFoundError{
-		StoreID: storeID,
-	}
-}
-
 // ReplicaID is a custom type for a range replica ID.
 type ReplicaID int32
 
