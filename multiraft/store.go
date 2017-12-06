@@ -683,7 +683,6 @@ func (s *Store) NodeID() multiraftbase.NodeID { return s.nodeDesc.NodeID }
 
 // NewStore returns a new instance of a store.
 func NewStore(cfg StoreConfig, eng engine.Engine, nodeDesc *multiraftbase.NodeDescriptor) *Store {
-	// TODO(tschottdorf): find better place to set these defaults.
 	cfg.SetDefaults()
 
 	s := &Store{

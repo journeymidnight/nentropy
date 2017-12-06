@@ -1,13 +1,16 @@
 package helper
 
 import (
+	"bytes"
 	"crypto/subtle"
 	"fmt"
 	"hash/crc32"
 	"os"
+	"reflect"
 	"strconv"
 	"sync"
 	"syscall"
+	"unsafe"
 )
 
 func CreatePidfile(pidFile string) error {
@@ -171,4 +174,69 @@ func HashKey(key string) uint32 {
 		return crc32.ChecksumIEEE(scratch[:len(key)])
 	}
 	return crc32.ChecksumIEEE([]byte(key))
+}
+
+// EncodeUint64Ascending encodes the uint64 value using a big-endian 8 byte
+// representation. The bytes are appended to the supplied buffer and
+// the final buffer is returned.
+func EncodeUint64Ascending(b []byte, v uint64) []byte {
+	return append(b,
+		byte(v>>56), byte(v>>48), byte(v>>40), byte(v>>32),
+		byte(v>>24), byte(v>>16), byte(v>>8), byte(v))
+}
+
+const (
+	// The gap between floatNaNDesc and bytesMarker was left for
+	// compatibility reasons.
+	bytesMarker byte = 0x12
+)
+
+const (
+	// <term>     -> \x00\x01
+	// \x00       -> \x00\xff
+	escape      byte = 0x00
+	escapedTerm byte = 0x01
+	escaped00   byte = 0xff
+	escapedFF   byte = 0x00
+)
+
+// EncodeBytesAscending encodes the []byte value using an escape-based
+// encoding. The encoded value is terminated with the sequence
+// "\x00\x01" which is guaranteed to not occur elsewhere in the
+// encoded value. The encoded bytes are append to the supplied buffer
+// and the resulting buffer is returned.
+func EncodeBytesAscending(b []byte, data []byte) []byte {
+	b = append(b, bytesMarker)
+	for {
+		// IndexByte is implemented by the go runtime in assembly and is
+		// much faster than looping over the bytes in the slice.
+		i := bytes.IndexByte(data, escape)
+		if i == -1 {
+			break
+		}
+		b = append(b, data[:i]...)
+		b = append(b, escape, escaped00)
+		data = data[i+1:]
+	}
+	b = append(b, data...)
+	return append(b, escape, escapedTerm)
+}
+
+// EncodeStringAscending encodes the string value using an escape-based encoding. See
+// EncodeBytes for details. The encoded bytes are append to the supplied buffer
+// and the resulting buffer is returned.
+func EncodeStringAscending(b []byte, s string) []byte {
+	if len(s) == 0 {
+		return EncodeBytesAscending(b, nil)
+	}
+	// We unsafely convert the string to a []byte to avoid the
+	// usual allocation when converting to a []byte. This is
+	// kosher because we know that EncodeBytes{,Descending} does
+	// not keep a reference to the value it encodes. The first
+	// step is getting access to the string internals.
+	hdr := (*reflect.StringHeader)(unsafe.Pointer(&s))
+	// Next we treat the string data as a maximally sized array which we
+	// slice. This usage is safe because the pointer value remains in the string.
+	arg := (*[0x7fffffff]byte)(unsafe.Pointer(hdr.Data))[:len(s):len(s)]
+	return EncodeBytesAscending(b, arg)
 }

@@ -50,7 +50,7 @@ func main() {
 		}()
 		ctx := context.Background()
 		if err := func() error {
-			s, err = NewOsdServer(*cfg, stopper)
+			s, err = NewOsdServer(ctx, *cfg, stopper)
 			if err != nil {
 				return errors.New("failed to create server")
 			}

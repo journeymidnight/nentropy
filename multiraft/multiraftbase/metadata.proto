@@ -1,5 +1,6 @@
 syntax = "proto3";
-package multiraftbase;
+package nentropy.multiraftbase;
+option go_package = "multiraftbase";
 
 import "gogoproto/gogo.proto";
 
@@ -17,6 +18,7 @@ message ReplicationTarget {
 }
 
 message ReplicaDescriptor {
+    option (gogoproto.equal) = true;
     //in nentropy node_id here should be osd.id
     string node_id = 1 [(gogoproto.customname) = "NodeID", (gogoproto.casttype) = "NodeID"];
     int32 store_id = 2 [(gogoproto.customname) = "StoreID", (gogoproto.casttype) = "StoreID"];
@@ -36,6 +38,7 @@ message ReplicaIdent {
 // A range is described using an inclusive start key, a non-inclusive end key,
 // and a list of replicas where the range is stored.
 message GroupDescriptor {
+    option (gogoproto.equal) = true;
     int64 pool_id = 1;
 
     int64 pg_id = 2;
@@ -109,6 +112,6 @@ message KeyValue {
 message StoreIdent {
   bytes cluster_id = 1 [(gogoproto.customname) = "ClusterID",
       (gogoproto.customtype) = "github.com/journeymidnight/nentropy/util/uuid.UUID"];
-  int32 node_id = 2 [(gogoproto.customname) = "NodeID", (gogoproto.casttype) = "NodeID"];
+  string node_id = 2 [(gogoproto.customname) = "NodeID", (gogoproto.casttype) = "NodeID"];
   int32 store_id = 3 [(gogoproto.customname) = "StoreID", (gogoproto.casttype) = "StoreID"];
 }

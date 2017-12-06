@@ -1,7 +1,6 @@
 package multiraft
 
 import (
-	"github.com/cockroachdb/cockroach/pkg/util/encoding"
 	"github.com/coreos/etcd/raft"
 	"github.com/coreos/etcd/raft/raftpb"
 	"github.com/journeymidnight/nentropy/helper"
@@ -669,7 +668,7 @@ func (r *Replica) withRaftGroupLocked(
 
 func makeIDKey() multiraftbase.CmdIDKey {
 	idKeyBuf := make([]byte, 0, raftCommandIDLen)
-	idKeyBuf = encoding.EncodeUint64Ascending(idKeyBuf, uint64(rand.Int63()))
+	idKeyBuf = helper.EncodeUint64Ascending(idKeyBuf, uint64(rand.Int63()))
 	return multiraftbase.CmdIDKey(idKeyBuf)
 }
 

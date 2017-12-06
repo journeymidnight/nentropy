@@ -4,7 +4,6 @@ import (
 	"strconv"
 
 	"encoding/binary"
-	"github.com/journeymidnight/nentropy/protos"
 	"github.com/pkg/errors"
 )
 
@@ -14,7 +13,7 @@ type CmdIDKey string
 // String implements the fmt.Stringer interface.
 // It is used to format the ID for use in Gossip keys.
 func (n NodeID) String() string {
-	return strconv.FormatInt(int64(n), 10)
+	return string(n)
 }
 
 // ReplicaID is a custom type for a range replica ID.
@@ -47,6 +46,40 @@ func (r GroupDescriptor) GetReplicaDescriptorByID(replicaID ReplicaID) (ReplicaD
 	return ReplicaDescriptor{}, false
 }
 
+const (
+	checksumUninitialized = 0
+	checksumSize          = 4
+	tagPos                = checksumSize
+	headerSize            = tagPos + 1
+)
+
+// ValueType defines a set of type constants placed in the "tag" field of Value
+// messages. These are defined as a protocol buffer enumeration so that they
+// can be used portably between our Go and C code. The tags are used by the
+// RocksDB Merge Operator to perform specialized merges.
+type ValueType int32
+
+const (
+	// This is a subset of the SQL column type values, representing the underlying
+	// storage for various types. The DELIMITED_foo entries each represent a foo
+	// variant that self-delimits length.
+	ValueType_UNKNOWN           ValueType = 0
+	ValueType_NULL              ValueType = 7
+	ValueType_INT               ValueType = 1
+	ValueType_FLOAT             ValueType = 2
+	ValueType_BYTES             ValueType = 3
+	ValueType_DELIMITED_BYTES   ValueType = 8
+	ValueType_TIME              ValueType = 4
+	ValueType_DECIMAL           ValueType = 5
+	ValueType_DELIMITED_DECIMAL ValueType = 9
+	ValueType_DURATION          ValueType = 6
+	// TUPLE represents a DTuple, encoded as repeated pairs of varint field number
+	// followed by a value encoded Datum.
+	ValueType_TUPLE ValueType = 10
+	// TIMESERIES is applied to values which contain InternalTimeSeriesData.
+	ValueType_TIMESERIES ValueType = 100
+)
+
 // IsInitialized returns false if this descriptor represents an
 // uninitialized range.
 // TODO(bdarnell): unify this with Validate().
@@ -57,6 +90,10 @@ func (r GroupDescriptor) IsInitialized() bool {
 // Key is a custom type for a byte string in proto
 // messages which refer to Cockroach keys.
 type Key []byte
+
+func (v *Value) setTag(t ValueType) {
+	v.RawBytes[tagPos] = byte(t)
+}
 
 // SetInt encodes the specified int64 value into the bytes field of the
 // receiver, sets the tag and clears the checksum.

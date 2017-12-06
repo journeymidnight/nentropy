@@ -1,7 +1,6 @@
 package main
 
 import (
-	"github.com/cockroachdb/cockroach/pkg/util/netutil"
 	"github.com/journeymidnight/nentropy/helper"
 	"github.com/journeymidnight/nentropy/memberlist"
 	"github.com/journeymidnight/nentropy/multiraft"
@@ -74,6 +73,7 @@ func NewOsdServer(ctx context.Context, cfg Config, stopper *stop.Stopper) (*OsdS
 	storeCfg := multiraft.StoreConfig{
 		AmbientCtx: s.cfg.AmbientCtx,
 		RaftConfig: s.cfg.RaftConfig,
+		Transport:  s.raftTransport,
 	}
 	s.store = multiraft.NewStore(storeCfg, eng, &multiraftbase.NodeDescriptor{})
 
@@ -119,7 +119,7 @@ func (s *OsdServer) Start(ctx context.Context) error {
 	})
 
 	s.stopper.RunWorker(workersCtx, func(context.Context) {
-		netutil.FatalIfUnexpected(s.grpc.Serve(ln))
+		s.grpc.Serve(ln)
 	})
 
 	return nil

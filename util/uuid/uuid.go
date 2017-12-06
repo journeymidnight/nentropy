@@ -17,7 +17,7 @@ package uuid
 import (
 	"encoding/binary"
 
-	"github.com/cockroachdb/cockroach/pkg/util/uint128"
+	"github.com/journeymidnight/nentropy/util/uint128"
 	"github.com/pkg/errors"
 	"github.com/satori/go.uuid"
 )

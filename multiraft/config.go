@@ -1,7 +1,7 @@
 package multiraft
 
 import (
-	"github.com/cockroachdb/cockroach/pkg/util/envutil"
+	"github.com/journeymidnight/nentropy/util/envutil"
 	"time"
 )
 

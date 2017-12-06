@@ -17,12 +17,13 @@
 // Use gen.sh to generate .pb.go files.
 syntax = "proto3";
 
-package multiraftbase;
+package nentropy.multiraftbase;
+option go_package = "multiraftbase";
 
 import "github.com/coreos/etcd/raft/raftpb/raft.proto";
-import "metadata.proto";
 import "state.proto";
 import "error.proto";
+import "metadata.proto";
 import "gogoproto/gogo.proto";
 
 message RaftHeartbeat {
@@ -41,7 +42,7 @@ message RaftHeartbeat {
 // descriptor's range ID must be zero.
 message RaftMessageRequest {
     string group_id = 1 [(gogoproto.customname) = "GroupID",
-                        (gogoproto.casttype) = "github.com/journeymidnight/nentropy/multiraft/multiraftbase.GroupID"];
+                        (gogoproto.casttype) = "GroupID"];
     ReplicaDescriptor from_replica = 2 [(gogoproto.nullable) = false];
     ReplicaDescriptor to_replica = 3 [(gogoproto.nullable) = false];
     raftpb.Message message = 4 [(gogoproto.nullable) = false];
@@ -71,7 +72,7 @@ message RaftMessageResponseUnion {
 
 message RaftMessageResponse {
     string group_id = 1 [(gogoproto.customname) = "GroupID",
-                        (gogoproto.casttype) = "github.com/journeymidnight/nentropy/multiraft/multiraftbase.GroupID"];
+                        (gogoproto.casttype) = "GroupID"];
     ReplicaDescriptor from_replica = 2[(gogoproto.nullable) = false];
     ReplicaDescriptor to_replica = 3[(gogoproto.nullable) = false];
     RaftMessageResponseUnion union = 4[(gogoproto.nullable) = false];

@@ -1,8 +1,7 @@
 package keys
 
 import (
-	"github.com/cockroachdb/cockroach/pkg/roachpb"
-	"github.com/cockroachdb/cockroach/pkg/util/encoding"
+	"github.com/journeymidnight/nentropy/helper"
 	"github.com/journeymidnight/nentropy/multiraft/multiraftbase"
 )
 
@@ -24,7 +23,7 @@ func RaftLogKey(groupID multiraftbase.GroupID, logIndex uint64) multiraftbase.Ke
 
 // RaftLogKey returns a system-local key for a Raft log entry.
 func (b GroupIDPrefixBuf) RaftLogKey(logIndex uint64) multiraftbase.Key {
-	return encoding.EncodeUint64Ascending([]byte("raft-log-"), logIndex)
+	return helper.EncodeUint64Ascending([]byte("raft-log-"), logIndex)
 }
 
 // RaftHardStateKey returns a system-local key for a Raft HardState.
@@ -47,7 +46,7 @@ func makePrefixWithGroupID(prefix []byte, groupID multiraftbase.GroupID) multira
 	// Size the key buffer so that it is large enough for most callers.
 	key := make(multiraftbase.Key, 0, 32)
 	key = append(key, prefix...)
-	key = encoding.EncodeStringAscending(key, string(groupID))
+	key = helper.EncodeStringAscending(key, string(groupID))
 	return key
 }
 

@@ -17,7 +17,8 @@
 // Use gen.sh to generate .pb.go files.
 syntax = "proto3";
 
-package multiraftbase;
+package nentropy.multiraftbase;
+option go_package = "multiraftbase";
 
 import "metadata.proto";
 import "gogoproto/gogo.proto";
@@ -33,6 +34,7 @@ message RaftTruncatedState {
 }
 
 message ReplicaState {
+    option (gogoproto.equal) = true;
     uint64 raft_applied_index = 1;
     GroupDescriptor desc = 2;
     // The truncation state of the Raft log.

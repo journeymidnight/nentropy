@@ -24,7 +24,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cockroachdb/cockroach/pkg/util/humanizeutil"
 	"github.com/journeymidnight/nentropy/util/syncutil"
 )
 

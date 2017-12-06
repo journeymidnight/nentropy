@@ -5,11 +5,11 @@ import (
 
 	"encoding/binary"
 	"errors"
-	"github.com/cockroachdb/cockroach/pkg/util/protoutil"
 	"github.com/coreos/etcd/raft/raftpb"
 	"github.com/journeymidnight/nentropy/multiraft/keys"
 	"github.com/journeymidnight/nentropy/multiraft/multiraftbase"
 	"github.com/journeymidnight/nentropy/storage/engine"
+	"github.com/journeymidnight/nentropy/util/protoutil"
 )
 
 type replicaStateLoader struct {

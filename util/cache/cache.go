@@ -21,8 +21,6 @@ import (
 	"fmt"
 	"sync/atomic"
 
-	"golang.org/x/net/context"
-
 	"github.com/biogo/store/llrb"
 
 	"github.com/journeymidnight/nentropy/helper"

@@ -1,28 +1,28 @@
 syntax = "proto3";
-package multiraftbase;
+package nentropy.multiraftbase;
+option go_package = "multiraftbase";
 
-import "metadata.proto";
 import "state.proto";
 import "error.proto";
+import "metadata.proto";
 import "gogoproto/gogo.proto";
 
 // ReadConsistencyType specifies what type of consistency is observed
 // during read operations.
 enum ReadConsistencyType {
-option (gogoproto.goproto_enum_prefix) = false;
-
-// CONSISTENT reads are guaranteed to read committed data; the
-// mechanism relies on clocks to determine lease expirations.
-CONSISTENT = 0;
-// CONSENSUS requires that reads must achieve consensus. This is a
-// stronger guarantee of consistency than CONSISTENT.
-//
-// TODO(spencer): current unimplemented.
-CONSENSUS = 1;
-// INCONSISTENT reads return the latest available, committed values.
-// They are more efficient, but may read stale values as pending
-// intents are ignored.
-INCONSISTENT = 2;
+    option (gogoproto.goproto_enum_prefix) = false;
+    // CONSISTENT reads are guaranteed to read committed data; the
+    // mechanism relies on clocks to determine lease expirations.
+    CONSISTENT = 0;
+    // CONSENSUS requires that reads must achieve consensus. This is a
+    // stronger guarantee of consistency than CONSISTENT.
+    //
+    // TODO(spencer): current unimplemented.
+    CONSENSUS = 1;
+    // INCONSISTENT reads return the latest available, committed values.
+    // They are more efficient, but may read stale values as pending
+    // intents are ignored.
+    INCONSISTENT = 2;
 }
 
 // ResponseHeader is returned with every storage node response.
@@ -101,28 +101,13 @@ PutResponse put = 2;
 // A Header is attached to a BatchRequest, encapsulating routing and auxiliary
 // information required for executing it.
 message Header {
-reserved 7;
-// replica specifies the destination of the request.
-ReplicaDescriptor replica = 2;
-// range_id specifies the ID of the Raft consensus group which the key
-// range belongs to. This is used by the receiving node to route the
-// request to the correct range.
-int64 range_id = 3 [(gogoproto.customname) = "GroupID", (gogoproto.casttype) = "GroupID"];
-// user_priority allows any command's priority to be biased from the
-// default random priority. It specifies a multiple. If set to 0.5,
-// the chosen priority will be 1/2x as likely to beat any default
-// random priority. If set to 1, a default random priority is
-// chosen. If set to 2, the chosen priority will be 2x as likely to
-// beat any default random priority, and so on. As a special case, 0
-// priority is treated the same as 1. This value is ignored if txn
-// is specified. The min and max user priorities are set via
-// MinUserPriority and MaxUserPriority in data.go.
-double user_priority = 4 [(gogoproto.casttype) = "UserPriority"];
-// If set, return_range_info causes RangeInfo details to be returned with
-// each ResponseHeader.
-bool return_range_info = 10 ;
-// gateway_node_id is the ID of the gateway node where the request originated.
-int32 gateway_node_id = 11 [(gogoproto.customname) = "GatewayNodeID", (gogoproto.casttype) = "NodeID"];
+    reserved 7;
+    // replica specifies the destination of the request.
+    ReplicaDescriptor replica = 2;
+    // range_id specifies the ID of the Raft consensus group which the key
+    // range belongs to. This is used by the receiving node to route the
+    // request to the correct range.
+    string group_id = 3 [(gogoproto.customname) = "GroupID", (gogoproto.casttype) = "GroupID"];
 }
 
 
@@ -180,7 +165,7 @@ uint64 index = 1;
 // The header specifies a span, start and end keys, but not the range id
 // itself. The range may have changed from the one specified in the header
 // in the case of a merge.
-int64 range_id = 2 [(gogoproto.customname) = "GroupID", (gogoproto.casttype) = "GroupID"];
+string group_id = 2 [(gogoproto.customname) = "GroupID", (gogoproto.casttype) = "GroupID"];
 }
 
 // WriteBatch is the serialized representation of a RocksDB write

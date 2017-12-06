@@ -1,12 +1,16 @@
 syntax = "proto3";
-import "gogoproto/gogo.proto";
 
-package multiraftbase;
+
+package nentropy.multiraftbase;
+option go_package = "multiraftbase";
+
+import "gogoproto/gogo.proto";
 
 // A NodeUnavailableError indicates that the sending gateway can
 // not process requests at the time, and that the client should
 // retry the request with another peer.
 message NodeUnavailableError {
+    option (gogoproto.equal) = true;
 }
 
 // A RangeNotFoundError indicates that a command was sent to a range
@@ -18,6 +22,7 @@ message PgNotFoundError {
 // A SendError indicates that a message could not be delivered to
 // the desired recipient(s).
 message SendError {
+    option (gogoproto.equal) = true;
     string message = 1;
     reserved 2;
 }
@@ -25,6 +30,7 @@ message SendError {
 // An AmbiguousResultError indicates that a request may have succeeded or
 // failed, but the response was not received and the final result is ambiguous.
 message AmbiguousResultError {
+    option (gogoproto.equal) = true;
     string message = 1;
     // This can be set to give extra information about which error was converted
     // into an AmbiguousResultError. Useful for tests.
@@ -34,11 +40,13 @@ message AmbiguousResultError {
 // A RaftGroupDeletedError indicates a raft group has been deleted for
 // the replica.
 message RaftGroupDeletedError {
+    option (gogoproto.equal) = true;
 }
 
 // A ReplicaCorruptionError indicates that the replica has experienced
 // an error which puts its integrity at risk.
 message ReplicaCorruptionError {
+    option (gogoproto.equal) = true;
     string error_msg = 1;
     // processed indicates that the error has been taken into account and
     // necessary steps will be taken. For now, required for testing.
@@ -56,7 +64,24 @@ message ReplicaTooOldError {
 }
 
 message NodeNotReadyError {
+    option (gogoproto.equal) = true;
     string node_id = 1[(gogoproto.customname) = "NodeID", (gogoproto.casttype) = "NodeID"];
+}
+
+// A GroupNotFoundError indicates that a command was sent to a range
+// which is not hosted on this store.
+message GroupNotFoundError {
+    option (gogoproto.equal) = true;
+
+    string group_id = 1 [(gogoproto.customname) = "GroupID", (gogoproto.casttype) = "GroupID"];
+}
+
+// A StoreNotFoundError indicates that a command was sent to a store
+// which is not hosted on this node.
+message StoreNotFoundError {
+    option (gogoproto.equal) = true;
+
+    int64 store_id = 1 [(gogoproto.customname) = "StoreID", (gogoproto.casttype) = "StoreID"];
 }
 
 // ErrorDetail is a union type containing all available errors.
@@ -81,6 +106,7 @@ message ErrorDetail {
 // primitive field would break compatibility with proto3, where primitive fields
 // are no longer allowed to be nullable.
 message ErrPosition {
+    option (gogoproto.equal) = true;
     int32 index = 1;
 }
 
@@ -105,19 +131,4 @@ message Error {
     // now is the current time at the node sending the response,
     // which can be used by the receiver to update its local HLC.
 
-}
-// A GroupNotFoundError indicates that a command was sent to a range
-// which is not hosted on this store.
-message GroupNotFoundError {
-  option (gogoproto.equal) = true;
-
-  int64 group_id = 1 [(gogoproto.customname) = "GroupID", (gogoproto.casttype) = "GroupID"];
-}
-
-// A StoreNotFoundError indicates that a command was sent to a store
-// which is not hosted on this node.
-message StoreNotFoundError {
-    option (gogoproto.equal) = true;
-
-    int64 store_id = 1 [(gogoproto.customname) = "StoreID", (gogoproto.casttype) = "StoreID"];
 }

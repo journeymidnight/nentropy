@@ -67,9 +67,3 @@ func (ac *AmbientContext) ResetAndAnnotateCtx(ctx context.Context) context.Conte
 		return ctx
 	}
 }
-
-// TODO(radu): remove once they start getting used.
-var _ = AmbientContext{}.Tracer
-var _ = (*AmbientContext).AddLogTagInt
-var _ = (*AmbientContext).AddLogTagInt64
-var _ = (*AmbientContext).AddLogTagStr

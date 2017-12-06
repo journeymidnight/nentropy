@@ -14,16 +14,6 @@
 
 package engine
 
-import (
-	"golang.org/x/net/context"
-
-	"github.com/cockroachdb/cockroach/pkg/roachpb"
-	"github.com/cockroachdb/cockroach/pkg/storage/engine/enginepb"
-	"github.com/cockroachdb/cockroach/pkg/util/hlc"
-	"github.com/cockroachdb/cockroach/pkg/util/protoutil"
-	"github.com/journeymidnight/nentropy/multiraft/multiraftbase"
-)
-
 // Reader is the read interface to an engine's data.
 type Reader interface {
 	// Close closes the reader, freeing up any outstanding resources. Note that
@@ -97,36 +87,3 @@ type Stats struct {
 	TableReadersMemEstimate        int64
 	PendingCompactionBytesEstimate int64
 }
-
-// PutProto sets the given key to the protobuf-serialized byte string
-// of msg and the provided timestamp. Returns the length in bytes of
-// key and the value.
-//func PutProto(
-//	engine Writer, key MVCCKey, msg protoutil.Message,
-//) (keyBytes, valBytes int64, err error) {
-//	bytes, err := protoutil.Marshal(msg)
-//	if err != nil {
-//		return 0, 0, err
-//	}
-//
-//	if err := engine.Put(key, bytes); err != nil {
-//		return 0, 0, err
-//	}
-//
-//	return int64(key.EncodedSize()), int64(len(bytes)), nil
-//}
-//
-//// Scan returns up to max key/value objects starting from
-//// start (inclusive) and ending at end (non-inclusive).
-//// Specify max=0 for unbounded scans.
-//func Scan(engine Reader, start, end MVCCKey, max int64) ([]MVCCKeyValue, error) {
-//	var kvs []MVCCKeyValue
-//	err := engine.Iterate(start, end, func(kv MVCCKeyValue) (bool, error) {
-//		if max != 0 && int64(len(kvs)) >= max {
-//			return true, nil
-//		}
-//		kvs = append(kvs, kv)
-//		return false, nil
-//	})
-//	return kvs, err
-//}

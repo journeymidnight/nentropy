@@ -4,7 +4,6 @@ import (
 	"github.com/dgraph-io/badger"
 	"github.com/dgraph-io/badger/options"
 	"github.com/journeymidnight/nentropy/helper"
-	"sync"
 )
 
 type BadgerDB struct {

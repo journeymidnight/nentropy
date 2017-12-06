@@ -18,6 +18,14 @@ func (e *internalError) message(_ *Error) string {
 	return (*Error)(e).String()
 }
 
+// String implements fmt.Stringer.
+func (e *Error) String() string {
+	if e == nil {
+		return "<nil>"
+	}
+	return e.Message
+}
+
 // NewError creates an Error from the given error.
 func NewError(err error) *Error {
 	if err == nil {
@@ -31,28 +39,6 @@ func NewError(err error) *Error {
 	}
 
 	return e
-}
-
-func (this *ErrorDetail) SetValue(value interface{}) bool {
-	switch vt := value.(type) {
-	case *NodeUnavailableError:
-		this.NodeUnavailable = vt
-	case *NodeNotReadyError:
-		this.NodeNotReady = vt
-	case *SendError:
-		this.Send = vt
-	case *RaftGroupDeletedError:
-		this.RaftGroupDeleted = vt
-	case *ReplicaCorruptionError:
-		this.ReplicaCorruption = vt
-	case *ReplicaTooOldError:
-		this.ReplicaTooOld = vt
-	case *AmbiguousResultError:
-		this.AmbiguousResult = vt
-	default:
-		return false
-	}
-	return true
 }
 
 // setGoError sets Error using err.
@@ -85,7 +71,7 @@ func (e *NodeNotReadyError) Error() string {
 }
 
 func (e *NodeNotReadyError) message(_ *Error) string {
-	return fmt.Sprintf("node %s was not ready", e.NodeId)
+	return fmt.Sprintf("node %s was not ready", e.NodeID)
 }
 
 // NewGroupNotFoundError initializes a new GroupNotFoundError.
