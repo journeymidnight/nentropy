@@ -76,7 +76,11 @@ func loadTruncatedState(
 func (rsl replicaStateLoader) setHardState(
 	ctx context.Context, batch engine.ReadWriter, st raftpb.HardState,
 ) error {
-	return batch.Put(rsl.RaftHardStateKey(), st)
+	data, err := st.Marshal()
+	if err != nil {
+		return err
+	}
+	return batch.Put(rsl.RaftHardStateKey(), data)
 }
 
 // loadAppliedIndex returns the Raft applied index and the lease applied index.
@@ -149,8 +153,8 @@ func (rsl replicaStateLoader) loadLastIndex(
 		return 0, err
 	}
 	if v != nil {
-		int64LastIndex, err := binary.Varint(v)
-		if err != nil {
+		int64LastIndex, count := binary.Varint(v)
+		if count == 0 {
 			return 0, err
 		}
 		lastIndex = uint64(int64LastIndex)

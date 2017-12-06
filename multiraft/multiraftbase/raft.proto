@@ -61,7 +61,7 @@ message RaftMessageRequest {
 }
 
 message RaftMessageRequestBatch {
-    repeated RaftMessageRequest requests = 1;
+    repeated RaftMessageRequest requests = 1[(gogoproto.nullable) = false];
 }
 
 message RaftMessageResponseUnion {

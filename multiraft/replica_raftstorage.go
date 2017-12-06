@@ -362,8 +362,6 @@ func (r *Replica) append(
 		return 0, 0, 0, err
 	}
 
-	raftLogSize := prevRaftLogSize + diff.SysBytes
-
 	return lastIndex, lastTerm, 0, nil
 }
 

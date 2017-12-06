@@ -606,7 +606,7 @@ func (r *Replica) withRaftGroupLocked(
 		return nil
 	}
 
-	_ := r.AnnotateCtx(context.TODO())
+	ctx := r.AnnotateCtx(context.TODO())
 
 	if r.mu.internalRaftGroup == nil {
 		raftGroup, err := raft.NewRawNode(newRaftConfig(
@@ -614,7 +614,7 @@ func (r *Replica) withRaftGroupLocked(
 			uint64(r.mu.replicaID),
 			r.mu.state.RaftAppliedIndex,
 			r.store.cfg,
-			log.RaftLogger{helper.Logger},
+			log.NewRaftLogger(helper.Logger),
 		), nil)
 		if err != nil {
 			return err
@@ -943,5 +943,5 @@ func (r *Replica) setEstimatedCommitIndexLocked(commit uint64) {
 func (r *Replica) Send(
 	ctx context.Context, ba multiraftbase.BatchRequest,
 ) (*multiraftbase.BatchResponse, *multiraftbase.Error) {
-
+	return nil, nil
 }

@@ -117,7 +117,7 @@ type RaftMessageHandler interface {
 type NodeAddressResolver func(id string) (net.Addr, error)
 
 type raftTransportStats struct {
-	nodeID        string //like osd.1 or mon.1
+	nodeID        multiraftbase.NodeID //like osd.1 or mon.1
 	queue         int
 	queueMax      int32
 	clientSent    int64
@@ -150,7 +150,7 @@ type RaftTransport struct {
 	rpcContext *rpc.Context
 	queues     sync.Map // map[string]*chan *RaftMessageRequest
 	stats      sync.Map // map[string]*raftTransportStats
-	handler    *RaftMessageHandler
+	handler    RaftMessageHandler
 	conns      sync.Map
 }
 
@@ -182,7 +182,7 @@ func NewRaftTransport(
 		t.rpcContext.Stopper.RunWorker(ctx, func(ctx context.Context) {
 			ticker := time.NewTicker(10 * time.Second)
 			defer ticker.Stop()
-			lastStats := make(map[string]raftTransportStats)
+			lastStats := make(map[multiraftbase.NodeID]raftTransportStats)
 			lastTime := timeutil.Now()
 			var stats raftTransportStatsSlice
 			for {
@@ -190,15 +190,26 @@ func NewRaftTransport(
 				case <-ticker.C:
 					stats = stats[:0]
 					t.stats.Range(func(k, v interface{}) bool {
-						s := (*raftTransportStats)(v)
+						s, ok := v.(*raftTransportStats)
+						if !ok {
+							return false
+						}
 						s.queue = 0
 						stats = append(stats, s)
 						return true
 					})
 
 					t.queues.Range(func(k, v interface{}) bool {
-						ch := *(*chan *multiraftbase.RaftMessageRequest)(v)
-						t.getStats(string(k)).queue += len(ch)
+						value, ok := v.(*chan *multiraftbase.RaftMessageRequest)
+						if !ok {
+							return false
+						}
+						ch := *value
+						key, ok := k.(multiraftbase.NodeID)
+						if !ok {
+							return false
+						}
+						t.getStats(key).queue += len(ch)
 						return true
 					})
 
@@ -246,7 +257,11 @@ func NewRaftTransport(
 func (t *RaftTransport) queuedMessageCount() int64 {
 	var n int64
 	t.queues.Range(func(k, v interface{}) bool {
-		ch := *(*chan *multiraftbase.RaftMessageRequest)(v)
+		value, ok := v.(*chan *multiraftbase.RaftMessageRequest)
+		if !ok {
+			return false
+		}
+		ch := *value
 		n += int64(len(ch))
 		return true
 	})
@@ -290,13 +305,17 @@ func newRaftMessageResponse(req *multiraftbase.RaftMessageRequest, err *multiraf
 	return resp
 }
 
-func (t *RaftTransport) getStats(nodeID string) *raftTransportStats {
+func (t *RaftTransport) getStats(nodeID multiraftbase.NodeID) *raftTransportStats {
 	value, ok := t.stats.Load(nodeID)
 	if ok == false {
 		stats := &raftTransportStats{nodeID: nodeID}
 		value, _ = t.stats.LoadOrStore(nodeID, stats)
 	}
-	return (*raftTransportStats)(value)
+	ch, ok := value.(*raftTransportStats)
+	if !ok {
+		return nil
+	}
+	return ch
 }
 
 // RaftMessageBatch proxies the incoming requests to the listening server interface.
@@ -323,7 +342,7 @@ func (t *RaftTransport) RaftMessageBatch(stream multiraftbase.MultiRaft_RaftMess
 				}
 
 				for i := range batch.Requests {
-					req := batch.Requests[i]
+					req := &batch.Requests[i]
 					atomic.AddInt64(&stats.serverRecv, 1)
 					if pErr := t.handleRaftRequest(ctx, req, stream); pErr != nil {
 						atomic.AddInt64(&stats.serverSent, 1)
@@ -349,7 +368,7 @@ func (t *RaftTransport) RaftSnapshot(stream multiraftbase.MultiRaft_RaftSnapshot
 
 // Listen registers a raftMessageHandler to receive proxied messages.
 func (t *RaftTransport) Listen(handler RaftMessageHandler) {
-	t.handler = &handler
+	t.handler = handler
 }
 
 // Stop unregisters a raftMessageHandler.
@@ -364,12 +383,12 @@ func (t *RaftTransport) Stop() {
 // incoming raft messages and report unreachable status to the raft group.
 func (t *RaftTransport) connectAndProcess(
 	ctx context.Context,
-	nodeID string,
+	nodeID multiraftbase.NodeID,
 	ch chan *multiraftbase.RaftMessageRequest,
 	stats *raftTransportStats,
 ) {
 	if err := func() error {
-		addr, err := t.resolver(nodeID)
+		addr, err := t.resolver(string(nodeID))
 		if err != nil {
 			return err
 		}
@@ -396,7 +415,7 @@ func (t *RaftTransport) connectAndProcess(
 // lost and a new instance of processQueue will be started by the next message
 // to be sent.
 func (t *RaftTransport) processQueue(
-	nodeID string,
+	nodeID multiraftbase.NodeID,
 	ch chan *multiraftbase.RaftMessageRequest,
 	stats *raftTransportStats,
 	stream multiraftbase.MultiRaft_RaftMessageBatchClient,
@@ -444,7 +463,7 @@ func (t *RaftTransport) processQueue(
 		case err := <-errCh:
 			return err
 		case req := <-ch:
-			batch.Requests = append(batch.Requests, req)
+			batch.Requests = append(batch.Requests, *req)
 
 			// Pull off as many queued requests as possible.
 			//
@@ -452,7 +471,7 @@ func (t *RaftTransport) processQueue(
 			for done := false; !done; {
 				select {
 				case req = <-ch:
-					batch.Requests = append(batch.Requests, req)
+					batch.Requests = append(batch.Requests, *req)
 				default:
 					done = true
 				}
@@ -471,15 +490,23 @@ func (t *RaftTransport) processQueue(
 
 // getQueue returns the queue for the specified node ID and a boolean
 // indicating whether the queue already exists (true) or was created (false).
-func (t *RaftTransport) getQueue(nodeID string) (chan *multiraftbase.RaftMessageRequest, bool) {
+func (t *RaftTransport) getQueue(nodeID multiraftbase.NodeID) (chan *multiraftbase.RaftMessageRequest, bool) {
 	value, ok := t.queues.Load(nodeID)
-	if ok == false {
+	if !ok {
 		ch := make(chan *multiraftbase.RaftMessageRequest, raftSendBufferSize)
 
-		value, ok := t.queues.LoadOrStore(string(nodeID), unsafe.Pointer(&ch))
-		return *(*chan *multiraftbase.RaftMessageRequest)(value), ok
+		value, ok := t.queues.LoadOrStore(nodeID, unsafe.Pointer(&ch))
+		_, ok = value.(*chan *multiraftbase.RaftMessageRequest)
+		if !ok {
+			return nil, false
+		}
+		return ch, ok
 	}
-	return *(*chan *multiraftbase.RaftMessageRequest)(value), true
+	ch, ok := value.(*chan *multiraftbase.RaftMessageRequest)
+	if !ok {
+		return nil, false
+	}
+	return *ch, true
 }
 
 // SendAsync sends a message to the recipient specified in the request. It

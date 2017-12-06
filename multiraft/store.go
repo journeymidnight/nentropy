@@ -94,7 +94,10 @@ func (s *Store) processReady(ctx context.Context, id multiraftbase.GroupID) {
 	}
 
 	start := timeutil.Now()
-	r := (*Replica)(value)
+	r, ok := value.(*Replica)
+	if !ok {
+		return
+	}
 	stats, expl, err := r.handleRaftReady(IncomingSnapshot{})
 
 	if err != nil {
@@ -634,7 +637,7 @@ func (s *Store) HandleRaftResponse(ctx context.Context, resp *multiraftbase.Raft
 }
 
 func newRaftConfig(
-	strg raft.Storage, id uint64, appliedIndex uint64, storeCfg StoreConfig, logger log.RaftLogger,
+	strg raft.Storage, id uint64, appliedIndex uint64, storeCfg StoreConfig, logger raft.Logger,
 ) *raft.Config {
 	return &raft.Config{
 		ID:            id,
@@ -642,7 +645,7 @@ func newRaftConfig(
 		ElectionTick:  storeCfg.RaftElectionTimeoutTicks,
 		HeartbeatTick: storeCfg.RaftHeartbeatIntervalTicks,
 		Storage:       strg,
-		Logger:        &logger,
+		Logger:        logger,
 
 		// TODO(bdarnell): PreVote and CheckQuorum are two ways of
 		// achieving the same thing. PreVote is more compatible with
