@@ -2,7 +2,6 @@ package multiraft
 
 import (
 	"fmt"
-	"github.com/cockroachdb/cockroach/pkg/roachpb"
 	"github.com/coreos/etcd/raft"
 	"github.com/coreos/etcd/raft/raftpb"
 	"github.com/journeymidnight/nentropy/base"
@@ -787,7 +786,7 @@ func (s *Store) BootstrapGroup(initialValues []multiraftbase.KeyValue, group *mu
 			uint64(r.mu.replicaID),
 			r.mu.state.RaftAppliedIndex,
 			r.store.cfg,
-			*helper.Logger.Logger,
+			log.RaftLogger{helper.Logger},
 		), peers)
 		if err != nil {
 			return err

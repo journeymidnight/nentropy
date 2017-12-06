@@ -108,7 +108,7 @@ message KeyValue {
 // store-reserved system key (KeyLocalIdent).
 message StoreIdent {
   bytes cluster_id = 1 [(gogoproto.customname) = "ClusterID",
-      (gogoproto.customtype) = "ggithub.com/journeymidnight/nentropy/util/uuid.UUID"];
+      (gogoproto.customtype) = "github.com/journeymidnight/nentropy/util/uuid.UUID"];
   int32 node_id = 2 [(gogoproto.customname) = "NodeID", (gogoproto.casttype) = "NodeID"];
   int32 store_id = 3 [(gogoproto.customname) = "StoreID", (gogoproto.casttype) = "StoreID"];
 }

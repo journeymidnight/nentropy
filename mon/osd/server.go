@@ -1,7 +1,6 @@
 package main
 
 import (
-	"github.com/cockroachdb/cockroach/pkg/roachpb"
 	"github.com/cockroachdb/cockroach/pkg/util/netutil"
 	"github.com/journeymidnight/nentropy/helper"
 	"github.com/journeymidnight/nentropy/memberlist"
@@ -52,7 +51,7 @@ func NewOsdServer(ctx context.Context, cfg Config, stopper *stop.Stopper) (*OsdS
 	// is constructed. The node ID is set by the Store if this host was
 	// bootstrapped; otherwise a new one is allocated in Node.
 	s.rpcContext = rpc.NewContext(s.cfg.Config, s.stopper)
-	s.grpc = rpc.NewServer(s.rpcContext)
+	s.grpc = rpc.NewServer()
 
 	//init member list here
 	memberlist.Init(false, (uint64)(cfg.id), cfg.AdvertiseAddr, logger.Logger)

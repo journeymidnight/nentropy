@@ -6,6 +6,12 @@
 
 	It is generated from these files:
 		api.proto
+		config.proto
+		error.proto
+		internal_raft.proto
+		metadata.proto
+		raft.proto
+		state.proto
 
 	It has these top-level messages:
 		ResponseHeader
@@ -21,15 +27,51 @@
 		TruncateLogRequest
 		WriteBatch
 		RaftCommand
+		SystemConfig
+		NodeUnavailableError
+		PgNotFoundError
+		SendError
+		AmbiguousResultError
+		RaftGroupDeletedError
+		ReplicaCorruptionError
+		ReplicaTooOldError
+		NodeNotReadyError
+		ErrorDetail
+		ErrPosition
+		Error
+		GroupNotFoundError
+		StoreNotFoundError
+		RaftTombstone
+		RaftSnapshotData
+		Attributes
+		ReplicationTarget
+		ReplicaDescriptor
+		ReplicaIdent
+		GroupDescriptor
+		StoreCapacity
+		NodeDescriptor
+		StoreDescriptor
+		StoreDeadReplicas
+		Value
+		KeyValue
+		StoreIdent
+		RaftHeartbeat
+		RaftMessageRequest
+		RaftMessageRequestBatch
+		RaftMessageResponseUnion
+		RaftMessageResponse
+		SnapshotRequest
+		SnapshotResponse
+		ConfChangeContext
+		RaftTruncatedState
+		ReplicaState
+		PgInfo
 */
 package multiraftbase
 
 import proto "github.com/golang/protobuf/proto"
 import fmt "fmt"
 import math "math"
-import multiraftbase1 "."
-import multiraftbase2 "."
-import multiraftbase3 "."
 import _ "gogoproto"
 
 import (
@@ -91,7 +133,7 @@ type ResponseHeader struct {
 	NumKeys int64 `protobuf:"varint,1,opt,name=num_keys,json=numKeys,proto3" json:"num_keys,omitempty"`
 	// Range or list of ranges used to execute the request. Multiple
 	// ranges may be returned for Scan, ReverseScan or DeleteRange.
-	PgInfos []*multiraftbase2.PgInfo `protobuf:"bytes,2,rep,name=pg_infos,json=pgInfos" json:"pg_infos,omitempty"`
+	PgInfos []*PgInfo `protobuf:"bytes,2,rep,name=pg_infos,json=pgInfos" json:"pg_infos,omitempty"`
 }
 
 func (m *ResponseHeader) Reset()                    { *m = ResponseHeader{} }
@@ -106,7 +148,7 @@ func (m *ResponseHeader) GetNumKeys() int64 {
 	return 0
 }
 
-func (m *ResponseHeader) GetPgInfos() []*multiraftbase2.PgInfo {
+func (m *ResponseHeader) GetPgInfos() []*PgInfo {
 	if m != nil {
 		return m.PgInfos
 	}
@@ -134,7 +176,7 @@ func (m *GetRequest) GetNumKeys() int64 {
 // If the key doesn't exist, returns nil for Value.Bytes.
 type GetResponse struct {
 	ResponseHeader `protobuf:"bytes,1,opt,name=header,embedded=header" json:"header"`
-	Value          *multiraftbase1.Value `protobuf:"bytes,2,opt,name=value" json:"value,omitempty"`
+	Value          *Value `protobuf:"bytes,2,opt,name=value" json:"value,omitempty"`
 }
 
 func (m *GetResponse) Reset()                    { *m = GetResponse{} }
@@ -142,7 +184,7 @@ func (m *GetResponse) String() string            { return proto.CompactTextStrin
 func (*GetResponse) ProtoMessage()               {}
 func (*GetResponse) Descriptor() ([]byte, []int) { return fileDescriptorApi, []int{2} }
 
-func (m *GetResponse) GetValue() *multiraftbase1.Value {
+func (m *GetResponse) GetValue() *Value {
 	if m != nil {
 		return m.Value
 	}
@@ -151,7 +193,7 @@ func (m *GetResponse) GetValue() *multiraftbase1.Value {
 
 // A PutRequest is the argument to the Put() method.
 type PutRequest struct {
-	Value *multiraftbase1.Value `protobuf:"bytes,1,opt,name=value" json:"value,omitempty"`
+	Value *Value `protobuf:"bytes,1,opt,name=value" json:"value,omitempty"`
 	// Specify as true to put the value without a corresponding
 	// timestamp. This option should be used with care as it precludes
 	// the use of this value with transactions.
@@ -167,7 +209,7 @@ func (m *PutRequest) String() string            { return proto.CompactTextString
 func (*PutRequest) ProtoMessage()               {}
 func (*PutRequest) Descriptor() ([]byte, []int) { return fileDescriptorApi, []int{3} }
 
-func (m *PutRequest) GetValue() *multiraftbase1.Value {
+func (m *PutRequest) GetValue() *Value {
 	if m != nil {
 		return m.Value
 	}
@@ -267,7 +309,7 @@ func (m *ResponseUnion) GetPut() *PutResponse {
 // information required for executing it.
 type Header struct {
 	// replica specifies the destination of the request.
-	Replica *multiraftbase1.ReplicaDescriptor `protobuf:"bytes,2,opt,name=replica" json:"replica,omitempty"`
+	Replica *ReplicaDescriptor `protobuf:"bytes,2,opt,name=replica" json:"replica,omitempty"`
 	// range_id specifies the ID of the Raft consensus group which the key
 	// range belongs to. This is used by the receiving node to route the
 	// request to the correct range.
@@ -294,7 +336,7 @@ func (m *Header) String() string            { return proto.CompactTextString(m) 
 func (*Header) ProtoMessage()               {}
 func (*Header) Descriptor() ([]byte, []int) { return fileDescriptorApi, []int{7} }
 
-func (m *Header) GetReplica() *multiraftbase1.ReplicaDescriptor {
+func (m *Header) GetReplica() *ReplicaDescriptor {
 	if m != nil {
 		return m.Replica
 	}
@@ -370,7 +412,7 @@ func (m *BatchResponse) GetResponses() []*ResponseUnion {
 
 type BatchResponse_Header struct {
 	// error is non-nil if an error occurred.
-	Error *multiraftbase3.Error `protobuf:"bytes,1,opt,name=error" json:"error,omitempty"`
+	Error *Error `protobuf:"bytes,1,opt,name=error" json:"error,omitempty"`
 }
 
 func (m *BatchResponse_Header) Reset()                    { *m = BatchResponse_Header{} }
@@ -378,7 +420,7 @@ func (m *BatchResponse_Header) String() string            { return proto.Compact
 func (*BatchResponse_Header) ProtoMessage()               {}
 func (*BatchResponse_Header) Descriptor() ([]byte, []int) { return fileDescriptorApi, []int{9, 0} }
 
-func (m *BatchResponse_Header) GetError() *multiraftbase3.Error {
+func (m *BatchResponse_Header) GetError() *Error {
 	if m != nil {
 		return m.Error
 	}
@@ -447,8 +489,8 @@ func (m *WriteBatch) GetData() []byte {
 type RaftCommand struct {
 	// proposer_replica is the replica which proposed this command, to be
 	// used for lease validation.
-	ProposerReplica *multiraftbase1.ReplicaDescriptor `protobuf:"bytes,1,opt,name=proposer_replica,json=proposerReplica" json:"proposer_replica,omitempty"`
-	WriteBatch      *WriteBatch                       `protobuf:"bytes,2,opt,name=write_batch,json=writeBatch" json:"write_batch,omitempty"`
+	ProposerReplica *ReplicaDescriptor `protobuf:"bytes,1,opt,name=proposer_replica,json=proposerReplica" json:"proposer_replica,omitempty"`
+	WriteBatch      *WriteBatch        `protobuf:"bytes,2,opt,name=write_batch,json=writeBatch" json:"write_batch,omitempty"`
 }
 
 func (m *RaftCommand) Reset()                    { *m = RaftCommand{} }
@@ -456,7 +498,7 @@ func (m *RaftCommand) String() string            { return proto.CompactTextStrin
 func (*RaftCommand) ProtoMessage()               {}
 func (*RaftCommand) Descriptor() ([]byte, []int) { return fileDescriptorApi, []int{12} }
 
-func (m *RaftCommand) GetProposerReplica() *multiraftbase1.ReplicaDescriptor {
+func (m *RaftCommand) GetProposerReplica() *ReplicaDescriptor {
 	if m != nil {
 		return m.ProposerReplica
 	}
@@ -1558,7 +1600,7 @@ func (m *ResponseHeader) Unmarshal(dAtA []byte) error {
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			m.PgInfos = append(m.PgInfos, &multiraftbase2.PgInfo{})
+			m.PgInfos = append(m.PgInfos, &PgInfo{})
 			if err := m.PgInfos[len(m.PgInfos)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
 				return err
 			}
@@ -1739,7 +1781,7 @@ func (m *GetResponse) Unmarshal(dAtA []byte) error {
 				return io.ErrUnexpectedEOF
 			}
 			if m.Value == nil {
-				m.Value = &multiraftbase1.Value{}
+				m.Value = &Value{}
 			}
 			if err := m.Value.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
 				return err
@@ -1822,7 +1864,7 @@ func (m *PutRequest) Unmarshal(dAtA []byte) error {
 				return io.ErrUnexpectedEOF
 			}
 			if m.Value == nil {
-				m.Value = &multiraftbase1.Value{}
+				m.Value = &Value{}
 			}
 			if err := m.Value.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
 				return err
@@ -2257,7 +2299,7 @@ func (m *Header) Unmarshal(dAtA []byte) error {
 				return io.ErrUnexpectedEOF
 			}
 			if m.Replica == nil {
-				m.Replica = &multiraftbase1.ReplicaDescriptor{}
+				m.Replica = &ReplicaDescriptor{}
 			}
 			if err := m.Replica.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
 				return err
@@ -2641,7 +2683,7 @@ func (m *BatchResponse_Header) Unmarshal(dAtA []byte) error {
 				return io.ErrUnexpectedEOF
 			}
 			if m.Error == nil {
-				m.Error = &multiraftbase3.Error{}
+				m.Error = &Error{}
 			}
 			if err := m.Error.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
 				return err
@@ -2893,7 +2935,7 @@ func (m *RaftCommand) Unmarshal(dAtA []byte) error {
 				return io.ErrUnexpectedEOF
 			}
 			if m.ProposerReplica == nil {
-				m.ProposerReplica = &multiraftbase1.ReplicaDescriptor{}
+				m.ProposerReplica = &ReplicaDescriptor{}
 			}
 			if err := m.ProposerReplica.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
 				return err

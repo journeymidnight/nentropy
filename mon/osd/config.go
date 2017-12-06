@@ -19,16 +19,11 @@ package main
 import (
 	"flag"
 	"fmt"
-	"github.com/cockroachdb/cockroach/pkg/storage"
-	"github.com/cockroachdb/cockroach/pkg/util/humanizeutil"
-	"github.com/elastic/gosigar"
 	"github.com/journeymidnight/nentropy/base"
 	"github.com/journeymidnight/nentropy/helper"
 	"github.com/journeymidnight/nentropy/log"
 	"github.com/journeymidnight/nentropy/storage/engine"
-	"github.com/pkg/errors"
 	"golang.org/x/net/context"
-	"time"
 )
 
 var DefaultConfig = Config{

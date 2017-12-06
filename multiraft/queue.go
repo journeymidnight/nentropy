@@ -8,7 +8,6 @@ import (
 
 	"github.com/journeymidnight/nentropy/helper"
 	"github.com/journeymidnight/nentropy/multiraft/multiraftbase"
-	"github.com/journeymidnight/nentropy/multiraftbase"
 	"github.com/pkg/errors"
 	"golang.org/x/net/context"
 

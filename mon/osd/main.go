@@ -3,9 +3,9 @@ package main
 import (
 	"errors"
 	"fmt"
-	"github.com/cockroachdb/cockroach/pkg/util/stop"
 	"github.com/journeymidnight/nentropy/helper"
 	"github.com/journeymidnight/nentropy/log"
+	"github.com/journeymidnight/nentropy/util/stop"
 	"golang.org/x/net/context"
 	"net"
 	"os"
