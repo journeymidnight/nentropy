@@ -92,7 +92,7 @@ type ListenError struct {
 func (s *OsdServer) Batch(
 	ctx context.Context, args *multiraftbase.BatchRequest,
 ) (*multiraftbase.BatchResponse, error) {
-
+	return nil, nil
 }
 
 // Start starts the server on the specified port, starts gossip and initializes

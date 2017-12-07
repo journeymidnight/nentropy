@@ -372,7 +372,7 @@ func (bq *baseQueue) MaybeRemove(groupID multiraftbase.GroupID) {
 	}
 
 	if item, ok := bq.mu.replicas[groupID]; ok {
-		ctx := bq.AnnotateCtx(context.TODO())
+		//_ := bq.AnnotateCtx(context.TODO())
 		bq.remove(item)
 	}
 }

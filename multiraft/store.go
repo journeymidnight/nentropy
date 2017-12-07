@@ -118,7 +118,10 @@ func (s *Store) processRequestQueue(ctx context.Context, id multiraftbase.GroupI
 	if !ok {
 		return
 	}
-	q := (*raftRequestQueue)(value)
+	q, ok := value.(*raftRequestQueue)
+	if !ok {
+		return
+	}
 	q.Lock()
 	infos := q.infos
 	q.infos = nil
@@ -149,6 +152,7 @@ func (s *Store) Send(
 	ctx context.Context, ba multiraftbase.BatchRequest,
 ) (br *multiraftbase.BatchResponse, pErr *multiraftbase.Error) {
 	// repl.Send()
+	return nil, nil
 }
 
 func (s *Store) processTick(ctx context.Context, id multiraftbase.GroupID) bool {
@@ -158,7 +162,10 @@ func (s *Store) processTick(ctx context.Context, id multiraftbase.GroupID) bool 
 	}
 
 	//start := timeutil.Now()
-	r := (*Replica)(value)
+	r, ok := value.(*Replica)
+	if !ok {
+		return false
+	}
 	exists, err := r.tick()
 	if err != nil {
 		helper.Logger.Println(5, err)
@@ -213,8 +220,16 @@ func (s *Store) raftTickLoop(ctx context.Context) {
 				// Replica on the store which cascades into Raft elections and more
 				// disruption. Replica.maybeTickQuiesced only grabs short-duration
 				// locks and not locks that are held during disk I/O.
-				if !(*Replica)(v).maybeTickQuiesced() {
-					groupIDs = append(groupIDs, multiraftbase.GroupID(k))
+				replica, ok := v.(*Replica)
+				if !ok {
+					return false
+				}
+				if !replica.maybeTickQuiesced() {
+					val, ok := k.(multiraftbase.GroupID)
+					if !ok {
+						return false
+					}
+					groupIDs = append(groupIDs, val)
 				}
 				return true
 			})
@@ -297,12 +312,22 @@ func (s *Store) sendQueuedHeartbeatsToNode(
 	if !s.cfg.Transport.SendAsync(chReq) {
 		for _, beat := range beats {
 			if value, ok := s.mu.replicas.Load(beat.GroupID); ok {
-				(*Replica)(value).addUnreachableRemoteReplica(beat.ToReplicaID)
+				replica, ok := value.(*Replica)
+				if !ok {
+					// TODO:
+					return 0
+				}
+				replica.addUnreachableRemoteReplica(beat.ToReplicaID)
 			}
 		}
 		for _, resp := range resps {
-			if value, ok := s.mu.replicas.Load(int64(resp.GroupID)); ok {
-				(*Replica)(value).addUnreachableRemoteReplica(resp.ToReplicaID)
+			if value, ok := s.mu.replicas.Load(resp.GroupID); ok {
+				replica, ok := value.(*Replica)
+				if !ok {
+					// TODO:
+					return 0
+				}
+				replica.addUnreachableRemoteReplica(resp.ToReplicaID)
 			}
 		}
 		return 0
@@ -423,8 +448,11 @@ func (s *Store) tryGetOrCreateReplica(
 	creatingReplica *multiraftbase.ReplicaDescriptor,
 ) (_ *Replica, created bool, _ error) {
 	// The common case: look up an existing (initialized) replica.
-	if value, ok := s.mu.replicas.Load(int64(groupID)); ok {
-		repl := (*Replica)(value)
+	if value, ok := s.mu.replicas.Load(groupID); ok {
+		repl, ok := value.(*Replica)
+		if !ok {
+			return nil, false, multiraftbase.NewReplicaTooOldError(creatingReplica.ReplicaID)
+		}
 		if creatingReplica != nil {
 			// Drop messages that come from a node that we believe was once a member of
 			// the group but has been removed.
@@ -483,9 +511,9 @@ func (s *Store) tryGetOrCreateReplica(
 		repl.mu.destroyed = errors.New("failed to initialize")
 		repl.mu.Unlock()
 		s.mu.Lock()
-		s.mu.replicas.Delete(int64(groupID))
+		s.mu.replicas.Delete(groupID)
 		delete(s.mu.uninitReplicas, groupID)
-		s.replicaQueues.Delete(int64(groupID))
+		s.replicaQueues.Delete(groupID)
 		s.mu.Unlock()
 		repl.raftMu.Unlock()
 		return nil, false, err
@@ -563,11 +591,14 @@ func (s *Store) HandleRaftUncoalescedRequest(
 		return s.processRaftRequest(ctx, req, IncomingSnapshot{})
 	}
 
-	value, ok := s.replicaQueues.Load(int64(req.GroupID))
+	value, ok := s.replicaQueues.Load(req.GroupID)
 	if !ok {
-		value, _ = s.replicaQueues.LoadOrStore(int64(req.GroupID), unsafe.Pointer(&raftRequestQueue{}))
+		value, _ = s.replicaQueues.LoadOrStore(req.GroupID, unsafe.Pointer(&raftRequestQueue{}))
 	}
-	q := (*raftRequestQueue)(value)
+	q, ok := value.(raftRequestQueue)
+	if !ok {
+		return nil
+	}
 	q.Lock()
 	if len(q.infos) >= 100 {
 		q.Unlock()
@@ -587,8 +618,12 @@ func (s *Store) HandleRaftUncoalescedRequest(
 
 // GetReplica fetches a replica by Range ID. Returns an error if no replica is found.
 func (s *Store) GetReplica(groupID multiraftbase.GroupID) (*Replica, error) {
-	if value, ok := s.mu.replicas.Load(int64(groupID)); ok {
-		return (*Replica)(value), nil
+	if value, ok := s.mu.replicas.Load(groupID); ok {
+		replica, ok := value.(*Replica)
+		if !ok {
+			return nil, errors.New("Error converting type!")
+		}
+		return replica, nil
 	}
 	return nil, multiraftbase.NewGroupNotFoundError(groupID)
 }
@@ -604,7 +639,7 @@ func (s *Store) HandleRaftResponse(ctx context.Context, resp *multiraftbase.Raft
 	ctx = s.AnnotateCtx(ctx)
 	switch val := resp.Union.GetValue().(type) {
 	case *multiraftbase.Error:
-		switch tErr := val.GetDetail().(type) {
+		switch tErr := val.GetDetailType().(type) {
 		case *multiraftbase.ReplicaTooOldError:
 			repl, err := s.GetReplica(resp.GroupID)
 			if err != nil {
@@ -788,7 +823,7 @@ func (s *Store) BootstrapGroup(initialValues []multiraftbase.KeyValue, group *mu
 			uint64(r.mu.replicaID),
 			r.mu.state.RaftAppliedIndex,
 			r.store.cfg,
-			log.RaftLogger{helper.Logger},
+			log.NewRaftLogger(helper.Logger),
 		), peers)
 		if err != nil {
 			return err

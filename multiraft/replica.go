@@ -211,7 +211,7 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 		return stats, "", nil
 	}
 
-	refreshReason := noReason
+	//refreshReason := noReason
 	if rd.SoftState != nil && leaderID != multiraftbase.ReplicaID(rd.SoftState.Lead) {
 		leaderID = multiraftbase.ReplicaID(rd.SoftState.Lead)
 	}
@@ -311,7 +311,7 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 			if len(e.Data) == 0 {
 				// Overwrite unconditionally since this is the most aggressive
 				// reproposal mode.
-				refreshReason = reasonNewLeaderOrConfigChange
+				//refreshReason := reasonNewLeaderOrConfigChange
 				commandID = "" // special-cased value, command isn't used
 			} else {
 				var encodedCommand []byte
@@ -606,7 +606,7 @@ func (r *Replica) withRaftGroupLocked(
 		return nil
 	}
 
-	ctx := r.AnnotateCtx(context.TODO())
+	//_ := r.AnnotateCtx(context.TODO())
 
 	if r.mu.internalRaftGroup == nil {
 		raftGroup, err := raft.NewRawNode(newRaftConfig(
@@ -914,7 +914,7 @@ func (r *Replica) quiesce() bool {
 }
 
 func (r *Replica) quiesceLocked() bool {
-	ctx := r.AnnotateCtx(context.TODO())
+	//_ := r.AnnotateCtx(context.TODO())
 	if len(r.mu.proposals) != 0 {
 		helper.Logger.Printf(5, "not quiescing: %d pending commands", len(r.mu.proposals))
 		return false

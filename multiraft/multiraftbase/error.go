@@ -135,3 +135,20 @@ func (e *ReplicaTooOldError) Error() string {
 func (*ReplicaTooOldError) message(_ *Error) string {
 	return "sender replica too old, discarding message"
 }
+
+// GetDetail returns an error detail associated with the error.
+func (e *Error) GetDetailType() ErrorDetailInterface {
+	if e == nil {
+		return nil
+	}
+	if e.Detail == nil {
+		// Unknown error detail; return the generic error.
+		return (*internalError)(e)
+	}
+
+	if err, ok := e.Detail.GetValue().(ErrorDetailInterface); ok {
+		return err
+	}
+	// Unknown error detail; return the generic error.
+	return (*internalError)(e)
+}
