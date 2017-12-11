@@ -23,15 +23,7 @@ var (
 
 func main() {
 	cfg = MakeConfig()
-	f, err := os.OpenFile(cfg.LogPath, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
-	if err != nil {
-		logger = log.New(os.Stdout, "[nentropy]", log.LstdFlags, cfg.LogLevel)
-		logger.Print(0, "Failed to open log file "+cfg.LogPath)
-	} else {
-		defer f.Close()
-		logger = log.New(f, "[nentropy]", log.LstdFlags, cfg.LogLevel)
-	}
-	helper.Logger = logger
+	logger = helper.Logger
 
 	stopper = stop.NewStopper()
 
@@ -50,7 +42,7 @@ func main() {
 		}()
 		ctx := context.Background()
 		if err := func() error {
-			s, err = NewOsdServer(ctx, *cfg, stopper)
+			s, err := NewOsdServer(ctx, *cfg, stopper)
 			if err != nil {
 				return errors.New("failed to create server")
 			}

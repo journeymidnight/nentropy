@@ -49,11 +49,11 @@ func NewOsdServer(ctx context.Context, cfg Config, stopper *stop.Stopper) (*OsdS
 	// regular tag since it's just doing an (atomic) load when a log/trace message
 	// is constructed. The node ID is set by the Store if this host was
 	// bootstrapped; otherwise a new one is allocated in Node.
-	s.rpcContext = rpc.NewContext(s.cfg.Config, s.stopper)
+	s.rpcContext = rpc.NewContext(&s.cfg.Config, s.stopper)
 	s.grpc = rpc.NewServer()
 
 	//init member list here
-	memberlist.Init(false, (uint64)(cfg.id), cfg.AdvertiseAddr, logger.Logger)
+	memberlist.Init(false, (uint64)(cfg.NodeID), cfg.AdvertiseAddr, logger.Logger)
 
 	s.raftTransport = multiraft.NewRaftTransport(
 		multiraft.GossipAddressResolver(), s.grpc, s.rpcContext,
@@ -101,14 +101,14 @@ func (s *OsdServer) Batch(
 // The passed context can be used to trace the server startup. The context
 // should represent the general startup operation.
 func (s *OsdServer) Start(ctx context.Context) error {
-	ln, err := net.Listen("tcp", s.cfg.Addr)
+	ln, err := net.Listen("tcp", s.cfg.Config.AdvertiseAddr)
 	if err != nil {
 		return ListenError{
 			error: err,
-			Addr:  s.cfg.Addr,
+			Addr:  s.cfg.Config.AdvertiseAddr,
 		}
 	}
-	helper.Logger.Println(5, "listening on port %s", s.cfg.Addr)
+	helper.Logger.Println(5, "listening on port %s", s.cfg.Config.AdvertiseAddr)
 	workersCtx := context.Background()
 	s.stopper.RunWorker(workersCtx, func(context.Context) {
 		<-s.stopper.ShouldQuiesce()

@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"github.com/coreos/etcd/raft"
 	"github.com/coreos/etcd/raft/raftpb"
-	"github.com/journeymidnight/nentropy/base"
 	"github.com/journeymidnight/nentropy/helper"
 	"github.com/journeymidnight/nentropy/log"
 	"github.com/journeymidnight/nentropy/multiraft/keys"
@@ -31,7 +30,7 @@ var storeSchedulerConcurrency = envutil.EnvOrDefaultInt(
 	"NENTROPY_SCHEDULER_CONCURRENCY", 8*runtime.NumCPU())
 
 var enablePreVote = envutil.EnvOrDefaultBool(
-	"COCKROACH_ENABLE_PREVOTE", false)
+	"NENTROPY_ENABLE_PREVOTE", false)
 
 // A StoreConfig encompasses the auxiliary objects and configuration
 // required to create a store.
@@ -39,7 +38,7 @@ var enablePreVote = envutil.EnvOrDefaultBool(
 // a store; the rest will have sane defaults set if omitted.
 type StoreConfig struct {
 	AmbientCtx helper.AmbientContext
-	base.RaftConfig
+	helper.RaftConfig
 	Transport                   *RaftTransport
 	RPCContext                  *rpc.Context
 	RaftHeartbeatIntervalTicks  int

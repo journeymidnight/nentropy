@@ -47,7 +47,7 @@ func checkVarName(name string) {
 	//  - start with COCKROACH_
 	//  - be uppercase
 	//  - only contain letters, digits, and _
-	valid := strings.HasPrefix(name, "COCKROACH_")
+	valid := strings.HasPrefix(name, "NENTROPY_")
 	for i := 0; valid && i < len(name); i++ {
 		c := name[i]
 		valid = ((c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_')

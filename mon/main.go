@@ -73,29 +73,29 @@ func NewServerState() (state ServerState) {
 }
 
 func setupConfigOpts() {
-	helper.CONFIG = helper.DefaultOption
+	helper.CONFIG = helper.DefaultConfig
 
-	flag.StringVar(&helper.CONFIG.WALDir, "w", helper.DefaultOption.WALDir,
+	flag.StringVar(&helper.CONFIG.WALDir, "w", helper.DefaultConfig.WALDir,
 		"Directory to store raft write-ahead logs.")
-	flag.IntVar(&helper.CONFIG.MonPort, "monPort", helper.DefaultOption.MonPort,
+	flag.IntVar(&helper.CONFIG.MonPort, "monPort", helper.DefaultConfig.MonPort,
 		"Port used by mon for internal communication.")
-	flag.IntVar(&helper.CONFIG.NumPendingProposals, "pending_proposals", helper.DefaultOption.NumPendingProposals,
+	flag.IntVar(&helper.CONFIG.NumPendingProposals, "pending_proposals", helper.DefaultConfig.NumPendingProposals,
 		"Number of pending mutation proposals. Useful for rate limiting.")
-	flag.Float64Var(&helper.CONFIG.Tracing, "trace", helper.DefaultOption.Tracing,
+	flag.Float64Var(&helper.CONFIG.Tracing, "trace", helper.DefaultConfig.Tracing,
 		"The ratio of queries to trace.")
-	flag.StringVar(&helper.CONFIG.Monitors, "mons", helper.DefaultOption.Monitors,
+	flag.StringVar(&helper.CONFIG.Monitors, "mons", helper.DefaultConfig.Monitors,
 		"IP_ADDRESS:PORT of any healthy peer.")
-	flag.Uint64Var(&helper.CONFIG.RaftId, "idx", helper.DefaultOption.RaftId,
+	flag.Uint64Var(&helper.CONFIG.RaftId, "idx", helper.DefaultConfig.RaftId,
 		"RAFT ID that this server will use to join RAFT cluster.")
-	flag.Uint64Var(&helper.CONFIG.MaxPendingCount, "sc", helper.DefaultOption.MaxPendingCount,
+	flag.Uint64Var(&helper.CONFIG.MaxPendingCount, "sc", helper.DefaultConfig.MaxPendingCount,
 		"Max number of pending entries in wal after which snapshot is taken")
 	flag.BoolVar(&helper.CONFIG.JoinMon, "joinMon", false,
 		"add the node to the mon cluster.")
-	flag.StringVar(&helper.CONFIG.MyAddr, "my", helper.DefaultOption.MyAddr,
+	flag.StringVar(&helper.CONFIG.MyAddr, "my", helper.DefaultConfig.MyAddr,
 		"addr:port of this server, so other mon servers can talk to this.")
-	flag.IntVar(&helper.CONFIG.MemberBindPort, "memberBindPort", helper.DefaultOption.MemberBindPort,
+	flag.IntVar(&helper.CONFIG.MemberBindPort, "memberBindPort", helper.DefaultConfig.MemberBindPort,
 		"Port used by memberlist for internal communication.")
-	flag.StringVar(&helper.CONFIG.JoinMemberAddr, "joinMemberAddr", helper.DefaultOption.JoinMemberAddr,
+	flag.StringVar(&helper.CONFIG.JoinMemberAddr, "joinMemberAddr", helper.DefaultConfig.JoinMemberAddr,
 		"a valid member addr to join.")
 
 	flag.Parse()

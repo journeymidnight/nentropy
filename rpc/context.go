@@ -2,7 +2,6 @@ package rpc
 
 import (
 	"fmt"
-	"github.com/journeymidnight/nentropy/base"
 	"github.com/journeymidnight/nentropy/helper"
 	"github.com/journeymidnight/nentropy/util/envutil"
 	"github.com/journeymidnight/nentropy/util/stop"
@@ -32,7 +31,7 @@ type connMeta struct {
 // connections. It should only ever be set by testing code, and is not thread
 // safe (so it must be initialized before the server starts).
 var SourceAddr = func() net.Addr {
-	const envKey = "COCKROACH_SOURCE_IP_ADDRESS"
+	const envKey = "NENTROPY_SOURCE_IP_ADDRESS"
 	if sourceAddr, ok := envutil.EnvString(envKey, 0); ok {
 		sourceIP := net.ParseIP(sourceAddr)
 		if sourceIP == nil {
@@ -47,7 +46,7 @@ var SourceAddr = func() net.Addr {
 
 // Context contains the fields required by the rpc framework.
 type Context struct {
-	*base.Config
+	*helper.Config
 
 	Stopper   *stop.Stopper
 	masterCtx context.Context
@@ -57,7 +56,7 @@ type Context struct {
 
 // NewContext creates an rpc Context with the supplied values.
 func NewContext(
-	baseCtx *base.Config, stopper *stop.Stopper) *Context {
+	baseCtx *helper.Config, stopper *stop.Stopper) *Context {
 	ctx := &Context{
 		Config: baseCtx,
 	}
@@ -121,12 +120,12 @@ func (ctx *Context) GRPCDial(target string, opts ...grpc.DialOption) (*grpc.Clie
 		))
 		dialOpts = append(dialOpts, grpc.WithKeepaliveParams(keepalive.ClientParameters{
 			// Send periodic pings on the connection.
-			Time: base.NetworkTimeout,
+			Time: helper.NetworkTimeout,
 			// If the pings don't get a response within the timeout, we might be
 			// experiencing a network partition. gRPC will close the transport-level
 			// connection and all the pending RPCs (which may not have timeouts) will
 			// fail eagerly. gRPC will then reconnect the transport transparently.
-			Timeout: base.NetworkTimeout,
+			Timeout: helper.NetworkTimeout,
 			// Do the pings even when there are no ongoing RPCs.
 			PermitWithoutStream: true,
 		}))

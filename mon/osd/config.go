@@ -17,98 +17,25 @@
 package main
 
 import (
-	"flag"
-	"fmt"
-	"github.com/journeymidnight/nentropy/base"
 	"github.com/journeymidnight/nentropy/helper"
-	"github.com/journeymidnight/nentropy/log"
 	"github.com/journeymidnight/nentropy/storage/engine"
 	"golang.org/x/net/context"
 )
 
-var DefaultConfig = Config{
-	DebugMode:           false,
-	LogLevel:            5,
-	WALDir:              "w",
-	JoinMon:             false,
-	id:                  0,
-	node_type:           "",
-	MonPort:             7900,
-	NumPendingProposals: 2000,
-	Tracing:             0.0,
-	Monitors:            "",
-	MyAddr:              "",
-	MaxPendingCount:     1000,
-	MemberBindPort:      7946,
-	JoinMemberAddr:      "",
-	rpcPort:             0,
-	enginesCreated:      false,
-}
-
-func (c *Config) parseCmdArgs() {
-
-	flag.IntVar(&c.MonPort, "monPort", DefaultConfig.MonPort,
-		"Port used by mon for internal communication.")
-	flag.StringVar(&c.Monitors, "mons", DefaultConfig.Monitors,
-		"IP_ADDRESS:PORT of any healthy peer.")
-	flag.IntVar(&c.MemberBindPort, "memberBindPort", 0,
-		"Port used by memberlist for internal communication.")
-	flag.StringVar(&c.JoinMemberAddr, "joinMemberAddr", DefaultConfig.JoinMemberAddr,
-		"a valid member addr to join.")
-	flag.IntVar(&c.id, "nodeId", DefaultConfig.id,
-		"a unique numbers in cluster [1-256]")
-	flag.StringVar(&c.node_type, "nodeType", DefaultConfig.node_type,
-		"specify node type [osd/mon].")
-	flag.StringVar(&c.AdvertiseAddr, "advertiseAddr", "",
-		"specify rpc listen address, like [10.11.11.11:8888]")
-
-	flag.Parse()
-	if !flag.Parsed() {
-		logger.Fatal(0, "Unable to parse flags")
-	}
-	//TODO: add argument check here
-
-	c.LogPath = fmt.Sprintf("/var/log/nentropy/%s.%d.log", c.node_type, c.id)
-	c.PidFile = fmt.Sprintf("/var/run/nentropy/%s.%d.pid", c.node_type, c.id)
-	c.PanicLogPath = fmt.Sprintf("/var/log/nentropy/%s.%d.panic.log", c.node_type, c.id)
-
-}
+const (
+	GrpcMaxSize = 256 << 20
+)
 
 type Config struct {
 	AmbientCtx helper.AmbientContext
-	*base.Config
-	base.RaftConfig
-	id                  int    //[1-256]
-	node_type           string //osd or mon
-	MonPort             int
-	JoinMon             bool
-	Tracing             float64
-	Monitors            string
-	MyAddr              string
-	rpcPort             int
-	MaxPendingCount     uint64
-	NumPendingProposals uint64
-	Logger              *log.Logger
-	AdvertiseAddr       string
-	MemberBindPort      int
-	JoinMemberAddr      string
-	LogPath             string
-	PanicLogPath        string
-	PidFile             string
-	DebugMode           bool
-	LogLevel            int
-	WALDir              string
-	enginesCreated      bool
+	helper.Config
+	helper.RaftConfig
 }
 
 // MakeConfig returns a Context with default values.
 func MakeConfig() *Config {
-
-	cfg := Config{
-		Config: new(base.Config),
-	}
-	cfg.parseCmdArgs()
-	cfg.Config.InitDefaults()
+	cfg := Config{}
+	cfg.Config.InitConfig()
 	cfg.RaftConfig.SetDefaults()
 	return &cfg
 }
@@ -116,7 +43,3 @@ func MakeConfig() *Config {
 func (cfg *Config) CreateSysEngine(ctx context.Context) (engine.Engine, error) {
 	return nil, nil
 }
-
-const (
-	GrpcMaxSize = 256 << 20
-)
