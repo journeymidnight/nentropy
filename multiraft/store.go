@@ -18,7 +18,6 @@ import (
 
 	"sync"
 	"time"
-	"unsafe"
 )
 
 // Engines is a container of engines, allowing convenient closing.
@@ -614,7 +613,6 @@ func (s *Store) HandleRaftUncoalescedRequest(
 	// HandleRaftRequest is called on locally uncoalesced heartbeats (which are
 	// not sent over the network if the environment variable is set) so do not
 	// count them.
-	helper.Logger.Printf(5, " enter HandleRaftUncoalescedRequest")
 
 	if respStream == nil {
 		helper.Logger.Printf(5, " call processRaftRequest")
@@ -641,7 +639,6 @@ func (s *Store) HandleRaftUncoalescedRequest(
 		respStream: respStream,
 	})
 	q.Unlock()
-	helper.Logger.Printf(5, "call EnqueueRaftRequest in HandleRaftUncoalescedRequest")
 	s.scheduler.EnqueueRaftRequest(req.GroupID)
 	return nil
 }
@@ -867,7 +864,6 @@ func (s *Store) BootstrapGroup(initialValues []multiraftbase.KeyValue, group *mu
 			r.raftMu.Unlock()
 			return err
 		}
-		helper.Logger.Println(5, "Init a new raft group, node:", unsafe.Pointer(raftGroup))
 		r.mu.internalRaftGroup = raftGroup
 	}
 	r.mu.Unlock()

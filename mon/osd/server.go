@@ -122,7 +122,6 @@ func (s *OsdServer) Start(ctx context.Context) error {
 			Addr:  s.cfg.Config.AdvertiseAddr,
 		}
 	}
-	helper.Logger.Println(5, "listening on port %s", s.cfg.Config.AdvertiseAddr)
 	workersCtx := context.Background()
 	//s.stopper.RunWorker(workersCtx, func(context.Context) {
 	//	<-s.stopper.ShouldQuiesce()

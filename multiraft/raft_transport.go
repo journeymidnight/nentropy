@@ -339,10 +339,9 @@ func (t *RaftTransport) RaftMessageBatch(stream multiraftbase.MultiRaft_RaftMess
 					var stats *raftTransportStats
 					stream := &lockedRaftMessageResponseStream{MultiRaft_RaftMessageBatchServer: stream}
 					for {
-						helper.Logger.Printf(5, "RaftMessageBatch() start to receive a message.")
 						batch, err := stream.Recv()
 						if err != nil {
-							helper.Logger.Println(5, "received a error.", err)
+							helper.Logger.Println(5, "Grpc Server stream received a error.", err)
 							return err
 						}
 
@@ -401,12 +400,11 @@ func (t *RaftTransport) connectAndProcess(
 	stats *raftTransportStats,
 ) {
 	if err := func() error {
-		helper.Logger.Printf(5, "Start to connect node ID %s.", nodeID)
 		addr, err := t.resolver(string(nodeID))
 		if err != nil {
+			helper.Logger.Printf(5, "Cannot get nodeID %s address: %s", nodeID, addr)
 			return err
 		}
-		helper.Logger.Printf(5, "rpcContext.GRPCDial addr: %s", addr)
 		conn, err := t.rpcContext.GRPCDial(addr, grpc.WithBlock())
 		if err != nil {
 			helper.Logger.Printf(5, "Error dialing to host %s!", addr)
@@ -420,11 +418,9 @@ func (t *RaftTransport) connectAndProcess(
 			helper.Logger.Println(5, "Error calling RaftMessageBatch! err:", err)
 			return err
 		}
-		err = t.processQueue(nodeID, ch, stats, stream)
-		helper.Logger.Println(5, "processQueue return err:", err)
-		return err
+		return t.processQueue(nodeID, ch, stats, stream)
 	}(); err != nil {
-		helper.Logger.Printf(5, "raft transport stream to node %d failed: %s", nodeID, err)
+		helper.Logger.Printf(5, "Grpc stream to node %d failed, %s", nodeID, err)
 	}
 }
 
