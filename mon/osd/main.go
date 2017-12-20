@@ -41,6 +41,7 @@ func main() {
 			}
 		}()
 		ctx := context.Background()
+		cfg.AmbientCtx = helper.NewAmbientContext()
 		if err := func() error {
 			s, err := NewOsdServer(ctx, *cfg, stopper)
 			if err != nil {
@@ -57,6 +58,8 @@ func main() {
 		}
 
 	}()
+
+	defer helper.Logger.Printf(0, "exit...")
 
 	// Block until one of the signals above is received or the stopper
 	// is stopped externally (for example, via the quit endpoint).

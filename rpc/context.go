@@ -146,8 +146,6 @@ func (ctx *Context) GRPCDial(target string, opts ...grpc.DialOption) (*grpc.Clie
 			))
 		}
 
-		helper.Logger.Println(5, fmt.Sprintf("dialing %s", target))
-
 		meta.conn, meta.dialErr = grpc.DialContext(ctx.masterCtx, target, dialOpts...)
 	})
 

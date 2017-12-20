@@ -87,6 +87,8 @@ func (r GroupDescriptor) IsInitialized() bool {
 	return r.GroupID != ""
 }
 
+type RKey Key
+
 // Key is a custom type for a byte string in proto
 // messages which refer to Cockroach keys.
 type Key []byte

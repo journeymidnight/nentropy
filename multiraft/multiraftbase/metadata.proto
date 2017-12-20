@@ -74,7 +74,6 @@ message StoreCapacity {
 // NodeDescriptor holds details on node physical/network topology.
 message NodeDescriptor {
     string node_id = 1 [(gogoproto.customname) = "NodeID", (gogoproto.casttype) = "NodeID"];
-    Attributes attrs = 2;
 }
 
 // StoreDescriptor holds store information including store attributes, node
@@ -103,7 +102,7 @@ message Value {
 
 message KeyValue {
     bytes key = 1 [(gogoproto.casttype) = "Key"];
-    Value value = 2;
+    Value value = 2 [(gogoproto.nullable) = false];
 }
 
 // A StoreIdent uniquely identifies a store in the cluster. The

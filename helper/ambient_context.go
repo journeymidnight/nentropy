@@ -27,6 +27,11 @@ type AmbientContext struct {
 	backgroundCtx context.Context
 }
 
+func NewAmbientContext() AmbientContext {
+	ac := AmbientContext{backgroundCtx: context.Background()}
+	return ac
+}
+
 // AnnotateCtx annotates a given context with the information in AmbientContext:
 //  - the EventLog is embedded in the context if the context doesn't already
 //    have an event log or an open trace.

@@ -6,7 +6,6 @@ import (
 	"github.com/coreos/etcd/raft/raftpb"
 	"github.com/journeymidnight/nentropy/helper"
 	"github.com/journeymidnight/nentropy/log"
-	"github.com/journeymidnight/nentropy/multiraft/keys"
 	"github.com/journeymidnight/nentropy/multiraft/multiraftbase"
 	"github.com/journeymidnight/nentropy/rpc"
 	"github.com/journeymidnight/nentropy/storage/engine"
@@ -17,7 +16,6 @@ import (
 	"github.com/pkg/errors"
 	"golang.org/x/net/context"
 
-	"runtime"
 	"sync"
 	"time"
 	"unsafe"
@@ -27,7 +25,7 @@ import (
 type Engines map[string]engine.Engine
 
 var storeSchedulerConcurrency = envutil.EnvOrDefaultInt(
-	"NENTROPY_SCHEDULER_CONCURRENCY", 8*runtime.NumCPU())
+	"NENTROPY_SCHEDULER_CONCURRENCY", 1)
 
 var enablePreVote = envutil.EnvOrDefaultBool(
 	"NENTROPY_ENABLE_PREVOTE", false)
@@ -66,6 +64,7 @@ type Store struct {
 		uninitReplicas map[multiraftbase.GroupID]*Replica
 	}
 	engines        Engines
+	sysEng         engine.Engine
 	raftEntryCache *raftEntryCache
 	started        int32
 	stopper        *stop.Stopper
@@ -113,12 +112,15 @@ func (s *Store) processReady(ctx context.Context, id multiraftbase.GroupID) {
 }
 
 func (s *Store) processRequestQueue(ctx context.Context, id multiraftbase.GroupID) {
+	helper.Logger.Println(5, "Enter processRequestQueue(). id:", id)
 	value, ok := s.replicaQueues.Load(id)
 	if !ok {
+		helper.Logger.Println(5, "Cannot load replicaQueues. id:", id)
 		return
 	}
 	q, ok := value.(*raftRequestQueue)
 	if !ok {
+		helper.Logger.Println(5, "Cannot convert to raftRequestQueue type")
 		return
 	}
 	q.Lock()
@@ -133,6 +135,7 @@ func (s *Store) processRequestQueue(ctx context.Context, id multiraftbase.GroupI
 			// targeted to a removed range. This is also racy and could cause us to
 			// drop messages to the deleted range occasionally (#18355), but raft
 			// will just retry.
+			helper.Logger.Printf(5, "Failed to call processRaftRequest")
 			q.Lock()
 			if len(q.infos) == 0 {
 				s.replicaQueues.Delete(id)
@@ -232,7 +235,6 @@ func (s *Store) raftTickLoop(ctx context.Context) {
 				}
 				return true
 			})
-
 			s.scheduler.EnqueueRaftTick(groupIDs...)
 
 		case <-s.stopper.ShouldStop():
@@ -339,6 +341,7 @@ func (s *Store) sendQueuedHeartbeatsToNode(
 func (s *Store) HandleRaftRequest(
 	ctx context.Context, req *multiraftbase.RaftMessageRequest, respStream RaftMessageResponseStream,
 ) *multiraftbase.Error {
+	helper.Logger.Printf(5, "HandleRaftRequest handle %d req", len(req.Heartbeats)+len(req.HeartbeatResps))
 	if len(req.Heartbeats)+len(req.HeartbeatResps) > 0 {
 		if req.GroupID != "" {
 			helper.Logger.Fatalf(5, "coalesced heartbeats must have groupID == 0")
@@ -499,10 +502,28 @@ func (s *Store) tryGetOrCreateReplica(
 	s.mu.uninitReplicas[repl.GroupID] = repl
 	s.mu.Unlock()
 
+	replicas := []multiraftbase.ReplicaDescriptor{
+		{
+			NodeID:    "1",
+			StoreID:   1,
+			ReplicaID: 1,
+		},
+		{
+			NodeID:    "2",
+			StoreID:   2,
+			ReplicaID: 2,
+		},
+		{
+			NodeID:    "3",
+			StoreID:   3,
+			ReplicaID: 3,
+		},
+	}
 	desc := &multiraftbase.GroupDescriptor{
 		GroupID: groupID,
 		// TODO(bdarnell): other fields are unknown; need to populate them from
 		// snapshot.
+		Replicas: replicas,
 	}
 	if err := repl.initRaftMuLockedReplicaMuLocked(desc, replicaID); err != nil {
 		// Mark the replica as destroyed and remove it from the replicas maps to
@@ -515,6 +536,7 @@ func (s *Store) tryGetOrCreateReplica(
 		s.replicaQueues.Delete(groupID)
 		s.mu.Unlock()
 		repl.raftMu.Unlock()
+		helper.Logger.Printf(0, "Error initRaftMuLockedReplicaMuLocked() !")
 		return nil, false, err
 	}
 	repl.mu.Unlock()
@@ -525,6 +547,7 @@ func (s *Store) processRaftRequest(
 	ctx context.Context, req *multiraftbase.RaftMessageRequest, inSnap IncomingSnapshot,
 ) (pErr *multiraftbase.Error) {
 	// Lazily create the replica.
+	helper.Logger.Printf(10, "Enter processRaftRequest() ")
 	r, _, err := s.getOrCreateReplica(
 		ctx,
 		req.GroupID,
@@ -550,7 +573,6 @@ func (s *Store) processRaftRequest(
 		}
 
 		helper.Logger.Printf(5, "not quiescing: local raft status is %+v, incoming quiesce message is %+v", status, req.Message)
-
 	}
 
 	if err := r.withRaftGroup(func(raftGroup *raft.RawNode) (bool, error) {
@@ -560,6 +582,13 @@ func (s *Store) processRaftRequest(
 		if req.Message.Type == raftpb.MsgApp {
 			r.setEstimatedCommitIndexLocked(req.Message.Commit)
 		}
+		helper.Logger.Println(5, "step message:", "To:", req.Message.To,
+			"From:", req.Message.From,
+			"Type:", req.Message.Type,
+			"Term:", req.Message.Term,
+			"Index:", req.Message.Index,
+			"LogTerm:", req.Message.LogTerm,
+		)
 		return false, /* !unquiesceAndWakeLeader */
 			raftGroup.Step(req.Message)
 	}); err != nil {
@@ -585,16 +614,18 @@ func (s *Store) HandleRaftUncoalescedRequest(
 	// HandleRaftRequest is called on locally uncoalesced heartbeats (which are
 	// not sent over the network if the environment variable is set) so do not
 	// count them.
+	helper.Logger.Printf(5, " enter HandleRaftUncoalescedRequest")
 
 	if respStream == nil {
+		helper.Logger.Printf(5, " call processRaftRequest")
 		return s.processRaftRequest(ctx, req, IncomingSnapshot{})
 	}
-
+	helper.Logger.Printf(5, "HandleRaftUncoalescedRequest() groupID:", req.GroupID)
 	value, ok := s.replicaQueues.Load(req.GroupID)
 	if !ok {
-		value, _ = s.replicaQueues.LoadOrStore(req.GroupID, unsafe.Pointer(&raftRequestQueue{}))
+		value, _ = s.replicaQueues.LoadOrStore(req.GroupID, &raftRequestQueue{})
 	}
-	q, ok := value.(raftRequestQueue)
+	q, ok := value.(*raftRequestQueue)
 	if !ok {
 		return nil
 	}
@@ -610,7 +641,7 @@ func (s *Store) HandleRaftUncoalescedRequest(
 		respStream: respStream,
 	})
 	q.Unlock()
-
+	helper.Logger.Printf(5, "call EnqueueRaftRequest in HandleRaftUncoalescedRequest")
 	s.scheduler.EnqueueRaftRequest(req.GroupID)
 	return nil
 }
@@ -685,7 +716,7 @@ func newRaftConfig(
 		// achieving the same thing. PreVote is more compatible with
 		// quiesced ranges, so we want to switch to it once we've worked
 		// out the bugs.
-		PreVote:     true,
+		PreVote:     false,
 		CheckQuorum: false,
 
 		// MaxSizePerMsg controls how many Raft log entries the leader will send to
@@ -729,6 +760,7 @@ func NewStore(cfg StoreConfig, eng engine.Engine, nodeDesc *multiraftbase.NodeDe
 	s.raftEntryCache = newRaftEntryCache(16 * 1024 * 1024)
 	s.scheduler = newRaftScheduler(s, storeSchedulerConcurrency)
 	s.nodeDesc = nodeDesc
+	s.sysEng = eng
 	s.coalescedMu.Lock()
 	s.coalescedMu.heartbeats = map[multiraftbase.StoreIdent][]multiraftbase.RaftHeartbeat{}
 	s.coalescedMu.heartbeatResponses = map[multiraftbase.StoreIdent][]multiraftbase.RaftHeartbeat{}
@@ -744,6 +776,10 @@ func NewStore(cfg StoreConfig, eng engine.Engine, nodeDesc *multiraftbase.NodeDe
 			s.scanner.AddQueues(s.replicateQueue, s.raftLogQueue)
 		}
 	*/
+
+	s.mu.Lock()
+	s.mu.uninitReplicas = map[multiraftbase.GroupID]*Replica{}
+	s.mu.Unlock()
 	return s
 }
 
@@ -770,26 +806,28 @@ func (s *Store) BootstrapGroup(initialValues []multiraftbase.KeyValue, group *mu
 	if err := desc.Validate(); err != nil {
 		return err
 	}
-	batch := s.Engine().NewBatch()
-	defer batch.Close()
-	encoded, _ := desc.Marshal()
-	batch.Put(keys.GroupDescriptorKey(desc.GroupID), encoded)
-	// Now add all passed-in default entries.
-	for _, kv := range initialValues {
-		// Initialize the checksums.
-		if err := batch.Put(kv.Key, kv.Value.GetRawBytes()); err != nil {
+	/*
+		batch := s.Engine().NewBatch()
+		defer batch.Close()
+		encoded, _ := desc.Marshal()
+		batch.Put(keys.GroupDescriptorKey(desc.GroupID), encoded)
+		// Now add all passed-in default entries.
+		for _, kv := range initialValues {
+			// Initialize the checksums.
+			if err := batch.Put(kv.Key, kv.Value.GetRawBytes()); err != nil {
+				return err
+			}
+		}
+		err := batch.Commit()
+		if err != nil {
 			return err
 		}
-	}
-	err := batch.Commit()
-	if err != nil {
-		return err
-	}
+	*/
 	replicaDesc, found := group.GetReplicaDescriptor(s.nodeDesc.NodeID)
 	if !found {
 		return errors.New(fmt.Sprintf("send to wrong node %s", s.nodeDesc.NodeID))
 	}
-	r, _, err := s.getOrCreateReplica(context.Background(), group.GroupID, replicaDesc.ReplicaID, nil)
+	r, _, _ := s.getOrCreateReplica(context.Background(), group.GroupID, replicaDesc.ReplicaID, nil)
 	//r, err := NewReplica(&desc, s, 0)
 	//if err != nil {
 	//	return err
@@ -825,11 +863,15 @@ func (s *Store) BootstrapGroup(initialValues []multiraftbase.KeyValue, group *mu
 			log.NewRaftLogger(helper.Logger),
 		), peers)
 		if err != nil {
+			r.mu.Unlock()
+			r.raftMu.Unlock()
 			return err
 		}
+		helper.Logger.Println(5, "Init a new raft group, node:", unsafe.Pointer(raftGroup))
 		r.mu.internalRaftGroup = raftGroup
 	}
 	r.mu.Unlock()
+	r.raftMu.Unlock()
 
 	return nil
 }

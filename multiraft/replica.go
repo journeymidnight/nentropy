@@ -135,6 +135,7 @@ func (r *Replica) tick() (bool, error) {
 	// If the raft group is uninitialized, do not initialize raft groups on
 	// tick.
 	if r.mu.internalRaftGroup == nil {
+		helper.Logger.Printf(5, "Replica %d has no raft group to tick.", r.mu.replicaID)
 		return false, nil
 	}
 
@@ -183,7 +184,6 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 	inSnap IncomingSnapshot,
 ) (handleRaftReadyStats, string, error) {
 	var stats handleRaftReadyStats
-
 	ctx := r.AnnotateCtx(context.TODO())
 	var hasReady bool
 	var rd raft.Ready
@@ -211,6 +211,8 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 		return stats, "", nil
 	}
 
+	helper.Logger.Printf(10, "get ready from raft group")
+
 	//refreshReason := noReason
 	if rd.SoftState != nil && leaderID != multiraftbase.ReplicaID(rd.SoftState.Lead) {
 		leaderID = multiraftbase.ReplicaID(rd.SoftState.Lead)
@@ -223,7 +225,7 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 	// Use a more efficient write-only batch because we don't need to do any
 	// reads from the batch. Any reads are performed via the "distinct" batch
 	// which passes the reads through to the underlying DB.
-	batch := r.store.Engine().NewBatch()
+	batch := r.store.sysEng.NewBatch()
 	defer batch.Close()
 
 	//prevLastIndex := lastIndex
@@ -325,10 +327,10 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 					return stats, expl, errors.Wrap(err, expl)
 				}
 			}
-
-			if changedRepl := r.processRaftCommand(ctx, commandID, e.Term, e.Index, command); changedRepl {
-				helper.Logger.Fatalf(5, "unexpected replication change from command %s", &command)
-			}
+			helper.Logger.Println(5, "commit entries. EntryNormal: ", commandID)
+			//if changedRepl := r.processRaftCommand(ctx, commandID, e.Term, e.Index, command); changedRepl {
+			//	helper.Logger.Fatalf(5, "unexpected replication change from command %s", &command)
+			//}
 			stats.processed++
 
 		case raftpb.EntryConfChange:
@@ -512,6 +514,7 @@ func (r *Replica) getReplicaDescriptorByIDRLocked(
 // sendRaftMessage sends a Raft message.
 func (r *Replica) sendRaftMessage(ctx context.Context, msg raftpb.Message) {
 	r.mu.Lock()
+	helper.Logger.Printf(10, "sendRaftMessage: from: %d, to: %d", msg.From, msg.To)
 	fromReplica, fromErr := r.getReplicaDescriptorByIDRLocked(multiraftbase.ReplicaID(msg.From), r.mu.lastToReplica)
 	toReplica, toErr := r.getReplicaDescriptorByIDRLocked(multiraftbase.ReplicaID(msg.To), r.mu.lastFromReplica)
 	r.mu.Unlock()
@@ -528,6 +531,7 @@ func (r *Replica) sendRaftMessage(ctx context.Context, msg raftpb.Message) {
 	}
 
 	if r.maybeCoalesceHeartbeat(ctx, msg, toReplica, fromReplica, false) {
+		helper.Logger.Printf(5, "maybeCoalesceHeartbeat return for heartbeat msg ")
 		return
 	}
 
@@ -699,7 +703,7 @@ func (r *Replica) withRaftGroup(
 // the Raft group.
 func (r *Replica) sendRaftMessageRequest(ctx context.Context, req *multiraftbase.RaftMessageRequest) bool {
 
-	helper.Logger.Printf(5, "sending raft request %+v", req)
+	//helper.Logger.Printf(5, "sending raft request %+v", req)
 
 	ok := r.store.cfg.Transport.SendAsync(req)
 	return ok
@@ -842,8 +846,9 @@ func (r *Replica) initRaftMuLockedReplicaMuLocked(
 	if r.mu.state.Desc != nil && r.isInitializedRLocked() {
 		helper.Logger.Fatalf(5, "r%d: cannot reinitialize an initialized replica", desc.GroupID)
 	}
+	helper.Logger.Printf(0, "GroupID:", r.GroupID, " replicaID:", replicaID)
 	if desc.IsInitialized() && replicaID != 0 {
-		return errors.Errorf("replicaID must be 0 when creating an initialized replica")
+		//return errors.Errorf("replicaID must be 0 when creating an initialized replica")
 	}
 
 	r.mu.proposals = map[multiraftbase.CmdIDKey]*ProposalData{}
@@ -854,17 +859,19 @@ func (r *Replica) initRaftMuLockedReplicaMuLocked(
 
 	var err error
 
-	if r.mu.state, err = r.mu.stateLoader.load(ctx, r.store.Engine(), desc); err != nil {
+	if r.mu.state, err = r.mu.stateLoader.load(ctx, r.store.sysEng, desc); err != nil {
 		return err
 	}
 
-	r.mu.lastIndex, err = r.mu.stateLoader.loadLastIndex(ctx, r.store.Engine())
+	r.mu.lastIndex, err = r.mu.stateLoader.loadLastIndex(ctx, r.store.sysEng)
 	if err != nil {
 		return err
 	}
+
+	r.mu.lastIndex = 0
 	r.mu.lastTerm = invalidLastTerm
 
-	_, err = r.mu.stateLoader.loadReplicaDestroyedError(ctx, r.store.Engine())
+	_, err = r.mu.stateLoader.loadReplicaDestroyedError(ctx, r.store.sysEng)
 	if err != nil {
 		return err
 	}

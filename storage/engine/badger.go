@@ -15,11 +15,15 @@ type badgerDBBatch struct {
 	wb []*badger.Entry
 }
 
-func NewBadgerDB() (*BadgerDB, error) {
+type KVOpt struct {
+	WALDir string
+}
+
+func NewBadgerDB(opt *KVOpt) (*BadgerDB, error) {
 	kvOpt := badger.DefaultOptions
 	kvOpt.SyncWrites = true
-	kvOpt.Dir = helper.CONFIG.WALDir
-	kvOpt.ValueDir = helper.CONFIG.WALDir
+	kvOpt.Dir = opt.WALDir
+	kvOpt.ValueDir = opt.WALDir
 	kvOpt.TableLoadingMode = options.MemoryMap
 
 	r := &BadgerDB{}

@@ -96,7 +96,7 @@ var DefaultConfig = Config{
 	PanicLogPath:        "/var/log/nentropy/panic.log",
 	PidFile:             "/var/run/nentropy/nentropy.pid",
 	DebugMode:           false,
-	LogLevel:            5,
+	LogLevel:            10,
 	WALDir:              "w",
 	JoinMon:             false,
 	MonPort:             7900,
@@ -114,6 +114,8 @@ var CONFIG Config
 
 func (c *Config) parseCmdArgs() {
 
+	flag.StringVar(&c.WALDir, "w", DefaultConfig.WALDir,
+		"Directory to store raft write-ahead logs.")
 	flag.IntVar(&c.MonPort, "monPort", DefaultConfig.MonPort,
 		"Port used by mon for internal communication.")
 	flag.StringVar(&c.Monitors, "mons", DefaultConfig.Monitors,
@@ -122,7 +124,7 @@ func (c *Config) parseCmdArgs() {
 		"Port used by memberlist for internal communication.")
 	flag.StringVar(&c.JoinMemberAddr, "joinMemberAddr", DefaultConfig.JoinMemberAddr,
 		"a valid member addr to join.")
-	flag.IntVar(&c.NodeID, "nodeId", DefaultConfig.NodeID,
+	flag.IntVar(&c.NodeID, "nodeID", DefaultConfig.NodeID,
 		"a unique numbers in cluster [1-256]")
 	flag.StringVar(&c.NodeType, "nodeType", DefaultConfig.NodeType,
 		"specify node type [osd/mon].")
@@ -155,21 +157,21 @@ func (c *Config) InitConfig() {
 		}
 	}
 
-	c.parseCmdArgs()
+	defaults.parseCmdArgs()
 
 	f, err = os.OpenFile(c.LogPath, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
 	if err != nil {
-		Logger = log.New(os.Stdout, "[nentropy]", log.LstdFlags, c.LogLevel)
+		Logger = log.New(os.Stdout, "[nentropy]", log.LstdFlags, defaults.LogLevel)
 		Logger.Printf(0, "Failed to open log file %s, use stdout!", c.LogPath)
 	} else {
 		defer f.Close()
-		Logger = log.New(f, "[nentropy]", log.LstdFlags, c.LogLevel)
+		Logger = log.New(f, "[nentropy]", log.LstdFlags, defaults.LogLevel)
 	}
 	*c = defaults
 }
 
 var defaultRaftElectionTimeoutTicks = envutil.EnvOrDefaultInt(
-	"NENTROPY_RAFT_ELECTION_TIMEOUT_TICKS", 15)
+	"NENTROPY_RAFT_ELECTION_TIMEOUT_TICKS", 5)
 
 // RaftConfig holds raft tuning parameters.
 type RaftConfig struct {

@@ -13,6 +13,7 @@ import (
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 	"net"
+	"time"
 )
 
 type OsdServer struct {
@@ -53,9 +54,10 @@ func NewOsdServer(ctx context.Context, cfg Config, stopper *stop.Stopper) (*OsdS
 	s.grpc = rpc.NewServer()
 
 	//init member list here
-	memberlist.Init(false, (uint64)(cfg.NodeID), cfg.AdvertiseAddr, logger.Logger)
+	memberlist.Init(false, (uint64)(cfg.NodeID), cfg.AdvertiseAddr, logger.Logger, cfg.JoinMemberAddr)
 
 	s.raftTransport = multiraft.NewRaftTransport(
+		s.cfg.AmbientCtx,
 		multiraft.GossipAddressResolver(), s.grpc, s.rpcContext,
 	)
 
@@ -64,18 +66,30 @@ func NewOsdServer(ctx context.Context, cfg Config, stopper *stop.Stopper) (*OsdS
 
 	multiraftbase.RegisterInternalServer(s.grpc, s)
 
-	eng, err := engine.NewBadgerDB()
+	opt := engine.KVOpt{WALDir: config.WALDir}
+	eng, err := engine.NewBadgerDB(&opt)
 	if err != nil {
 		return nil, errors.New("Error to create db.")
 	}
 	s.engine = eng
 
 	storeCfg := multiraft.StoreConfig{
-		AmbientCtx: s.cfg.AmbientCtx,
-		RaftConfig: s.cfg.RaftConfig,
-		Transport:  s.raftTransport,
+		AmbientCtx:                  s.cfg.AmbientCtx,
+		RaftConfig:                  s.cfg.RaftConfig,
+		Transport:                   s.raftTransport,
+		CoalescedHeartbeatsInterval: 50 * time.Millisecond,
+		RaftHeartbeatIntervalTicks:  1,
 	}
-	s.store = multiraft.NewStore(storeCfg, eng, &multiraftbase.NodeDescriptor{})
+	desc := multiraftbase.NodeDescriptor{}
+	if s.cfg.NodeID == 1 {
+		desc.NodeID = "1"
+	} else if s.cfg.NodeID == 2 {
+		desc.NodeID = "2"
+	} else if s.cfg.NodeID == 3 {
+		desc.NodeID = "3"
+	}
+	helper.Logger.Println(0, "New osd server nodeid: ", s.cfg.NodeID)
+	s.store = multiraft.NewStore(storeCfg, eng, &desc)
 
 	if err := s.store.Start(ctx, stopper); err != nil {
 		return nil, err
@@ -110,17 +124,37 @@ func (s *OsdServer) Start(ctx context.Context) error {
 	}
 	helper.Logger.Println(5, "listening on port %s", s.cfg.Config.AdvertiseAddr)
 	workersCtx := context.Background()
-	s.stopper.RunWorker(workersCtx, func(context.Context) {
-		<-s.stopper.ShouldQuiesce()
-		// TODO(bdarnell): Do we need to also close the other listeners?
-		ln.Close()
-		<-s.stopper.ShouldStop()
-		s.grpc.Stop()
-	})
+	//s.stopper.RunWorker(workersCtx, func(context.Context) {
+	//	<-s.stopper.ShouldQuiesce()
+	//	// TODO(bdarnell): Do we need to also close the other listeners?
+	//	ln.Close()
+	//	<-s.stopper.ShouldStop()
+	//	s.grpc.Stop()
+	//})
 
 	s.stopper.RunWorker(workersCtx, func(context.Context) {
 		s.grpc.Serve(ln)
 	})
+
+	replicas :=
+		[]multiraftbase.ReplicaDescriptor{
+			{
+				NodeID:    "1",
+				StoreID:   1,
+				ReplicaID: 1,
+			},
+			{
+				NodeID:    "2",
+				StoreID:   2,
+				ReplicaID: 2,
+			},
+		}
+	groupDesc := multiraftbase.GroupDescriptor{
+		GroupID:       "1",
+		PoolId:        1,
+		Replicas:      replicas,
+		NextReplicaID: 4}
+	s.store.BootstrapGroup(nil, &groupDesc)
 
 	return nil
 }

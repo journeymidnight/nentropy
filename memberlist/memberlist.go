@@ -2,12 +2,12 @@ package memberlist
 
 import (
 	"encoding/json"
+	"fmt"
 	"github.com/hashicorp/memberlist"
 	"github.com/journeymidnight/nentropy/helper"
 	"github.com/pborman/uuid"
 	"log"
 	"os"
-	"strings"
 )
 
 const (
@@ -101,7 +101,7 @@ func recvChanEvent(myName string) {
 	}
 }
 
-func Init(isMon bool, id uint64, myAddr string, logger *log.Logger) {
+func Init(isMon bool, id uint64, myAddr string, logger *log.Logger, join string) {
 	c := memberlist.DefaultLocalConfig()
 	hostname, _ := os.Hostname()
 	c.Name = hostname + "-" + uuid.NewUUID().String()
@@ -112,6 +112,7 @@ func Init(isMon bool, id uint64, myAddr string, logger *log.Logger) {
 	member.IsMon = isMon
 	member.Addr = myAddr
 	member.ID = id
+	member.Name = fmt.Sprintf("%d", id)
 	meta, err := json.Marshal(member)
 	if err != nil {
 		panic("Failed to json member. : " + err.Error())
@@ -122,13 +123,15 @@ func Init(isMon bool, id uint64, myAddr string, logger *log.Logger) {
 		c.Events = &memberlist.ChannelEventDelegate{Ch: eventCh}
 	}
 
-	List, err := memberlist.Create(c)
+	List, err = memberlist.Create(c)
 	if err != nil {
 		panic("Failed to create memberlist: " + err.Error())
 	}
 
-	if !isMon && helper.CONFIG.JoinMemberAddr != "" {
-		strs := strings.Split(helper.CONFIG.JoinMemberAddr, ",")
+	helper.Logger.Printf(5, "Join member addr is %s.", join)
+	if !isMon && join != "" {
+		//strs := strings.Split(helper.CONFIG.JoinMemberAddr, ",")
+		strs := []string{join}
 		_, err := List.Join(strs)
 		if err != nil {
 			panic("Failed to join cluster: " + err.Error())

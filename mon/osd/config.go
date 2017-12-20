@@ -32,12 +32,13 @@ type Config struct {
 	helper.RaftConfig
 }
 
+var config Config
+
 // MakeConfig returns a Context with default values.
 func MakeConfig() *Config {
-	cfg := Config{}
-	cfg.Config.InitConfig()
-	cfg.RaftConfig.SetDefaults()
-	return &cfg
+	config.Config.InitConfig()
+	config.RaftConfig.SetDefaults()
+	return &config
 }
 
 func (cfg *Config) CreateSysEngine(ctx context.Context) (engine.Engine, error) {

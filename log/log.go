@@ -39,6 +39,10 @@ func New(out io.Writer, prefix string, flag int, level int) *Logger {
 	return &logger
 }
 
+func (l *Logger) GetLevel() int {
+	return l.LogLevel
+}
+
 // Printf calls l.Output to print to the logger.
 // Arguments are handled in the manner of fmt.Printf.
 func (l *Logger) Printf(level int, format string, v ...interface{}) {
