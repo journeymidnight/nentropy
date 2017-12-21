@@ -139,7 +139,7 @@ func handleCommittedMsg(data []byte) error {
 // and either start or restart RAFT nodes.
 // This function triggers RAFT nodes to be created, and is the entrance to the RAFT
 // world from main.go.
-func StartRaftNodes(walStore *badger.KV) {
+func StartRaftNodes(walStore *badger.DB) {
 	clus = new(cluster)
 	clus.ctx, clus.cancel = context.WithCancel(context.Background())
 

@@ -96,7 +96,7 @@ var DefaultConfig = Config{
 	PanicLogPath:        "/var/log/nentropy/panic.log",
 	PidFile:             "/var/run/nentropy/nentropy.pid",
 	DebugMode:           false,
-	LogLevel:            10,
+	LogLevel:            20,
 	WALDir:              "w",
 	JoinMon:             false,
 	MonPort:             7900,

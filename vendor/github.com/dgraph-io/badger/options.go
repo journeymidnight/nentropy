@@ -17,16 +17,17 @@
 package badger
 
 import (
-	"time"
-
 	"github.com/dgraph-io/badger/options"
-	"github.com/dgraph-io/badger/y"
 )
 
 // NOTE: Keep the comments in the following to 75 chars width, so they
 // format nicely in godoc.
 
 // Options are params for creating DB object.
+//
+// This package provides DefaultOptions which contains options that should
+// work for most applications. Consider using that as a starting point before
+// customizing it for your own needs.
 type Options struct {
 	// 1. Mandatory flags
 	// -------------------
@@ -45,10 +46,8 @@ type Options struct {
 	// How should LSM tree be accessed.
 	TableLoadingMode options.FileLoadingMode
 
-	// How often to run value log garbage collector. Every time it runs,
-	// there'd be a spike in LSM tree activity. But, running it frequently
-	// allows reclaiming disk space from an ever-growing value log.
-	ValueGCRunInterval time.Duration
+	// How should value log be accessed
+	ValueLogLoadingMode options.FileLoadingMode
 
 	// 3. Flags that user might want to review
 	// ----------------------------------------
@@ -71,21 +70,22 @@ type Options struct {
 	// Maximum total size for L1.
 	LevelOneSize int64
 
-	// Run value log garbage collection if we can reclaim at least this
-	// much space. This is a ratio.
-	ValueGCThreshold float64
-
 	// Size of single value log file.
 	ValueLogFileSize int64
 
 	// Number of compaction workers to run concurrently.
 	NumCompactors int
 
+	// Transaction start and commit timestamps are manaVgedTxns by end-user. This
+	// is a private option used by ManagedDB.
+	managedTxns bool
+
 	// 4. Flags for testing purposes
 	// ------------------------------
 	DoNotCompact bool // Stops LSM tree from compactions.
 
-	maxBatchSize int64 // max batch size in bytes
+	maxBatchCount int64 // max entries in batch
+	maxBatchSize  int64 // max batch size in bytes
 }
 
 // DefaultOptions sets a list of recommended options for good performance.
@@ -95,6 +95,7 @@ var DefaultOptions = Options{
 	LevelOneSize:        256 << 20,
 	LevelSizeMultiplier: 10,
 	TableLoadingMode:    options.LoadToRAM,
+	ValueLogLoadingMode: options.MemoryMap,
 	// table.MemoryMap to mmap() the tables.
 	// table.Nothing to not preload the tables.
 	MaxLevels:               7,
@@ -103,18 +104,9 @@ var DefaultOptions = Options{
 	NumLevelZeroTables:      5,
 	NumLevelZeroTablesStall: 10,
 	NumMemtables:            5,
-	SyncWrites:              false,
+	SyncWrites:              true,
 	// Nothing to read/write value log using standard File I/O
 	// MemoryMap to mmap() the value log files
-	ValueGCRunInterval: 10 * time.Minute,
-	ValueGCThreshold:   0.5, // Set to zero to not run GC.
-	ValueLogFileSize:   1 << 30,
-	ValueThreshold:     20,
-}
-
-func (opt *Options) estimateSize(entry *Entry) int {
-	if len(entry.Value) < opt.ValueThreshold {
-		return len(entry.Key) + len(entry.Value) + y.MetaSize + y.UserMetaSize + y.CasSize
-	}
-	return len(entry.Key) + 16 + y.MetaSize + y.UserMetaSize + y.CasSize
+	ValueLogFileSize: 1 << 30,
+	ValueThreshold:   20,
 }

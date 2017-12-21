@@ -7,12 +7,13 @@ import (
 )
 
 type BadgerDB struct {
-	kv *badger.KV
+	db *badger.DB
 }
 
 type badgerDBBatch struct {
-	b  *BadgerDB
-	wb []*badger.Entry
+	b   *BadgerDB
+	txn *badger.Txn
+	wb  []*badger.Entry
 }
 
 type KVOpt struct {
@@ -20,75 +21,58 @@ type KVOpt struct {
 }
 
 func NewBadgerDB(opt *KVOpt) (*BadgerDB, error) {
-	kvOpt := badger.DefaultOptions
-	kvOpt.SyncWrites = true
-	kvOpt.Dir = opt.WALDir
-	kvOpt.ValueDir = opt.WALDir
-	kvOpt.TableLoadingMode = options.MemoryMap
+	dbOpts := badger.DefaultOptions
+	dbOpts.SyncWrites = true
+	dbOpts.Dir = opt.WALDir
+	dbOpts.ValueDir = opt.WALDir
+	dbOpts.TableLoadingMode = options.MemoryMap
 
 	r := &BadgerDB{}
 
 	var err error
-	r.kv, err = badger.NewKV(&kvOpt)
+	r.db, err = badger.Open(dbOpts)
 	helper.Checkf(err, "Error while creating badger KV WAL store")
 	return r, nil
 }
 
-func getItemValue(item *badger.KVItem) (val []byte) {
-	err := item.Value(func(v []byte) error {
-		if v == nil {
-			return nil
-		}
-		val = make([]byte, len(v))
-		copy(val, v)
-		return nil
-	})
-
-	if err != nil {
-		helper.Check(err)
-	}
-	return val
-}
-
 func (b *BadgerDB) Get(key []byte) ([]byte, error) {
-	var item badger.KVItem
-	if err := b.kv.Get(key, &item); err != nil {
-		rerr := helper.Wrapf(err, "while fetching hardstate from wal")
-		return nil, rerr
+	var val []byte
+	if err := b.db.View(func(txn *badger.Txn) error {
+		item, err := txn.Get(key)
+		if err != nil {
+			return err
+		}
+		val, err = item.Value()
+		if err != nil {
+			return err
+		}
+		return nil
+	}); err != nil && err != badger.ErrKeyNotFound {
+		return nil, err
 	}
-	val := getItemValue(&item)
 	return val, nil
 }
 
 func (b *BadgerDB) Clear(key []byte) error {
-	e := &badger.Entry{
-		Key:  key,
-		Meta: badger.BitDelete,
+	if err := b.db.Update(func(txn *badger.Txn) error {
+		err := txn.Delete(key)
+		return err
+	}); err != nil {
+		return err
 	}
-	ret := make(chan error)
-	f := func(err error) {
-		ret <- err
-	}
-
-	b.kv.BatchSetAsync([]*badger.Entry{e}, f)
-	err := <-ret
-	return err
+	return nil
 }
 
 func (b *BadgerDB) Close() {
-
+	b.db.Close()
 }
 
 func (b *BadgerDB) Put(key []byte, value []byte) error {
-	wb := make([]*badger.Entry, 0, 1)
-	wb = badger.EntriesSet(wb, key, value)
-	if err := b.kv.BatchSet(wb); err != nil {
+	if err := b.db.Update(func(txn *badger.Txn) error {
+		err := txn.Set(key, value)
 		return err
-	}
-	for _, wbe := range wb {
-		if err := wbe.Error; err != nil {
-			return err
-		}
+	}); err != nil {
+		return err
 	}
 	return nil
 }
@@ -99,7 +83,7 @@ func (b *BadgerDB) NewBatch() Batch {
 
 func newBadgerDBBatch(b *BadgerDB) *badgerDBBatch {
 	r := &badgerDBBatch{b: b}
-	r.wb = make([]*badger.Entry, 0, 100)
+	r.txn = b.db.NewTransaction(true)
 	return r
 }
 
@@ -108,26 +92,36 @@ func (r *badgerDBBatch) Close() {
 }
 
 func (r *badgerDBBatch) Put(key []byte, value []byte) error {
-	r.wb = badger.EntriesSet(r.wb, key, value)
+	err := r.txn.Set(key, value)
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
 func (r *badgerDBBatch) Clear(key []byte) error {
-	return r.b.Clear(key)
+	err := r.txn.Delete(key)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func (r *badgerDBBatch) Get(key []byte) ([]byte, error) {
-	return r.b.Get(key)
+	item, err := r.txn.Get(key)
+	if err != nil {
+		return nil, err
+	}
+	val, err := item.Value()
+	if err != nil {
+		return nil, err
+	}
+	return val, nil
 }
 
 func (r *badgerDBBatch) Commit() error {
-	if err := r.b.kv.BatchSet(r.wb); err != nil {
+	if err := r.txn.Commit(nil); err != nil {
 		return err
-	}
-	for _, wbe := range r.wb {
-		if err := wbe.Error; err != nil {
-			return err
-		}
 	}
 	return nil
 }

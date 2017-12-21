@@ -450,6 +450,7 @@ func (s *Store) tryGetOrCreateReplica(
 ) (_ *Replica, created bool, _ error) {
 	// The common case: look up an existing (initialized) replica.
 	if value, ok := s.mu.replicas.Load(groupID); ok {
+		helper.Logger.Printf(10, "Load a exist replica.")
 		repl, ok := value.(*Replica)
 		if !ok {
 			return nil, false, multiraftbase.NewReplicaTooOldError(creatingReplica.ReplicaID)
@@ -474,7 +475,7 @@ func (s *Store) tryGetOrCreateReplica(
 		repl.mu.Unlock()
 		return repl, false, nil
 	}
-
+	helper.Logger.Printf(10, "Create a replica.")
 	// Create a new replica and lock it for raft processing.
 	repl := newReplica(groupID, s)
 	repl.creatingReplica = creatingReplica
@@ -535,7 +536,7 @@ func (s *Store) tryGetOrCreateReplica(
 		s.replicaQueues.Delete(groupID)
 		s.mu.Unlock()
 		repl.raftMu.Unlock()
-		helper.Logger.Printf(0, "Error initRaftMuLockedReplicaMuLocked() !")
+		helper.Logger.Printf(0, "Error initRaftMuLockedReplicaMuLocked(), err:", err)
 		return nil, false, err
 	}
 	repl.mu.Unlock()

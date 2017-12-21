@@ -846,7 +846,7 @@ func (r *Replica) initRaftMuLockedReplicaMuLocked(
 	if r.mu.state.Desc != nil && r.isInitializedRLocked() {
 		helper.Logger.Fatalf(5, "r%d: cannot reinitialize an initialized replica", desc.GroupID)
 	}
-	helper.Logger.Printf(0, "GroupID:", r.GroupID, " replicaID:", replicaID)
+	helper.Logger.Println(10, "GroupID:", r.GroupID, " replicaID:", replicaID)
 	if desc.IsInitialized() && replicaID != 0 {
 		//return errors.Errorf("replicaID must be 0 when creating an initialized replica")
 	}

@@ -44,7 +44,7 @@ type ServerState struct {
 	FinishCh   chan struct{} // channel to wait for all pending reqs to finish.
 	ShutdownCh chan struct{} // channel to signal shutdown.
 
-	WALstore *badger.KV
+	WALstore *badger.DB
 }
 
 func (s *ServerState) initStorage() {
@@ -57,7 +57,7 @@ func (s *ServerState) initStorage() {
 	kvOpt.TableLoadingMode = options.MemoryMap
 
 	var err error
-	s.WALstore, err = badger.NewKV(&kvOpt)
+	s.WALstore, err = badger.Open(kvOpt)
 	helper.Checkf(err, "Error while creating badger KV WAL store")
 }
 
@@ -161,7 +161,7 @@ func main() {
 
 	go StartRaftNodes(state.WALstore)
 
-	memberlist.Init(true, helper.CONFIG.RaftId, helper.CONFIG.MyAddr, logger.Logger)
+	memberlist.Init(true, helper.CONFIG.RaftId, helper.CONFIG.MyAddr, logger.Logger, helper.CONFIG.JoinMemberAddr)
 	memberlist.SetNotifyFunc(NotifyMemberEvent)
 
 	// setup shutdown os signal handler
