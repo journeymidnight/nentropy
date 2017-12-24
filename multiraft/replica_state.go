@@ -3,7 +3,6 @@ package multiraft
 import (
 	"golang.org/x/net/context"
 
-	"encoding/binary"
 	"errors"
 	"github.com/coreos/etcd/raft/raftpb"
 	"github.com/journeymidnight/nentropy/multiraft/keys"
@@ -54,16 +53,19 @@ func (rsl replicaStateLoader) loadTruncatedState(
 	return truncState, nil
 }
 
-func (rsl replicaStateLoader) setLastIndex(
-	ctx context.Context, writer engine.ReadWriter, lastIndex uint64,
+func (rsl replicaStateLoader) setTruncatedState(
+	ctx context.Context,
+	eng engine.ReadWriter,
+	truncState *multiraftbase.RaftTruncatedState,
 ) error {
-	var value multiraftbase.Value
-	value.SetInt(int64(lastIndex))
-	data, err := value.Marshal()
-	if err != nil {
-		return err
+	if (*truncState == multiraftbase.RaftTruncatedState{}) {
+		return errors.New("cannot persist empty RaftTruncatedState")
 	}
-	return writer.Put(rsl.RaftLastIndexKey(), data)
+	val, err := truncState.Marshal()
+	if err != nil {
+
+	}
+	return eng.Put(rsl.RaftTruncatedStateKey(), val)
 }
 
 func loadTruncatedState(
@@ -74,7 +76,7 @@ func loadTruncatedState(
 }
 
 func (rsl replicaStateLoader) setHardState(
-	ctx context.Context, batch engine.ReadWriter, st raftpb.HardState,
+	ctx context.Context, batch engine.Writer, st raftpb.HardState,
 ) error {
 	data, err := st.Marshal()
 	if err != nil {
@@ -93,14 +95,38 @@ func (rsl replicaStateLoader) loadAppliedIndex(
 		return 0, err
 	}
 	if v != nil {
-		int64AppliedIndex, n := binary.Varint(v)
-		if n == 0 {
-			return 0, errors.New("Error convert to int")
+		var value multiraftbase.Value
+		if err := value.Unmarshal(v); err != nil {
+			return 0, err
+		}
+		int64AppliedIndex, err := value.GetInt()
+		if err != nil {
+			return 0, err
 		}
 		appliedIndex = uint64(int64AppliedIndex)
 	}
 
 	return appliedIndex, nil
+}
+
+// setAppliedIndex sets the {raft,lease} applied index values, properly
+// accounting for existing keys in the returned stats.
+func (rsl replicaStateLoader) setAppliedIndex(
+	ctx context.Context,
+	eng engine.ReadWriter,
+	appliedIndex uint64,
+) error {
+	var value multiraftbase.Value
+	value.SetInt(int64(appliedIndex))
+	data, err := value.Marshal()
+	if err != nil {
+		return err
+	}
+	if err := eng.Put(rsl.RaftAppliedIndexKey(),
+		data); err != nil {
+		return err
+	}
+	return nil
 }
 
 // loadState loads a ReplicaState from disk. The exception is the Desc field,
@@ -131,6 +157,20 @@ func (rsl replicaStateLoader) load(
 	return s, nil
 }
 
+func (rsl replicaStateLoader) save(
+	ctx context.Context, eng engine.ReadWriter, state multiraftbase.ReplicaState,
+) error {
+	if err := rsl.setAppliedIndex(
+		ctx, eng, state.RaftAppliedIndex,
+	); err != nil {
+		return err
+	}
+	if err := rsl.setTruncatedState(ctx, eng, state.TruncatedState); err != nil {
+		return err
+	}
+	return nil
+}
+
 // The rest is not technically part of ReplicaState.
 // TODO(tschottdorf): more consolidation of ad-hoc structures: last index and
 // hard state. These are closely coupled with ReplicaState (and in particular
@@ -153,8 +193,12 @@ func (rsl replicaStateLoader) loadLastIndex(
 		return 0, err
 	}
 	if v != nil {
-		int64LastIndex, count := binary.Varint(v)
-		if count == 0 {
+		var value multiraftbase.Value
+		if err := value.Unmarshal(v); err != nil {
+			return 0, err
+		}
+		int64LastIndex, err := value.GetInt()
+		if err != nil {
 			return 0, err
 		}
 		lastIndex = uint64(int64LastIndex)
@@ -168,6 +212,19 @@ func (rsl replicaStateLoader) loadLastIndex(
 		lastIndex = lastEnt.Index
 	}
 	return lastIndex, nil
+}
+
+func (rsl replicaStateLoader) setLastIndex(
+	ctx context.Context, writer engine.Writer, lastIndex uint64,
+) error {
+	var value multiraftbase.Value
+	value.SetInt(int64(lastIndex))
+	data, err := value.Marshal()
+	if err != nil {
+		return err
+	}
+
+	return writer.Put(rsl.RaftLastIndexKey(), data)
 }
 
 // loadReplicaDestroyedError loads the replica destroyed error for the specified

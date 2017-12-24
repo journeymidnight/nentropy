@@ -57,11 +57,12 @@ type Engine interface {
 
 // Batch is the interface for batch specific operations.
 type Batch interface {
-	ReadWriter
+	Writer
 	// Commit atomically applies any batched updates to the underlying
 	// engine. This is a noop unless the engine was created via NewBatch(). If
 	// sync is true, the batch is synchronously committed to disk.
 	Commit() error
+	Close()
 }
 
 // Stats is a set of RocksDB stats. These are all described in RocksDB

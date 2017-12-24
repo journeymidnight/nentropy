@@ -3,7 +3,6 @@ package engine
 import (
 	"github.com/dgraph-io/badger"
 	"github.com/dgraph-io/badger/options"
-	"github.com/journeymidnight/nentropy/helper"
 )
 
 type BadgerDB struct {
@@ -13,7 +12,6 @@ type BadgerDB struct {
 type badgerDBBatch struct {
 	b   *BadgerDB
 	txn *badger.Txn
-	wb  []*badger.Entry
 }
 
 type KVOpt struct {
@@ -29,9 +27,7 @@ func NewBadgerDB(opt *KVOpt) (*BadgerDB, error) {
 
 	r := &BadgerDB{}
 
-	var err error
-	r.db, err = badger.Open(dbOpts)
-	helper.Checkf(err, "Error while creating badger KV WAL store")
+	r.db, _ = badger.Open(dbOpts)
 	return r, nil
 }
 
@@ -92,7 +88,11 @@ func (r *badgerDBBatch) Close() {
 }
 
 func (r *badgerDBBatch) Put(key []byte, value []byte) error {
-	err := r.txn.Set(key, value)
+	newKey := make([]byte, len(key))
+	for i, v := range key {
+		newKey[i] = v
+	}
+	err := r.txn.Set(newKey, value)
 	if err != nil {
 		return err
 	}

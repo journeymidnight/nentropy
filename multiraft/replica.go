@@ -235,16 +235,19 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 		if lastIndex, lastTerm, raftLogSize, err = r.append(
 			ctx, batch, lastIndex, lastTerm, raftLogSize, rd.Entries,
 		); err != nil {
+			helper.Logger.Println(10, "Failed to append entries! err:", err)
 			const expl = "during append"
 			return stats, expl, errors.Wrap(err, expl)
 		}
 	}
 	if !raft.IsEmptyHardState(rd.HardState) {
 		if err := r.raftMu.stateLoader.setHardState(ctx, batch, rd.HardState); err != nil {
+			helper.Logger.Println(10, "Failed to set hard state! err:", err)
 			const expl = "during setHardState"
 			return stats, expl, errors.Wrap(err, expl)
 		}
 	}
+
 	// Synchronously commit the batch with the Raft log entries and Raft hard
 	// state as we're promising not to lose this data.
 	//
@@ -260,6 +263,7 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 	// infer the that entries are persisted on the node that sends a snapshot.
 	//start := timeutil.Now()
 	if err := batch.Commit(); err != nil {
+		helper.Logger.Println(10, "Failed to commit! err:", err)
 		const expl = "while committing batch"
 		return stats, expl, errors.Wrap(err, expl)
 	}
@@ -495,6 +499,7 @@ func (r *Replica) applyRaftCommand(
 	idKey multiraftbase.CmdIDKey,
 	writeBatch *multiraftbase.WriteBatch,
 ) *multiraftbase.Error {
+
 	return nil
 }
 
@@ -867,8 +872,6 @@ func (r *Replica) initRaftMuLockedReplicaMuLocked(
 	if err != nil {
 		return err
 	}
-
-	r.mu.lastIndex = 0
 	r.mu.lastTerm = invalidLastTerm
 
 	_, err = r.mu.stateLoader.loadReplicaDestroyedError(ctx, r.store.sysEng)

@@ -103,11 +103,11 @@ func entries(
 	for i := expectedIndex; i < hi; i++ {
 		v, err := e.Get(keys.RaftLogKey(groupID, i))
 		if err != nil {
-
+			return nil, err
 		}
 		err = ent.Unmarshal(v)
 		if err != nil {
-
+			return nil, err
 		}
 		// Note that we track the size of proposals with payloads inlined.
 		size += uint64(ent.Size())
@@ -235,7 +235,7 @@ func (r *Replica) raftTruncatedStateLocked(
 	if r.mu.state.TruncatedState != nil {
 		return *r.mu.state.TruncatedState, nil
 	}
-	ts, err := r.mu.stateLoader.loadTruncatedState(ctx, r.store.Engine())
+	ts, err := r.mu.stateLoader.loadTruncatedState(ctx, r.store.sysEng)
 	if err != nil {
 		return ts, err
 	}
@@ -323,7 +323,7 @@ type IncomingSnapshot struct {
 // payloads in case the log tail is replaced.
 func (r *Replica) append(
 	ctx context.Context,
-	batch engine.ReadWriter,
+	batch engine.Writer,
 	prevLastIndex uint64,
 	prevLastTerm uint64,
 	prevRaftLogSize int64,
@@ -357,7 +357,6 @@ func (r *Replica) append(
 			return 0, 0, 0, err
 		}
 	}
-
 	if err := r.raftMu.stateLoader.setLastIndex(ctx, batch, lastIndex); err != nil {
 		return 0, 0, 0, err
 	}

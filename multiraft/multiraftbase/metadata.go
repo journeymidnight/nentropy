@@ -4,6 +4,7 @@ import (
 	"strconv"
 
 	"encoding/binary"
+	"fmt"
 	"github.com/pkg/errors"
 )
 
@@ -104,6 +105,31 @@ func (v *Value) SetInt(i int64) {
 	n := binary.PutVarint(v.RawBytes[headerSize:], i)
 	v.RawBytes = v.RawBytes[:headerSize+n]
 	v.setTag(ValueType_INT)
+}
+
+// GetTag retrieves the value type.
+func (v Value) GetTag() ValueType {
+	if len(v.RawBytes) <= tagPos {
+		return ValueType_UNKNOWN
+	}
+	return ValueType(v.RawBytes[tagPos])
+}
+
+func (v Value) dataBytes() []byte {
+	return v.RawBytes[headerSize:]
+}
+
+// GetInt decodes an int64 value from the bytes field of the receiver. If the
+// tag is not INT or the value cannot be decoded an error will be returned.
+func (v Value) GetInt() (int64, error) {
+	if tag := v.GetTag(); tag != ValueType_INT {
+		return 0, fmt.Errorf("value type is not %s: %s", ValueType_INT, tag)
+	}
+	i, n := binary.Varint(v.dataBytes())
+	if n <= 0 {
+		return 0, fmt.Errorf("int64 varint decoding failed: %d", n)
+	}
+	return i, nil
 }
 
 // Validate performs some basic validation of the contents of a replica descriptor.
