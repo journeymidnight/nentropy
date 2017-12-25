@@ -6,7 +6,9 @@ import (
 	"github.com/journeymidnight/nentropy/helper"
 	"github.com/journeymidnight/nentropy/log"
 	"github.com/journeymidnight/nentropy/multiraft/multiraftbase"
+	"github.com/journeymidnight/nentropy/util/protoutil"
 	"github.com/journeymidnight/nentropy/util/syncutil"
+	"github.com/journeymidnight/nentropy/util/timeutil"
 	"github.com/pkg/errors"
 	"golang.org/x/net/context"
 	"math/rand"
@@ -950,8 +952,237 @@ func (r *Replica) setEstimatedCommitIndexLocked(commit uint64) {
 	}
 }
 
+func (r *Replica) executeWriteBatch(
+	ctx context.Context, ba multiraftbase.BatchRequest,
+) (*multiraftbase.BatchResponse, *multiraftbase.Error) {
+	br, pErr := r.tryExecuteWriteBatch(ctx, ba)
+	return br, pErr
+}
+
+// maybeInitializeRaftGroup check whether the internal Raft group has
+// not yet been initialized. If not, it is created and set to campaign
+// if this replica is the most recent owner of the range lease.
+func (r *Replica) maybeInitializeRaftGroup(ctx context.Context) {
+	r.mu.RLock()
+	// If this replica hasn't initialized the Raft group, create it and
+	// unquiesce and wake the leader to ensure the replica comes up to date.
+	initialized := r.mu.internalRaftGroup != nil
+	r.mu.RUnlock()
+	if initialized {
+		return
+	}
+
+	// Acquire raftMu, but need to maintain lock ordering (raftMu then mu).
+	r.raftMu.Lock()
+	defer r.raftMu.Unlock()
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	// Campaign if this replica is the current lease holder to avoid
+	// an election storm after a recent split. If no replica is the
+	// lease holder, all replicas must campaign to avoid waiting for
+	// an election timeout to acquire the lease. In the latter case,
+	// there's less chance of an election storm because this replica
+	// will only campaign if it's been idle for >= election timeout,
+	// so there's most likely been no traffic to the range.
+	shouldCampaignOnCreation := true
+	if err := r.withRaftGroupLocked(shouldCampaignOnCreation, func(raftGroup *raft.RawNode) (bool, error) {
+		return true, nil
+	}); err != nil {
+		helper.Logger.Printf(5, "unable to initialize raft group: %s", err)
+	}
+}
+
 func (r *Replica) Send(
 	ctx context.Context, ba multiraftbase.BatchRequest,
 ) (*multiraftbase.BatchResponse, *multiraftbase.Error) {
-	return nil, nil
+	var br *multiraftbase.BatchResponse
+
+	// Add the range log tag.
+	ctx = r.AnnotateCtx(ctx)
+
+	// If the internal Raft group is not initialized, create it and wake the leader.
+	r.maybeInitializeRaftGroup(ctx)
+
+	useRaft := true
+
+	// Differentiate between admin, read-only and write.
+	var pErr *multiraftbase.Error
+	if useRaft {
+		br, pErr = r.executeWriteBatch(ctx, ba)
+	} else {
+		helper.Logger.Fatalf(5, "don't know how to handle command %s", ba)
+	}
+	if _, ok := pErr.Detail.GetValue().(*multiraftbase.RaftGroupDeletedError); ok {
+		// This error needs to be converted appropriately so that
+		// clients will retry.
+		pErr = multiraftbase.NewError(multiraftbase.NewGroupNotFoundError(r.GroupID))
+	}
+	if pErr != nil {
+		helper.Logger.Printf(5, "replica.Send got error: %s", pErr)
+	}
+
+	return br, pErr
+}
+
+// insertProposalLocked assigns a MaxLeaseIndex to a proposal and adds
+// it to the pending map.
+func (r *Replica) insertProposalLocked(
+	proposal *ProposalData, proposerReplica multiraftbase.ReplicaDescriptor,
+) {
+	proposal.command.ProposerReplica = proposerReplica
+
+	if _, ok := r.mu.proposals[proposal.idKey]; ok {
+		helper.Logger.Fatal(5, "pending command already exists for %s", proposal.idKey)
+	}
+	r.mu.proposals[proposal.idKey] = proposal
+}
+
+func defaultSubmitProposalLocked(r *Replica, p *ProposalData) error {
+	data, err := protoutil.Marshal(&p.command)
+	if err != nil {
+		return err
+	}
+	defer r.store.enqueueRaftUpdateCheck(r.GroupID)
+
+	const largeProposalEventThresholdBytes = 2 << 19 // 512kb
+
+	// Log an event if this is a large proposal. These are more likely to cause
+	// blips or worse, and it's good to be able to pick them from traces.
+	//
+	// TODO(tschottdorf): can we mark them so lightstep can group them?
+
+	return r.withRaftGroupLocked(true, func(raftGroup *raft.RawNode) (bool, error) {
+		encode := encodeRaftCommandV1
+		// We're proposing a command so there is no need to wake the leader if we
+		// were quiesced.
+		r.unquiesceLocked()
+		return false /* !unquiesceAndWakeLeader */, raftGroup.Propose(encode(p.idKey, data))
+	})
+}
+
+// submitProposalLocked proposes or re-proposes a command in r.mu.proposals.
+// The replica lock must be held.
+func (r *Replica) submitProposalLocked(p *ProposalData) error {
+	p.proposedAtTicks = r.mu.ticks
+
+	return defaultSubmitProposalLocked(r, p)
+}
+
+// requestToProposal converts a BatchRequest into a ProposalData, by
+// evaluating it. The returned ProposalData is partially valid even
+// on a non-nil *roachpb.Error.
+func (r *Replica) requestToProposal(
+	ctx context.Context,
+	idKey multiraftbase.CmdIDKey,
+	ba multiraftbase.BatchRequest,
+) (*ProposalData, *multiraftbase.Error) {
+	proposal := &ProposalData{
+		ctx:     ctx,
+		idKey:   idKey,
+		doneCh:  make(chan proposalResult, 1),
+		Request: &ba,
+	}
+	var pErr *multiraftbase.Error
+
+	// Fill out the results even if pErr != nil; we'll return the error below.
+	proposal.command = multiraftbase.RaftCommand{
+		WriteBatch: &multiraftbase.WriteBatch{},
+	}
+
+	return proposal, pErr
+}
+
+// getReplicaDescriptorRLocked is like getReplicaDescriptor, but assumes that
+// r.mu is held for either reading or writing.
+func (r *Replica) getReplicaDescriptorRLocked() (multiraftbase.ReplicaDescriptor, error) {
+	repDesc, ok := r.mu.state.Desc.GetReplicaDescriptor(r.store.NodeID())
+	if ok {
+		return repDesc, nil
+	}
+	return multiraftbase.ReplicaDescriptor{}, nil
+}
+
+func (r *Replica) propose(
+	ctx context.Context,
+	ba multiraftbase.BatchRequest,
+) (chan proposalResult, *multiraftbase.Error) {
+	if err := r.IsDestroyed(); err != nil {
+		return nil, multiraftbase.NewError(err)
+	}
+
+	idKey := makeIDKey()
+	proposal, _ := r.requestToProposal(ctx, idKey, ba)
+
+	// submitProposalLocked calls withRaftGroupLocked which requires that
+	// raftMu is held. In order to maintain our lock ordering we need to lock
+	// Replica.raftMu here before locking Replica.mu.
+	//
+	// TODO(peter): It appears that we only need to hold Replica.raftMu when
+	// calling raft.NewRawNode. We could get fancier with the locking here to
+	// optimize for the common case where Replica.mu.internalRaftGroup is
+	// non-nil, but that doesn't currently seem worth it. Always locking raftMu
+	// has a tiny (~1%) performance hit for single-node block_writer testing.
+	r.raftMu.Lock()
+	defer r.raftMu.Unlock()
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	// NB: We need to check Replica.mu.destroyed again in case the Replica has
+	// been destroyed between the initial check at the beginning of this method
+	// and the acquisition of Replica.mu. Failure to do so will leave pending
+	// proposals that never get cleared.
+	if err := r.mu.destroyed; err != nil {
+		return nil, multiraftbase.NewError(err)
+	}
+
+	repDesc, err := r.getReplicaDescriptorRLocked()
+	if err != nil {
+		return nil, multiraftbase.NewError(err)
+	}
+	r.insertProposalLocked(proposal, repDesc)
+
+	if err := r.submitProposalLocked(proposal); err != nil {
+		delete(r.mu.proposals, proposal.idKey)
+		return nil, multiraftbase.NewError(err)
+	}
+
+	return proposal.doneCh, nil
+}
+
+const SlowRequestThreshold = 60 * time.Second
+
+func (r *Replica) tryExecuteWriteBatch(
+	ctx context.Context, ba multiraftbase.BatchRequest,
+) (br *multiraftbase.BatchResponse, pErr *multiraftbase.Error) {
+
+	ch, pErr := r.propose(ctx, ba)
+	defer func() {
+		// NB: We may be double free-ing here, consider the following cases:
+		//  - The request was evaluated and the command resulted in an error, but a
+		//    proposal is still sent.
+		//  - Proposals get duplicated.
+		// To counter this our quota pool is capped at the initial quota size.
+	}()
+	if pErr != nil {
+		return nil, pErr
+	}
+
+	// If the command was accepted by raft, wait for the range to apply it.
+	ctxDone := ctx.Done()
+	slowTimer := timeutil.NewTimer()
+	defer slowTimer.Stop()
+	slowTimer.Reset(SlowRequestThreshold)
+	for {
+		select {
+		case propResult := <-ch:
+			helper.Logger.Printf(5, "propResult:", propResult.Reply.Error)
+		case <-slowTimer.C:
+			slowTimer.Read = true
+			helper.Logger.Printf(5, "have been waiting %s for proposing command %s",
+				SlowRequestThreshold, ba)
+
+		case <-ctxDone:
+			ctxDone = nil
+		}
+	}
 }

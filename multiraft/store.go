@@ -110,6 +110,12 @@ func (s *Store) processReady(ctx context.Context, id multiraftbase.GroupID) {
 	}
 }
 
+// enqueueRaftUpdateCheck asynchronously registers the given range ID to be
+// checked for raft updates when the processRaft goroutine is idle.
+func (s *Store) enqueueRaftUpdateCheck(groupID multiraftbase.GroupID) {
+	s.scheduler.EnqueueRaftReady(groupID)
+}
+
 func (s *Store) processRequestQueue(ctx context.Context, id multiraftbase.GroupID) {
 	helper.Logger.Println(5, "Enter processRequestQueue(). id:", id)
 	value, ok := s.replicaQueues.Load(id)

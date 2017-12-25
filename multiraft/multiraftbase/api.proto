@@ -27,44 +27,44 @@ enum ReadConsistencyType {
 
 // ResponseHeader is returned with every storage node response.
 message ResponseHeader {
-// The number of keys operated on.
-int64 num_keys = 1;
-// Range or list of ranges used to execute the request. Multiple
-// ranges may be returned for Scan, ReverseScan or DeleteRange.
-repeated PgInfo pg_infos = 2;
+    // The number of keys operated on.
+    int64 num_keys = 1;
+    // Range or list of ranges used to execute the request. Multiple
+    // ranges may be returned for Scan, ReverseScan or DeleteRange.
+    repeated PgInfo pg_infos = 2;
 }
 
 // A GetRequest is the argument for the Get() method.
 message GetRequest {
-option (gogoproto.equal) = true;
-int64 num_keys = 1;
+    option (gogoproto.equal) = true;
+    int64 num_keys = 1;
 }
 
 // A GetResponse is the return value from the Get() method.
 // If the key doesn't exist, returns nil for Value.Bytes.
 message GetResponse {
-ResponseHeader header = 1 [(gogoproto.nullable) = false, (gogoproto.embed) = true];
-Value value = 2;
+    ResponseHeader header = 1 [(gogoproto.nullable) = false, (gogoproto.embed) = true];
+    Value value = 2;
 }
 
 // A PutRequest is the argument to the Put() method.
 message PutRequest {
-option (gogoproto.equal) = true;
+    option (gogoproto.equal) = true;
 
-Value value = 1 ;
-// Specify as true to put the value without a corresponding
-// timestamp. This option should be used with care as it precludes
-// the use of this value with transactions.
-bool inline = 2;
-// NOTE: For internal use only! Set to indicate that the put is
-// writing to virgin keyspace and no reads are necessary to
-// rationalize MVCC.
-bool blind = 3;
+    Value value = 1;
+    // Specify as true to put the value without a corresponding
+    // timestamp. This option should be used with care as it precludes
+    // the use of this value with transactions.
+    bool inline = 2;
+    // NOTE: For internal use only! Set to indicate that the put is
+    // writing to virgin keyspace and no reads are necessary to
+    // rationalize MVCC.
+    bool blind = 3;
 }
 
 // A PutResponse is the return value from the Put() method.
 message PutResponse {
-ResponseHeader header = 1 [(gogoproto.nullable) = false, (gogoproto.embed) = true];
+    ResponseHeader header = 1 [(gogoproto.nullable) = false, (gogoproto.embed) = true];
 }
 
 // A RequestUnion contains exactly one of the requests.
@@ -78,10 +78,10 @@ ResponseHeader header = 1 [(gogoproto.nullable) = false, (gogoproto.embed) = tru
 // Be cautious about deprecating fields as doing so can lead to inconsistencies
 // between replicas.
 message RequestUnion {
-option (gogoproto.onlyone) = true;
+    option (gogoproto.onlyone) = true;
 
-GetRequest get = 1;
-PutRequest put = 2;
+    GetRequest get = 1;
+    PutRequest put = 2;
 }
 
 // A ResponseUnion contains exactly one of the responses.
@@ -92,10 +92,10 @@ PutRequest put = 2;
 // name with "Deprecated". See DeprecatedVerifyChecksumResponse for an
 // example.
 message ResponseUnion {
-option (gogoproto.onlyone) = true;
+    option (gogoproto.onlyone) = true;
 
-GetResponse get = 1;
-PutResponse put = 2;
+    GetResponse get = 1;
+    PutResponse put = 2;
 }
 
 // A Header is attached to a BatchRequest, encapsulating routing and auxiliary
@@ -115,10 +115,10 @@ message Header {
 // parallel, or if applicable (based on write-only commands and
 // range-locality), as a single update.
 message BatchRequest {
-option (gogoproto.goproto_stringer) = false;
+    option (gogoproto.goproto_stringer) = false;
 
-Header header = 1 [(gogoproto.nullable) = false, (gogoproto.embed) = true];
-repeated RequestUnion requests = 2;
+    Header header = 1 [(gogoproto.nullable) = false, (gogoproto.embed) = true];
+    repeated RequestUnion requests = 2;
 }
 
 // A BatchResponse contains one or more responses, one per request
@@ -126,15 +126,16 @@ repeated RequestUnion requests = 2;
 // error in the response header is set to the first error from the
 // slice of responses, if applicable.
 message BatchResponse {
-option (gogoproto.goproto_stringer) = false;
+    option (gogoproto.goproto_stringer) = false;
 
-message Header {
-reserved 4;
-// error is non-nil if an error occurred.
-Error error = 1;
-}
-Header header = 1 [(gogoproto.embed) = true];
-repeated ResponseUnion responses = 2;
+    message Header {
+        reserved 4;
+        // error is non-nil if an error occurred.
+        Error error = 1;
+    }
+
+    Header header = 1 [(gogoproto.embed) = true, (gogoproto.nullable) = false];
+    repeated ResponseUnion responses = 2;
 }
 
 // The two Batch services below are identical, except that some internal
@@ -143,11 +144,11 @@ repeated ResponseUnion responses = 2;
 // internal-only RPC methods.
 
 service Internal {
-rpc Batch (BatchRequest) returns (BatchResponse) {}
+    rpc Batch (BatchRequest) returns (BatchResponse) {}
 }
 
 service External {
-rpc Batch (BatchRequest) returns (BatchResponse) {}
+    rpc Batch (BatchRequest) returns (BatchResponse) {}
 }
 
 // TruncateLogRequest is used to remove a prefix of the raft log. While there
@@ -156,16 +157,16 @@ rpc Batch (BatchRequest) returns (BatchResponse) {}
 // to identical as possible. The raft leader can also inform decisions about the cutoff point
 // with its knowledge of the replicas' acknowledgment status.
 message TruncateLogRequest {
-option (gogoproto.equal) = true;
+    option (gogoproto.equal) = true;
 
-// Log entries < this index are to be discarded.
-uint64 index = 1;
+    // Log entries < this index are to be discarded.
+    uint64 index = 1;
 
-// GroupID is used to double check that the correct range is being truncated.
-// The header specifies a span, start and end keys, but not the range id
-// itself. The range may have changed from the one specified in the header
-// in the case of a merge.
-string group_id = 2 [(gogoproto.customname) = "GroupID", (gogoproto.casttype) = "GroupID"];
+    // GroupID is used to double check that the correct range is being truncated.
+    // The header specifies a span, start and end keys, but not the range id
+    // itself. The range may have changed from the one specified in the header
+    // in the case of a merge.
+    string group_id = 2 [(gogoproto.customname) = "GroupID", (gogoproto.casttype) = "GroupID"];
 }
 
 // WriteBatch is the serialized representation of a RocksDB write
@@ -174,7 +175,7 @@ string group_id = 2 [(gogoproto.customname) = "GroupID", (gogoproto.casttype) = 
 // containing pointers to it can be compared with the == operator (we
 // rely on this in storage.EvalResult)
 message WriteBatch {
-bytes data = 1;
+    bytes data = 1;
 }
 
 // RaftCommand is the message written to the raft log. It contains
@@ -182,13 +183,13 @@ bytes data = 1;
 // (legacy mode) or a ReplicatedEvalResult + WriteBatch
 // (proposer-evaluated KV mode).
 message RaftCommand {
-// Metadata about the proposal itself. These fields exist at
-// top-level instead of being grouped in a sub-message for
-// backwards-compatibility.
+    // Metadata about the proposal itself. These fields exist at
+    // top-level instead of being grouped in a sub-message for
+    // backwards-compatibility.
 
-// proposer_replica is the replica which proposed this command, to be
-// used for lease validation.
-ReplicaDescriptor proposer_replica = 1;
-WriteBatch write_batch = 2;
+    // proposer_replica is the replica which proposed this command, to be
+    // used for lease validation.
+    ReplicaDescriptor proposer_replica = 1 [(gogoproto.nullable) = false];
+    WriteBatch write_batch = 2;
 }
 
