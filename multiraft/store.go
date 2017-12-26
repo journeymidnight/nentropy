@@ -848,7 +848,6 @@ func (s *Store) BootstrapGroup(initialValues []multiraftbase.KeyValue, group *mu
 	if !found {
 		return errors.New(fmt.Sprintf("send to wrong node %s", s.nodeDesc.NodeID))
 	}
-	//r, _, _ := s.getOrCreateReplica(context.Background(), group.GroupID, replicaDesc.ReplicaID, nil)
 	r, err := NewReplica(&desc, s, 0)
 	if err != nil {
 		return err
@@ -869,6 +868,7 @@ func (s *Store) BootstrapGroup(initialValues []multiraftbase.KeyValue, group *mu
 		peers = append(peers, raft.Peer{ID: uint64(desc.ReplicaID)})
 	}
 
+	r.raftMu.Lock()
 	r.mu.Lock()
 	if r.mu.internalRaftGroup == nil {
 		raftGroup, err := raft.NewRawNode(newRaftConfig(

@@ -836,7 +836,7 @@ func (r *Replica) initRaftMuLockedReplicaMuLocked(
 	}
 	helper.Logger.Println(10, "GroupID:", r.GroupID, " replicaID:", replicaID)
 	if desc.IsInitialized() && replicaID != 0 {
-		//return errors.Errorf("replicaID must be 0 when creating an initialized replica")
+		return errors.Errorf("replicaID must be 0 when creating an initialized replica")
 	}
 
 	r.mu.proposals = map[multiraftbase.CmdIDKey]*ProposalData{}
