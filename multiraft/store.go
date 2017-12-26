@@ -470,7 +470,7 @@ func (s *Store) getOrCreateReplica(
 
 // addReplicaToRangeMapLocked adds the replica to the replicas map.
 // addReplicaToRangeMapLocked requires that the store lock is held.
-func (s *Store) addReplicaToRangeMapLocked(repl *Replica) error {
+func (s *Store) addReplicaToGroupMapLocked(repl *Replica) error {
 	if _, loaded := s.mu.replicas.LoadOrStore(repl.GroupID, repl); loaded {
 		return errors.New("replica already exists")
 	}
@@ -534,7 +534,7 @@ func (s *Store) tryGetOrCreateReplica(
 	// key is unknown. The range will be added to replicasByKey later when a
 	// snapshot is applied. After unlocking Store.mu above, another goroutine
 	// might have snuck in and created the replica, so we retry on error.
-	if err := s.addReplicaToRangeMapLocked(repl); err != nil {
+	if err := s.addReplicaToGroupMapLocked(repl); err != nil {
 		repl.mu.Unlock()
 		s.mu.Unlock()
 		repl.raftMu.Unlock()
@@ -543,28 +543,10 @@ func (s *Store) tryGetOrCreateReplica(
 	s.mu.uninitReplicas[repl.GroupID] = repl
 	s.mu.Unlock()
 
-	replicas := []multiraftbase.ReplicaDescriptor{
-		{
-			NodeID:    "1",
-			StoreID:   1,
-			ReplicaID: 1,
-		},
-		{
-			NodeID:    "2",
-			StoreID:   2,
-			ReplicaID: 2,
-		},
-		{
-			NodeID:    "3",
-			StoreID:   3,
-			ReplicaID: 3,
-		},
-	}
 	desc := &multiraftbase.GroupDescriptor{
 		GroupID: groupID,
 		// TODO(bdarnell): other fields are unknown; need to populate them from
 		// snapshot.
-		Replicas: replicas,
 	}
 	if err := repl.initRaftMuLockedReplicaMuLocked(desc, replicaID); err != nil {
 		// Mark the replica as destroyed and remove it from the replicas maps to
@@ -833,7 +815,7 @@ func (s *Store) addReplicaInternalLocked(repl *Replica) error {
 
 	// TODO(spencer): will need to determine which range is
 	// newer, and keep that one.
-	if err := s.addReplicaToRangeMapLocked(repl); err != nil {
+	if err := s.addReplicaToGroupMapLocked(repl); err != nil {
 		return err
 	}
 
@@ -862,30 +844,25 @@ func (s *Store) BootstrapGroup(initialValues []multiraftbase.KeyValue, group *mu
 			return err
 		}
 	*/
-	replicaDesc, found := group.GetReplicaDescriptor(s.nodeDesc.NodeID)
+	_, found := group.GetReplicaDescriptor(s.nodeDesc.NodeID)
 	if !found {
 		return errors.New(fmt.Sprintf("send to wrong node %s", s.nodeDesc.NodeID))
 	}
-	r, _, _ := s.getOrCreateReplica(context.Background(), group.GroupID, replicaDesc.ReplicaID, nil)
-	//r, err := NewReplica(&desc, s, 0)
-	//if err != nil {
-	//	return err
-	//}
-	//s.mu.Lock()
-	//err = s.addReplicaInternalLocked(r)
-	//s.mu.Unlock()
-	//if err != nil {
-	//	return err
-	//}
-	//if _, ok := desc.GetReplicaDescriptor(s.NodeID()); !ok {
-	//	// We are no longer a member of the range, but we didn't GC the replica
-	//	// before shutting down. Add the replica to the GC queue.
-	//	if added, err := s.replicaGCQueue.Add(rep, replicaGCPriorityRemoved); err != nil {
-	//		helper.Logger.Printf(5, "%s: unable to add replica to GC queue: %s", rep, err)
-	//	} else if added {
-	//		helper.Logger.Printf(5, "%s: added to replica GC queue", rep)
-	//	}
-	//}
+	//r, _, _ := s.getOrCreateReplica(context.Background(), group.GroupID, replicaDesc.ReplicaID, nil)
+	r, err := NewReplica(&desc, s, 0)
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	err = s.addReplicaInternalLocked(r)
+	s.mu.Unlock()
+	if err != nil {
+		return err
+	}
+	if _, ok := desc.GetReplicaDescriptor(s.NodeID()); !ok {
+		// We are no longer a member of the range, but we didn't GC the replica
+		// before shutting down. Add the replica to the GC queue.
+	}
 	peers := []raft.Peer{}
 	replicaDescs := group.GetReplicas()
 	for _, desc := range replicaDescs {
