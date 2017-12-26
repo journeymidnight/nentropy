@@ -159,6 +159,41 @@ func (s *Store) Send(
 	ctx context.Context, ba multiraftbase.BatchRequest,
 ) (br *multiraftbase.BatchResponse, pErr *multiraftbase.Error) {
 	// repl.Send()
+	// Attach any log tags from the store to the context (which normally
+	// comes from gRPC).
+	ctx = s.AnnotateCtx(ctx)
+
+	// Add the command to the range for execution; exit retry loop on success.
+	for {
+		// Exit loop if context has been canceled or timed out.
+		if err := ctx.Err(); err != nil {
+			return nil, multiraftbase.NewError(err)
+		}
+
+		// Get range and add command to the range for execution.
+		repl, err := s.GetReplica(ba.GroupID)
+		if err != nil {
+			return nil, multiraftbase.NewError(err)
+		}
+		if !repl.IsInitialized() {
+			repl.mu.RLock()
+			repl.mu.RUnlock()
+
+			// If we have an uninitialized copy of the range, then we are
+			// probably a valid member of the range, we're just in the
+			// process of getting our snapshot. If we returned
+			// RangeNotFoundError, the client would invalidate its cache,
+			// but we can be smarter: the replica that caused our
+			// uninitialized replica to be created is most likely the
+			// leader.
+			return nil, multiraftbase.NewError(err)
+		}
+
+		br, pErr = repl.Send(ctx, ba)
+		if pErr == nil {
+			return br, nil
+		}
+	}
 	return nil, nil
 }
 

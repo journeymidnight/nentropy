@@ -25,6 +25,7 @@ type OsdServer struct {
 	stopper       *stop.Stopper
 	store         *multiraft.Store
 	engine        engine.Engine
+	storeCfg      multiraft.StoreConfig // Config to use and pass to stores
 }
 
 // NewServer creates a Server from a server.Context.
@@ -103,10 +104,57 @@ type ListenError struct {
 	Addr string
 }
 
+func (s *OsdServer) batchInternal(
+	ctx context.Context, args *multiraftbase.BatchRequest,
+) (*multiraftbase.BatchResponse, error) {
+
+	var br *multiraftbase.BatchResponse
+
+	if err := s.stopper.RunTaskWithErr(ctx, "node.Node: batch", func(ctx context.Context) error {
+
+		var pErr *multiraftbase.Error
+		br, pErr = s.store.Send(ctx, *args)
+		if pErr != nil {
+			br = &multiraftbase.BatchResponse{}
+			helper.Logger.Printf(5, "%T", pErr.GetDetail())
+		}
+		if br.Error != nil {
+			panic("")
+		}
+		br.Error = pErr
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+	return br, nil
+}
+
 func (s *OsdServer) Batch(
 	ctx context.Context, args *multiraftbase.BatchRequest,
 ) (*multiraftbase.BatchResponse, error) {
-	return nil, nil
+
+	// NB: Node.Batch is called directly for "local" calls. We don't want to
+	// carry the associated log tags forward as doing so makes adding additional
+	// log tags more expensive and makes local calls differ from remote calls.
+	ctx = s.storeCfg.AmbientCtx.ResetAndAnnotateCtx(ctx)
+
+	br, err := s.batchInternal(ctx, args)
+
+	// We always return errors via BatchResponse.Error so structure is
+	// preserved; plain errors are presumed to be from the RPC
+	// framework and not from cockroach.
+	if err != nil {
+		if br == nil {
+			br = &multiraftbase.BatchResponse{}
+		}
+		if br.Error != nil {
+			helper.Logger.Fatalf(
+				5, "attempting to return both a plain error (%s) and roachpb.Error (%s)", err, br.Error,
+			)
+		}
+		br.Error = multiraftbase.NewError(err)
+	}
+	return br, nil
 }
 
 // Start starts the server on the specified port, starts gossip and initializes

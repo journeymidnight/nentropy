@@ -1156,13 +1156,6 @@ func (r *Replica) tryExecuteWriteBatch(
 ) (br *multiraftbase.BatchResponse, pErr *multiraftbase.Error) {
 
 	ch, pErr := r.propose(ctx, ba)
-	defer func() {
-		// NB: We may be double free-ing here, consider the following cases:
-		//  - The request was evaluated and the command resulted in an error, but a
-		//    proposal is still sent.
-		//  - Proposals get duplicated.
-		// To counter this our quota pool is capped at the initial quota size.
-	}()
 	if pErr != nil {
 		return nil, pErr
 	}
