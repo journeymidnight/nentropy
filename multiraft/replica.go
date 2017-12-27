@@ -213,7 +213,7 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 		return stats, "", nil
 	}
 
-	helper.Logger.Printf(10, "get ready from raft group")
+	helper.Logger.Printf(20, "get ready from raft group")
 
 	//refreshReason := noReason
 	if rd.SoftState != nil && leaderID != multiraftbase.ReplicaID(rd.SoftState.Lead) {
@@ -521,24 +521,24 @@ func (r *Replica) getReplicaDescriptorByIDRLocked(
 // sendRaftMessage sends a Raft message.
 func (r *Replica) sendRaftMessage(ctx context.Context, msg raftpb.Message) {
 	r.mu.Lock()
-	helper.Logger.Printf(10, "sendRaftMessage: from: %d, to: %d", msg.From, msg.To)
+	helper.Logger.Printf(20, "sendRaftMessage: from: %d, to: %d", msg.From, msg.To)
 	fromReplica, fromErr := r.getReplicaDescriptorByIDRLocked(multiraftbase.ReplicaID(msg.From), r.mu.lastToReplica)
 	toReplica, toErr := r.getReplicaDescriptorByIDRLocked(multiraftbase.ReplicaID(msg.To), r.mu.lastFromReplica)
 	r.mu.Unlock()
 
 	if fromErr != nil {
-		helper.Logger.Printf(5, "failed to look up sender replica %d in r%d while sending %s: %s",
+		helper.Logger.Printf(20, "failed to look up sender replica %d in r%d while sending %s: %s",
 			msg.From, r.GroupID, msg.Type, fromErr)
 		return
 	}
 	if toErr != nil {
-		helper.Logger.Printf(5, "failed to look up recipient replica %d in r%d while sending %s: %s",
+		helper.Logger.Printf(20, "failed to look up recipient replica %d in r%d while sending %s: %s",
 			msg.To, r.GroupID, msg.Type, toErr)
 		return
 	}
 
 	if r.maybeCoalesceHeartbeat(ctx, msg, toReplica, fromReplica, false) {
-		helper.Logger.Printf(5, "maybeCoalesceHeartbeat return for heartbeat msg ")
+		helper.Logger.Printf(20, "maybeCoalesceHeartbeat return for heartbeat msg ")
 		return
 	}
 

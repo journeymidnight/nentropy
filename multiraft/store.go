@@ -117,7 +117,7 @@ func (s *Store) enqueueRaftUpdateCheck(groupID multiraftbase.GroupID) {
 }
 
 func (s *Store) processRequestQueue(ctx context.Context, id multiraftbase.GroupID) {
-	helper.Logger.Println(5, "Enter processRequestQueue(). id:", id)
+	helper.Logger.Println(20, "Enter processRequestQueue(). id:", id)
 	value, ok := s.replicaQueues.Load(id)
 	if !ok {
 		helper.Logger.Println(5, "Cannot load replicaQueues. id:", id)
@@ -381,7 +381,7 @@ func (s *Store) sendQueuedHeartbeatsToNode(
 func (s *Store) HandleRaftRequest(
 	ctx context.Context, req *multiraftbase.RaftMessageRequest, respStream RaftMessageResponseStream,
 ) *multiraftbase.Error {
-	helper.Logger.Printf(5, "HandleRaftRequest handle %d req", len(req.Heartbeats)+len(req.HeartbeatResps))
+	helper.Logger.Printf(20, "HandleRaftRequest handle %d req", len(req.Heartbeats)+len(req.HeartbeatResps))
 	if len(req.Heartbeats)+len(req.HeartbeatResps) > 0 {
 		if req.GroupID != "" {
 			helper.Logger.Fatalf(5, "coalesced heartbeats must have groupID == 0")
@@ -404,7 +404,7 @@ func (s *Store) uncoalesceBeats(
 		return
 	}
 
-	helper.Logger.Printf(5, "uncoalescing %d beats of type %v: %+v", len(beats), msgT, beats)
+	helper.Logger.Printf(20, "uncoalescing %d beats of type %v: %+v", len(beats), msgT, beats)
 
 	beatReqs := make([]multiraftbase.RaftMessageRequest, len(beats))
 	for i, beat := range beats {
@@ -431,7 +431,7 @@ func (s *Store) uncoalesceBeats(
 			Quiesce: beat.Quiesce,
 		}
 
-		helper.Logger.Printf(5, "uncoalesced beat: %+v", beatReqs[i])
+		helper.Logger.Printf(20, "uncoalesced beat: %+v", beatReqs[i])
 
 		if err := s.HandleRaftUncoalescedRequest(ctx, &beatReqs[i], respStream); err != nil {
 			helper.Logger.Printf(5, "could not handle uncoalesced heartbeat %s", err)
@@ -491,7 +491,7 @@ func (s *Store) tryGetOrCreateReplica(
 ) (_ *Replica, created bool, _ error) {
 	// The common case: look up an existing (initialized) replica.
 	if value, ok := s.mu.replicas.Load(groupID); ok {
-		helper.Logger.Printf(10, "Load a exist replica.")
+		helper.Logger.Printf(20, "Load an exist replica.")
 		repl, ok := value.(*Replica)
 		if !ok {
 			return nil, false, multiraftbase.NewReplicaTooOldError(creatingReplica.ReplicaID)
@@ -570,7 +570,7 @@ func (s *Store) processRaftRequest(
 	ctx context.Context, req *multiraftbase.RaftMessageRequest, inSnap IncomingSnapshot,
 ) (pErr *multiraftbase.Error) {
 	// Lazily create the replica.
-	helper.Logger.Printf(10, "Enter processRaftRequest() ")
+	helper.Logger.Printf(20, "Enter processRaftRequest() ")
 	r, _, err := s.getOrCreateReplica(
 		ctx,
 		req.GroupID,
@@ -642,7 +642,7 @@ func (s *Store) HandleRaftUncoalescedRequest(
 		helper.Logger.Printf(5, " call processRaftRequest")
 		return s.processRaftRequest(ctx, req, IncomingSnapshot{})
 	}
-	helper.Logger.Printf(5, "HandleRaftUncoalescedRequest() groupID:", req.GroupID)
+	helper.Logger.Printf(20, "HandleRaftUncoalescedRequest() groupID:", req.GroupID)
 	value, ok := s.replicaQueues.Load(req.GroupID)
 	if !ok {
 		value, _ = s.replicaQueues.LoadOrStore(req.GroupID, &raftRequestQueue{})

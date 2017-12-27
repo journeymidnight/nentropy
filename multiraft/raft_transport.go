@@ -510,7 +510,7 @@ func (t *RaftTransport) getQueue(nodeID multiraftbase.NodeID) (chan *multiraftba
 	var ok bool
 	if !exist {
 		ch := make(chan *multiraftbase.RaftMessageRequest, raftSendBufferSize)
-		helper.Logger.Println(5, "New a channel for raft req, ch:", ch)
+		helper.Logger.Println(20, "New a channel for raft req, ch:", ch)
 		value, ok = t.queues.LoadOrStore(nodeID, ch)
 	}
 	ch, ok := value.(chan *multiraftbase.RaftMessageRequest)
@@ -535,10 +535,9 @@ func (t *RaftTransport) SendAsync(req *multiraftbase.RaftMessageRequest) bool {
 	toNodeID := req.ToReplica.NodeID
 
 	stats := t.getStats(toNodeID)
-	helper.Logger.Println(10, "Enter SendAsync(). toNodeID:", toNodeID)
+	helper.Logger.Println(20, "Enter SendAsync(). toNodeID:", toNodeID)
 	ch, existingQueue := t.getQueue(toNodeID)
 	if !existingQueue {
-		helper.Logger.Printf(5, "Create a new sender and receiver.")
 		// Starting workers in a task prevents data races during shutdown.
 		ctx := t.AnnotateCtx(context.Background())
 		if err := t.rpcContext.Stopper.RunTask(
@@ -546,11 +545,10 @@ func (t *RaftTransport) SendAsync(req *multiraftbase.RaftMessageRequest) bool {
 			func(ctx context.Context) {
 				t.rpcContext.Stopper.RunWorker(ctx, func(ctx context.Context) {
 					t.connectAndProcess(ctx, toNodeID, ch, stats)
-					helper.Logger.Printf(5, "Delete req queue.")
 					t.queues.Delete(toNodeID)
 				})
 			}); err != nil {
-			helper.Logger.Printf(5, "Error running rpc client.")
+			helper.Logger.Printf(20, "Error running rpc client.")
 			t.queues.Delete(toNodeID)
 			return false
 		}
