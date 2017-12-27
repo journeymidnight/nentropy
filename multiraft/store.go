@@ -186,6 +186,7 @@ func (s *Store) Send(
 			// but we can be smarter: the replica that caused our
 			// uninitialized replica to be created is most likely the
 			// leader.
+			err = errors.New("Replica is not initialized!")
 			return nil, multiraftbase.NewError(err)
 		}
 
@@ -193,8 +194,19 @@ func (s *Store) Send(
 		if pErr == nil {
 			return br, nil
 		}
+
+		// Handle push txn failures and write intent conflicts locally and
+		// retry. Other errors are returned to caller.
+		//switch pErr.GetDetail().(type) {
+		//case *multiraftbase.RaftGroupDeletedError:
+		//case *multiraftbase.GroupNotFoundError:
+		//}
+
+		if pErr != nil {
+			return nil, pErr
+		}
 	}
-	return nil, nil
+	return
 }
 
 func (s *Store) processTick(ctx context.Context, id multiraftbase.GroupID) bool {

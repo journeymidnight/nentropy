@@ -119,7 +119,7 @@ func (s *OsdServer) batchInternal(
 			helper.Logger.Printf(5, "%T", pErr.GetDetail())
 		}
 		if br.Error != nil {
-			panic("")
+			helper.Logger.Panicln(0, "unexpectedly error. error:", br.Error)
 		}
 		br.Error = pErr
 		return nil
@@ -156,6 +156,7 @@ func (s *OsdServer) Batch(
 		}
 		br.Error = multiraftbase.NewError(err)
 	}
+
 	return br, nil
 }
 

@@ -129,7 +129,7 @@ message BatchResponse {
     }
 
     Header header = 1 [(gogoproto.embed) = true, (gogoproto.nullable) = false];
-    repeated ResponseUnion responses = 2;
+    repeated ResponseUnion responses = 2 [(gogoproto.nullable) = false];
 }
 
 // The two Batch services below are identical, except that some internal

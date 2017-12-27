@@ -411,10 +411,6 @@ func encodeRaftCommandV1(commandID multiraftbase.CmdIDKey, command []byte) []byt
 	return encodeRaftCommand(raftVersionStandard, commandID, command)
 }
 
-func encodeRaftCommandV2(commandID multiraftbase.CmdIDKey, command []byte) []byte {
-	return encodeRaftCommand(raftVersionSideloaded, commandID, command)
-}
-
 // encode a command ID, an encoded RaftCommand, and
 // whether the command contains a split.
 func encodeRaftCommand(

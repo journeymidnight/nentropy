@@ -332,11 +332,12 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 					const expl = "while unmarshalling entry"
 					return stats, expl, errors.Wrap(err, expl)
 				}
+
+				helper.Logger.Println(5, "commit entries. EntryNormal: ")
+				if changedRepl := r.processRaftCommand(ctx, commandID, e.Term, e.Index, command); !changedRepl {
+					helper.Logger.Fatalf(5, "unexpected replication change from command %s", &command)
+				}
 			}
-			helper.Logger.Println(5, "commit entries. EntryNormal: ", commandID)
-			//if changedRepl := r.processRaftCommand(ctx, commandID, e.Term, e.Index, command); changedRepl {
-			//	helper.Logger.Fatalf(5, "unexpected replication change from command %s", &command)
-			//}
 			stats.processed++
 
 		case raftpb.EntryConfChange:
@@ -432,7 +433,7 @@ func (r *Replica) processRaftCommand(
 		if raftCmd.WriteBatch != nil {
 			writeBatch = raftCmd.WriteBatch
 		}
-
+		response.Reply = &multiraftbase.BatchResponse{}
 		r.applyRaftCommand(ctx, idKey, writeBatch)
 	}
 
@@ -501,6 +502,20 @@ func (r *Replica) applyRaftCommand(
 	idKey multiraftbase.CmdIDKey,
 	writeBatch *multiraftbase.WriteBatch,
 ) *multiraftbase.Error {
+
+	if writeBatch == nil {
+		return nil
+	}
+	if writeBatch.Data == nil {
+		return nil
+	}
+	putReq := multiraftbase.PutRequest{}
+	err := putReq.Unmarshal(writeBatch.Data)
+	if err != nil {
+		helper.Logger.Printf(5, "Cannot unmarshal data to kv")
+	}
+	helper.Logger.Println(5, "applyRaftCommand: key:", string(putReq.Key))
+	helper.Logger.Println(5, "applyRaftCommand: value:", string(putReq.Value.RawBytes))
 
 	return nil
 }
@@ -993,11 +1008,7 @@ func (r *Replica) Send(
 	} else {
 		helper.Logger.Fatalf(5, "don't know how to handle command %s", ba)
 	}
-	if _, ok := pErr.Detail.GetValue().(*multiraftbase.RaftGroupDeletedError); ok {
-		// This error needs to be converted appropriately so that
-		// clients will retry.
-		pErr = multiraftbase.NewError(multiraftbase.NewGroupNotFoundError(r.GroupID))
-	}
+
 	if pErr != nil {
 		helper.Logger.Printf(5, "replica.Send got error: %s", pErr)
 	}
@@ -1046,6 +1057,7 @@ func defaultSubmitProposalLocked(r *Replica, p *ProposalData) error {
 func (r *Replica) submitProposalLocked(p *ProposalData) error {
 	p.proposedAtTicks = r.mu.ticks
 
+	helper.Logger.Println(5, "enter submitProposalLocked()")
 	return defaultSubmitProposalLocked(r, p)
 }
 
@@ -1066,8 +1078,17 @@ func (r *Replica) requestToProposal(
 	var pErr *multiraftbase.Error
 
 	// Fill out the results even if pErr != nil; we'll return the error below.
+	if len(ba.Requests) != 1 {
+		helper.Logger.Printf(5, "Propose test should have one request.")
+	}
+	req := ba.Requests[0]
+	putReq := req.GetValue().(*multiraftbase.PutRequest)
+	data, err := putReq.Marshal()
+	if err != nil {
+		helper.Logger.Printf(5, "Error marshal put request.")
+	}
 	proposal.command = multiraftbase.RaftCommand{
-		WriteBatch: &multiraftbase.WriteBatch{},
+		WriteBatch: &multiraftbase.WriteBatch{Data: data},
 	}
 
 	return proposal, pErr
@@ -1149,7 +1170,8 @@ func (r *Replica) tryExecuteWriteBatch(
 	for {
 		select {
 		case propResult := <-ch:
-			helper.Logger.Printf(5, "propResult:", propResult.Reply.Error)
+			helper.Logger.Printf(5, "successfully to propose data. ")
+			return propResult.Reply, propResult.Err
 		case <-slowTimer.C:
 			slowTimer.Read = true
 			helper.Logger.Printf(5, "have been waiting %s for proposing command %s",
