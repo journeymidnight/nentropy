@@ -14,9 +14,9 @@ var (
 )
 
 func main() {
-	var opts []grpc.DialOption
+	flag.Parse()
 
-	conn, err := grpc.Dial(*serverAddr, opts...)
+	conn, err := grpc.Dial(*serverAddr, grpc.WithInsecure())
 	if err != nil {
 		log.Fatalf("fail to dial: %v", err)
 	}
