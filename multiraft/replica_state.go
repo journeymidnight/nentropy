@@ -4,6 +4,7 @@ import (
 	"golang.org/x/net/context"
 
 	"errors"
+	"fmt"
 	"github.com/coreos/etcd/raft/raftpb"
 	"github.com/journeymidnight/nentropy/multiraft/keys"
 	"github.com/journeymidnight/nentropy/multiraft/multiraftbase"
@@ -160,14 +161,15 @@ func (rsl replicaStateLoader) load(
 func (rsl replicaStateLoader) save(
 	ctx context.Context, eng engine.ReadWriter, state multiraftbase.ReplicaState,
 ) error {
+	fmt.Println("save apply index:", state.RaftAppliedIndex)
 	if err := rsl.setAppliedIndex(
 		ctx, eng, state.RaftAppliedIndex,
 	); err != nil {
 		return err
 	}
-	if err := rsl.setTruncatedState(ctx, eng, state.TruncatedState); err != nil {
-		return err
-	}
+	//if err := rsl.setTruncatedState(ctx, eng, state.TruncatedState); err != nil {
+	//	return err
+	//}
 	return nil
 }
 
@@ -243,4 +245,45 @@ func (rsl replicaStateLoader) loadReplicaDestroyedError(
 	}
 	err = v.Unmarshal(value)
 	return &v, nil
+}
+
+// raftInitialLog{Index,Term} are the starting points for the raft log. We
+// bootstrap the raft membership by synthesizing a snapshot as if there were
+// some discarded prefix to the log, so we must begin the log at an arbitrary
+// index greater than 1.
+const (
+	raftInitialLogIndex = 10
+	raftInitialLogTerm  = 5
+)
+
+// writeInitialReplicaState sets up a new Range, but without writing an
+// associated Raft state (which must be written separately via
+// synthesizeRaftState before instantiating a Replica). The main task is to
+// persist a ReplicaState which does not start from zero but presupposes a few
+// entries already having applied. The supplied MVCCStats are used for the Stats
+// field after adjusting for persisting the state itself, and the updated stats
+// are returned.
+func writeInitialReplicaState(
+	ctx context.Context,
+	eng engine.ReadWriter,
+	groupID multiraftbase.GroupID,
+) error {
+	_ = makeReplicaStateLoader(groupID)
+
+	var s multiraftbase.ReplicaState
+	//s.TruncatedState = &multiraftbase.RaftTruncatedState{
+	//	Term:  raftInitialLogTerm,
+	//	Index: raftInitialLogIndex,
+	//}
+	//s.RaftAppliedIndex = s.TruncatedState.Index
+	s.Desc = &multiraftbase.GroupDescriptor{
+		GroupID: groupID,
+	}
+
+	//err := rsl.save(ctx, eng, s)
+	//if err != nil {
+	//return err
+	//}
+
+	return nil
 }

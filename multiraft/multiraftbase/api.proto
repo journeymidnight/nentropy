@@ -112,7 +112,7 @@ message BatchRequest {
     option (gogoproto.goproto_stringer) = false;
 
     Header header = 1 [(gogoproto.nullable) = false, (gogoproto.embed) = true];
-    repeated RequestUnion requests = 2 [(gogoproto.nullable) = false];
+    RequestUnion request = 2 [(gogoproto.nullable) = false];
 }
 
 // A BatchResponse contains one or more responses, one per request
@@ -184,6 +184,7 @@ message RaftCommand {
     // proposer_replica is the replica which proposed this command, to be
     // used for lease validation.
     ReplicaDescriptor proposer_replica = 1 [(gogoproto.nullable) = false];
-    WriteBatch write_batch = 2;
+    int32 method = 2 [(gogoproto.casttype) = "Method"];
+    WriteBatch write_batch = 3;
 }
 

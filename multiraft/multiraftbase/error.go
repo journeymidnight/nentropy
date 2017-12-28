@@ -89,6 +89,8 @@ func (e *GroupNotFoundError) message(_ *Error) string {
 	return fmt.Sprintf("r%s was not found", e.GroupID)
 }
 
+var _ ErrorDetailInterface = &GroupNotFoundError{}
+
 // NewAmbiguousResultError initializes a new AmbiguousResultError with
 // an explanatory message.
 func NewAmbiguousResultError(msg string) *AmbiguousResultError {
@@ -135,6 +137,16 @@ func (e *ReplicaTooOldError) Error() string {
 func (*ReplicaTooOldError) message(_ *Error) string {
 	return "sender replica too old, discarding message"
 }
+
+func (e *RaftGroupDeletedError) Error() string {
+	return e.message(nil)
+}
+
+func (*RaftGroupDeletedError) message(_ *Error) string {
+	return "raft group deleted"
+}
+
+var _ ErrorDetailInterface = &RaftGroupDeletedError{}
 
 // GetDetail returns an error detail associated with the error.
 func (e *Error) GetDetailType() ErrorDetailInterface {

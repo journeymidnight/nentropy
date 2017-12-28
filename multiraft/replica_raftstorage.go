@@ -80,6 +80,7 @@ func entries(
 	if n > 100 {
 		n = 100
 	}
+
 	ents := make([]raftpb.Entry, 0, n)
 
 	ents, size, hitIndex := eCache.getEntries(ents, groupID, lo, hi, maxBytes)
@@ -88,7 +89,6 @@ func entries(
 	if uint64(len(ents)) == hi-lo || (maxBytes > 0 && size > maxBytes) {
 		return ents, nil
 	}
-
 	// Scan over the log to find the requested entries in the range [lo, hi),
 	// stopping once we have enough.
 	expectedIndex := hitIndex
@@ -97,7 +97,6 @@ func entries(
 	// sideloaded proposal, but the caller didn't give us a sideloaded storage.
 	canCache := true
 
-	var ent raftpb.Entry
 	exceededMaxBytes := false
 
 	for i := expectedIndex; i < hi; i++ {
@@ -105,6 +104,7 @@ func entries(
 		if err != nil {
 			return nil, err
 		}
+		var ent raftpb.Entry
 		err = ent.Unmarshal(v)
 		if err != nil {
 			return nil, err

@@ -25,10 +25,9 @@ func main() {
 
 	dumy := multiraftbase.BatchRequest{}
 	dumy.GroupID = "1"
-	val := multiraftbase.Value{RawBytes: []byte("value1")}
-	putReq := multiraftbase.NewPut([]byte("key1"), val)
-	dumy.Requests = make([]multiraftbase.RequestUnion, 1)
-	dumy.Requests[0].MustSetInner(putReq)
+	val := multiraftbase.Value{RawBytes: []byte("value2")}
+	putReq := multiraftbase.NewPut([]byte("key2"), val)
+	dumy.Request.MustSetInner(putReq)
 
 	ctx := context.Background()
 	res, err := client.Batch(ctx, &dumy)

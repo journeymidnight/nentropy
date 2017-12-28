@@ -197,10 +197,10 @@ func (s *Store) Send(
 
 		// Handle push txn failures and write intent conflicts locally and
 		// retry. Other errors are returned to caller.
-		//switch pErr.GetDetail().(type) {
-		//case *multiraftbase.RaftGroupDeletedError:
-		//case *multiraftbase.GroupNotFoundError:
-		//}
+		switch pErr.GetDetailType().(type) {
+		case *multiraftbase.RaftGroupDeletedError:
+		case *multiraftbase.GroupNotFoundError:
+		}
 
 		if pErr != nil {
 			return nil, pErr

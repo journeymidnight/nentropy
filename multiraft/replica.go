@@ -377,6 +377,11 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 		}
 	}
 
+	err = writeInitialReplicaState(ctx, r.store.sysEng, r.GroupID)
+	if err != nil {
+		helper.Logger.Println(5, "Failed to write replica state!")
+	}
+
 	// TODO(bdarnell): need to check replica id and not Advance if it
 	// has changed. Or do we need more locking to guarantee that replica
 	// ID cannot change during handleRaftReady?
@@ -434,7 +439,7 @@ func (r *Replica) processRaftCommand(
 			writeBatch = raftCmd.WriteBatch
 		}
 		response.Reply = &multiraftbase.BatchResponse{}
-		r.applyRaftCommand(ctx, idKey, writeBatch)
+		r.applyRaftCommand(ctx, idKey, raftCmd.Method, writeBatch)
 	}
 
 	if proposedLocally {
@@ -500,6 +505,7 @@ func (r *Replica) init(
 func (r *Replica) applyRaftCommand(
 	ctx context.Context,
 	idKey multiraftbase.CmdIDKey,
+	method multiraftbase.Method,
 	writeBatch *multiraftbase.WriteBatch,
 ) *multiraftbase.Error {
 
@@ -509,13 +515,25 @@ func (r *Replica) applyRaftCommand(
 	if writeBatch.Data == nil {
 		return nil
 	}
-	putReq := multiraftbase.PutRequest{}
-	err := putReq.Unmarshal(writeBatch.Data)
-	if err != nil {
-		helper.Logger.Printf(5, "Cannot unmarshal data to kv")
+
+	if method == multiraftbase.Get {
+		getReq := multiraftbase.GetRequest{}
+		err := getReq.Unmarshal(writeBatch.Data)
+		if err != nil {
+			helper.Logger.Printf(5, "Cannot unmarshal data to kv")
+		}
+	} else if method == multiraftbase.Put {
+		putReq := multiraftbase.PutRequest{}
+		err := putReq.Unmarshal(writeBatch.Data)
+		if err != nil {
+			helper.Logger.Printf(5, "Cannot unmarshal data to kv")
+		}
+
+		helper.Logger.Println(5, "applyRaftCommand: key:", string(putReq.Key))
+		helper.Logger.Println(5, "applyRaftCommand: value:", string(putReq.Value.RawBytes))
+	} else {
+		helper.Logger.Printf(5, "Unexpected raft command method.")
 	}
-	helper.Logger.Println(5, "applyRaftCommand: key:", string(putReq.Key))
-	helper.Logger.Println(5, "applyRaftCommand: value:", string(putReq.Value.RawBytes))
 
 	return nil
 }
@@ -1075,23 +1093,34 @@ func (r *Replica) requestToProposal(
 		doneCh:  make(chan proposalResult, 1),
 		Request: &ba,
 	}
-	var pErr *multiraftbase.Error
+	//var pErr *multiraftbase.Error
 
 	// Fill out the results even if pErr != nil; we'll return the error below.
-	if len(ba.Requests) != 1 {
-		helper.Logger.Printf(5, "Propose test should have one request.")
-	}
-	req := ba.Requests[0]
-	putReq := req.GetValue().(*multiraftbase.PutRequest)
-	data, err := putReq.Marshal()
-	if err != nil {
+	var data []byte
+	var err error
+	req := ba.Request.GetValue().(multiraftbase.Request)
+	if req.Method() == multiraftbase.Get {
+		getReq := req.(*multiraftbase.GetRequest)
+		data, err = getReq.Marshal()
+		if err != nil {
+			helper.Logger.Printf(5, "Error marshal put request.")
+		}
+
+	} else if req.Method() == multiraftbase.Put {
+		putReq := req.(*multiraftbase.PutRequest)
+		data, err = putReq.Marshal()
+		if err != nil {
+			helper.Logger.Printf(5, "Error marshal put request.")
+		}
+	} else {
 		helper.Logger.Printf(5, "Error marshal put request.")
 	}
 	proposal.command = multiraftbase.RaftCommand{
+		Method:     req.Method(),
 		WriteBatch: &multiraftbase.WriteBatch{Data: data},
 	}
 
-	return proposal, pErr
+	return proposal, nil
 }
 
 // getReplicaDescriptorRLocked is like getReplicaDescriptor, but assumes that
