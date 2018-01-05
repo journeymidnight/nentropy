@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"github.com/journeymidnight/nentropy/helper"
 	"github.com/journeymidnight/nentropy/memberlist"
 	"github.com/journeymidnight/nentropy/multiraft"
@@ -13,19 +14,24 @@ import (
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 	"net"
+	"sync"
 	"time"
 )
 
 type OsdServer struct {
-	nodeID        string
-	cfg           Config
-	grpc          *grpc.Server
-	rpcContext    *rpc.Context
-	raftTransport *multiraft.RaftTransport
-	stopper       *stop.Stopper
-	store         *multiraft.Store
-	engine        engine.Engine
-	storeCfg      multiraft.StoreConfig // Config to use and pass to stores
+	nodeID          string
+	cfg             Config
+	grpc            *grpc.Server
+	rpcContext      *rpc.Context
+	raftTransport   *multiraft.RaftTransport
+	stopper         *stop.Stopper
+	store           *multiraft.Store
+	engine          engine.Engine
+	pgMaps          *protos.PgMaps
+	mapLock         *sync.Mutex
+	confChangeLock  *sync.Mutex
+	lastPgMapsEpoch uint64
+	storeCfg        multiraft.StoreConfig // Config to use and pass to stores
 }
 
 // NewServer creates a Server from a server.Context.
@@ -37,6 +43,7 @@ func NewOsdServer(ctx context.Context, cfg Config, stopper *stop.Stopper) (*OsdS
 	s := &OsdServer{
 		stopper: stopper,
 		cfg:     cfg,
+		nodeID:  fmt.Sprintf("%d.%d", cfg.NodeType, cfg.NodeID),
 	}
 
 	// Add a dynamic log tag value for the node ID.
@@ -82,13 +89,14 @@ func NewOsdServer(ctx context.Context, cfg Config, stopper *stop.Stopper) (*OsdS
 		RaftHeartbeatIntervalTicks:  1,
 	}
 	desc := multiraftbase.NodeDescriptor{}
-	if s.cfg.NodeID == 1 {
-		desc.NodeID = "1"
-	} else if s.cfg.NodeID == 2 {
-		desc.NodeID = "2"
-	} else if s.cfg.NodeID == 3 {
-		desc.NodeID = "3"
-	}
+	//if s.cfg.NodeID == 1 {
+	//	desc.NodeID = "1"
+	//} else if s.cfg.NodeID == 2 {
+	//	desc.NodeID = "2"
+	//} else if s.cfg.NodeID == 3 {
+	//	desc.NodeID = "3"
+	//}
+	desc.NodeID = multiraftbase.NodeID(fmt.Sprintf("%s.%d", s.cfg.NodeType, s.cfg.NodeID))
 	helper.Logger.Println(0, "New osd server nodeid: ", s.cfg.NodeID)
 	s.store = multiraft.NewStore(storeCfg, eng, &desc)
 
@@ -186,25 +194,25 @@ func (s *OsdServer) Start(ctx context.Context) error {
 		s.grpc.Serve(ln)
 	})
 
-	replicas :=
-		[]multiraftbase.ReplicaDescriptor{
-			{
-				NodeID:    "1",
-				StoreID:   1,
-				ReplicaID: 1,
-			},
-			{
-				NodeID:    "2",
-				StoreID:   2,
-				ReplicaID: 2,
-			},
-		}
-	groupDesc := multiraftbase.GroupDescriptor{
-		GroupID:       "1",
-		PoolId:        1,
-		Replicas:      replicas,
-		NextReplicaID: 4}
-	s.store.BootstrapGroup(nil, &groupDesc)
+	//replicas :=
+	//	[]multiraftbase.ReplicaDescriptor{
+	//		{
+	//			NodeID:    "1",
+	//			StoreID:   1,
+	//			ReplicaID: 1,
+	//		},
+	//		{
+	//			NodeID:    "2",
+	//			StoreID:   2,
+	//			ReplicaID: 2,
+	//		},
+	//	}
+	//groupDesc := multiraftbase.GroupDescriptor{
+	//	GroupID:       "1",
+	//	PoolId:        1,
+	//	Replicas:      replicas,
+	//	NextReplicaID: 4}
+	//s.store.BootstrapGroup(nil, &groupDesc)
 
 	return nil
 }

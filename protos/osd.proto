@@ -17,12 +17,46 @@
 // Use protos/gen.sh to generate .pb.go files.
 syntax = "proto3";
 import "github.com/journeymidnight/nentropy/multiraft/multiraftbase/metadata.proto";
+import "mon.proto";
+import "gogoproto/gogo.proto";
 package protos;
-
 
 service OsdRpc {
     rpc CreatePg (CreatePgRequest) returns (CreatePgReply) {}
     rpc DeletePg (DeletePgRequest) returns (DeletePgReply) {}
+    rpc SyncMap (SyncMapRequest) returns (SyncMapReply) {}
+}
+
+enum SyncMapType {
+    option (gogoproto.goproto_enum_prefix) = false;
+    // CONSISTENT reads are guaranteed to read committed data; the
+    // mechanism relies on clocks to determine lease expirations.
+    PGMAP = 0;
+    // CONSENSUS requires that reads must achieve consensus. This is a
+    // stronger guarantee of consistency than CONSISTENT.
+    //
+    // TODO(spencer): current unimplemented.
+    OSDMAP = 1;
+    // INCONSISTENT reads return the latest available, committed values.
+    // They are more efficient, but may read stale values as pending
+    // intents are ignored.
+    POOLMAP = 2;
+}
+
+message UnionMap {
+    option (gogoproto.onlyone) = true;
+    PgMaps pgmap = 1;
+    PoolMap poolmap = 2;
+    OsdMap osdmap = 3;
+}
+
+message SyncMapRequest {
+    string map_type = 1;
+    UnionMap union_map = 2;
+}
+
+message SyncMapReply {
+    int32 ret_code = 1;
 }
 
 message CreatePgRequest {

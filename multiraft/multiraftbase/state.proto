@@ -17,7 +17,7 @@
 // Use gen.sh to generate .pb.go files.
 syntax = "proto3";
 
-package nentropy.multiraftbase;
+package multiraftbase;
 option go_package = "multiraftbase";
 
 import "metadata.proto";

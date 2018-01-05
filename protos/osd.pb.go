@@ -20,6 +20,111 @@ var _ = proto.Marshal
 var _ = fmt.Errorf
 var _ = math.Inf
 
+type SyncMapType int32
+
+const (
+	// CONSISTENT reads are guaranteed to read committed data; the
+	// mechanism relies on clocks to determine lease expirations.
+	PGMAP SyncMapType = 0
+	// CONSENSUS requires that reads must achieve consensus. This is a
+	// stronger guarantee of consistency than CONSISTENT.
+	//
+	// TODO(spencer): current unimplemented.
+	OSDMAP SyncMapType = 1
+	// INCONSISTENT reads return the latest available, committed values.
+	// They are more efficient, but may read stale values as pending
+	// intents are ignored.
+	POOLMAP SyncMapType = 2
+)
+
+var SyncMapType_name = map[int32]string{
+	0: "PGMAP",
+	1: "OSDMAP",
+	2: "POOLMAP",
+}
+var SyncMapType_value = map[string]int32{
+	"PGMAP":   0,
+	"OSDMAP":  1,
+	"POOLMAP": 2,
+}
+
+func (x SyncMapType) String() string {
+	return proto.EnumName(SyncMapType_name, int32(x))
+}
+func (SyncMapType) EnumDescriptor() ([]byte, []int) { return fileDescriptorOsd, []int{0} }
+
+type UnionMap struct {
+	Pgmap   *PgMaps  `protobuf:"bytes,1,opt,name=pgmap" json:"pgmap,omitempty"`
+	Poolmap *PoolMap `protobuf:"bytes,2,opt,name=poolmap" json:"poolmap,omitempty"`
+	Osdmap  *OsdMap  `protobuf:"bytes,3,opt,name=osdmap" json:"osdmap,omitempty"`
+}
+
+func (m *UnionMap) Reset()                    { *m = UnionMap{} }
+func (m *UnionMap) String() string            { return proto.CompactTextString(m) }
+func (*UnionMap) ProtoMessage()               {}
+func (*UnionMap) Descriptor() ([]byte, []int) { return fileDescriptorOsd, []int{0} }
+
+func (m *UnionMap) GetPgmap() *PgMaps {
+	if m != nil {
+		return m.Pgmap
+	}
+	return nil
+}
+
+func (m *UnionMap) GetPoolmap() *PoolMap {
+	if m != nil {
+		return m.Poolmap
+	}
+	return nil
+}
+
+func (m *UnionMap) GetOsdmap() *OsdMap {
+	if m != nil {
+		return m.Osdmap
+	}
+	return nil
+}
+
+type SyncMapRequest struct {
+	MapType  string    `protobuf:"bytes,1,opt,name=map_type,json=mapType,proto3" json:"map_type,omitempty"`
+	UnionMap *UnionMap `protobuf:"bytes,2,opt,name=union_map,json=unionMap" json:"union_map,omitempty"`
+}
+
+func (m *SyncMapRequest) Reset()                    { *m = SyncMapRequest{} }
+func (m *SyncMapRequest) String() string            { return proto.CompactTextString(m) }
+func (*SyncMapRequest) ProtoMessage()               {}
+func (*SyncMapRequest) Descriptor() ([]byte, []int) { return fileDescriptorOsd, []int{1} }
+
+func (m *SyncMapRequest) GetMapType() string {
+	if m != nil {
+		return m.MapType
+	}
+	return ""
+}
+
+func (m *SyncMapRequest) GetUnionMap() *UnionMap {
+	if m != nil {
+		return m.UnionMap
+	}
+	return nil
+}
+
+type SyncMapReply struct {
+	RetCode int32 `protobuf:"varint,1,opt,name=ret_code,json=retCode,proto3" json:"ret_code,omitempty"`
+}
+
+func (m *SyncMapReply) Reset()                    { *m = SyncMapReply{} }
+func (m *SyncMapReply) String() string            { return proto.CompactTextString(m) }
+func (*SyncMapReply) ProtoMessage()               {}
+func (*SyncMapReply) Descriptor() ([]byte, []int) { return fileDescriptorOsd, []int{2} }
+
+func (m *SyncMapReply) GetRetCode() int32 {
+	if m != nil {
+		return m.RetCode
+	}
+	return 0
+}
+
 type CreatePgRequest struct {
 	PgName          string                         `protobuf:"bytes,1,opt,name=pg_name,json=pgName,proto3" json:"pg_name,omitempty"`
 	GroupDescriptor *multiraftbase.GroupDescriptor `protobuf:"bytes,2,opt,name=group_descriptor,json=groupDescriptor" json:"group_descriptor,omitempty"`
@@ -28,7 +133,7 @@ type CreatePgRequest struct {
 func (m *CreatePgRequest) Reset()                    { *m = CreatePgRequest{} }
 func (m *CreatePgRequest) String() string            { return proto.CompactTextString(m) }
 func (*CreatePgRequest) ProtoMessage()               {}
-func (*CreatePgRequest) Descriptor() ([]byte, []int) { return fileDescriptorOsd, []int{0} }
+func (*CreatePgRequest) Descriptor() ([]byte, []int) { return fileDescriptorOsd, []int{3} }
 
 func (m *CreatePgRequest) GetPgName() string {
 	if m != nil {
@@ -51,7 +156,7 @@ type CreatePgReply struct {
 func (m *CreatePgReply) Reset()                    { *m = CreatePgReply{} }
 func (m *CreatePgReply) String() string            { return proto.CompactTextString(m) }
 func (*CreatePgReply) ProtoMessage()               {}
-func (*CreatePgReply) Descriptor() ([]byte, []int) { return fileDescriptorOsd, []int{1} }
+func (*CreatePgReply) Descriptor() ([]byte, []int) { return fileDescriptorOsd, []int{4} }
 
 func (m *CreatePgReply) GetRetCode() int32 {
 	if m != nil {
@@ -67,7 +172,7 @@ type DeletePgRequest struct {
 func (m *DeletePgRequest) Reset()                    { *m = DeletePgRequest{} }
 func (m *DeletePgRequest) String() string            { return proto.CompactTextString(m) }
 func (*DeletePgRequest) ProtoMessage()               {}
-func (*DeletePgRequest) Descriptor() ([]byte, []int) { return fileDescriptorOsd, []int{2} }
+func (*DeletePgRequest) Descriptor() ([]byte, []int) { return fileDescriptorOsd, []int{5} }
 
 func (m *DeletePgRequest) GetPgName() string {
 	if m != nil {
@@ -83,7 +188,7 @@ type DeletePgReply struct {
 func (m *DeletePgReply) Reset()                    { *m = DeletePgReply{} }
 func (m *DeletePgReply) String() string            { return proto.CompactTextString(m) }
 func (*DeletePgReply) ProtoMessage()               {}
-func (*DeletePgReply) Descriptor() ([]byte, []int) { return fileDescriptorOsd, []int{3} }
+func (*DeletePgReply) Descriptor() ([]byte, []int) { return fileDescriptorOsd, []int{6} }
 
 func (m *DeletePgReply) GetRetCode() int32 {
 	if m != nil {
@@ -93,10 +198,14 @@ func (m *DeletePgReply) GetRetCode() int32 {
 }
 
 func init() {
+	proto.RegisterType((*UnionMap)(nil), "protos.UnionMap")
+	proto.RegisterType((*SyncMapRequest)(nil), "protos.SyncMapRequest")
+	proto.RegisterType((*SyncMapReply)(nil), "protos.SyncMapReply")
 	proto.RegisterType((*CreatePgRequest)(nil), "protos.CreatePgRequest")
 	proto.RegisterType((*CreatePgReply)(nil), "protos.CreatePgReply")
 	proto.RegisterType((*DeletePgRequest)(nil), "protos.DeletePgRequest")
 	proto.RegisterType((*DeletePgReply)(nil), "protos.DeletePgReply")
+	proto.RegisterEnum("protos.SyncMapType", SyncMapType_name, SyncMapType_value)
 }
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -112,6 +221,7 @@ const _ = grpc.SupportPackageIsVersion4
 type OsdRpcClient interface {
 	CreatePg(ctx context.Context, in *CreatePgRequest, opts ...grpc.CallOption) (*CreatePgReply, error)
 	DeletePg(ctx context.Context, in *DeletePgRequest, opts ...grpc.CallOption) (*DeletePgReply, error)
+	SyncMap(ctx context.Context, in *SyncMapRequest, opts ...grpc.CallOption) (*SyncMapReply, error)
 }
 
 type osdRpcClient struct {
@@ -140,11 +250,21 @@ func (c *osdRpcClient) DeletePg(ctx context.Context, in *DeletePgRequest, opts .
 	return out, nil
 }
 
+func (c *osdRpcClient) SyncMap(ctx context.Context, in *SyncMapRequest, opts ...grpc.CallOption) (*SyncMapReply, error) {
+	out := new(SyncMapReply)
+	err := grpc.Invoke(ctx, "/protos.OsdRpc/SyncMap", in, out, c.cc, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // Server API for OsdRpc service
 
 type OsdRpcServer interface {
 	CreatePg(context.Context, *CreatePgRequest) (*CreatePgReply, error)
 	DeletePg(context.Context, *DeletePgRequest) (*DeletePgReply, error)
+	SyncMap(context.Context, *SyncMapRequest) (*SyncMapReply, error)
 }
 
 func RegisterOsdRpcServer(s *grpc.Server, srv OsdRpcServer) {
@@ -187,6 +307,24 @@ func _OsdRpc_DeletePg_Handler(srv interface{}, ctx context.Context, dec func(int
 	return interceptor(ctx, in, info, handler)
 }
 
+func _OsdRpc_SyncMap_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SyncMapRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OsdRpcServer).SyncMap(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/protos.OsdRpc/SyncMap",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OsdRpcServer).SyncMap(ctx, req.(*SyncMapRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 var _OsdRpc_serviceDesc = grpc.ServiceDesc{
 	ServiceName: "protos.OsdRpc",
 	HandlerType: (*OsdRpcServer)(nil),
@@ -199,9 +337,118 @@ var _OsdRpc_serviceDesc = grpc.ServiceDesc{
 			MethodName: "DeletePg",
 			Handler:    _OsdRpc_DeletePg_Handler,
 		},
+		{
+			MethodName: "SyncMap",
+			Handler:    _OsdRpc_SyncMap_Handler,
+		},
 	},
 	Streams:  []grpc.StreamDesc{},
 	Metadata: "osd.proto",
+}
+
+func (m *UnionMap) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalTo(dAtA)
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *UnionMap) MarshalTo(dAtA []byte) (int, error) {
+	var i int
+	_ = i
+	var l int
+	_ = l
+	if m.Pgmap != nil {
+		dAtA[i] = 0xa
+		i++
+		i = encodeVarintOsd(dAtA, i, uint64(m.Pgmap.Size()))
+		n1, err := m.Pgmap.MarshalTo(dAtA[i:])
+		if err != nil {
+			return 0, err
+		}
+		i += n1
+	}
+	if m.Poolmap != nil {
+		dAtA[i] = 0x12
+		i++
+		i = encodeVarintOsd(dAtA, i, uint64(m.Poolmap.Size()))
+		n2, err := m.Poolmap.MarshalTo(dAtA[i:])
+		if err != nil {
+			return 0, err
+		}
+		i += n2
+	}
+	if m.Osdmap != nil {
+		dAtA[i] = 0x1a
+		i++
+		i = encodeVarintOsd(dAtA, i, uint64(m.Osdmap.Size()))
+		n3, err := m.Osdmap.MarshalTo(dAtA[i:])
+		if err != nil {
+			return 0, err
+		}
+		i += n3
+	}
+	return i, nil
+}
+
+func (m *SyncMapRequest) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalTo(dAtA)
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *SyncMapRequest) MarshalTo(dAtA []byte) (int, error) {
+	var i int
+	_ = i
+	var l int
+	_ = l
+	if len(m.MapType) > 0 {
+		dAtA[i] = 0xa
+		i++
+		i = encodeVarintOsd(dAtA, i, uint64(len(m.MapType)))
+		i += copy(dAtA[i:], m.MapType)
+	}
+	if m.UnionMap != nil {
+		dAtA[i] = 0x12
+		i++
+		i = encodeVarintOsd(dAtA, i, uint64(m.UnionMap.Size()))
+		n4, err := m.UnionMap.MarshalTo(dAtA[i:])
+		if err != nil {
+			return 0, err
+		}
+		i += n4
+	}
+	return i, nil
+}
+
+func (m *SyncMapReply) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalTo(dAtA)
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *SyncMapReply) MarshalTo(dAtA []byte) (int, error) {
+	var i int
+	_ = i
+	var l int
+	_ = l
+	if m.RetCode != 0 {
+		dAtA[i] = 0x8
+		i++
+		i = encodeVarintOsd(dAtA, i, uint64(m.RetCode))
+	}
+	return i, nil
 }
 
 func (m *CreatePgRequest) Marshal() (dAtA []byte, err error) {
@@ -229,11 +476,11 @@ func (m *CreatePgRequest) MarshalTo(dAtA []byte) (int, error) {
 		dAtA[i] = 0x12
 		i++
 		i = encodeVarintOsd(dAtA, i, uint64(m.GroupDescriptor.Size()))
-		n1, err := m.GroupDescriptor.MarshalTo(dAtA[i:])
+		n5, err := m.GroupDescriptor.MarshalTo(dAtA[i:])
 		if err != nil {
 			return 0, err
 		}
-		i += n1
+		i += n5
 	}
 	return i, nil
 }
@@ -335,6 +582,47 @@ func encodeVarintOsd(dAtA []byte, offset int, v uint64) int {
 	dAtA[offset] = uint8(v)
 	return offset + 1
 }
+func (m *UnionMap) Size() (n int) {
+	var l int
+	_ = l
+	if m.Pgmap != nil {
+		l = m.Pgmap.Size()
+		n += 1 + l + sovOsd(uint64(l))
+	}
+	if m.Poolmap != nil {
+		l = m.Poolmap.Size()
+		n += 1 + l + sovOsd(uint64(l))
+	}
+	if m.Osdmap != nil {
+		l = m.Osdmap.Size()
+		n += 1 + l + sovOsd(uint64(l))
+	}
+	return n
+}
+
+func (m *SyncMapRequest) Size() (n int) {
+	var l int
+	_ = l
+	l = len(m.MapType)
+	if l > 0 {
+		n += 1 + l + sovOsd(uint64(l))
+	}
+	if m.UnionMap != nil {
+		l = m.UnionMap.Size()
+		n += 1 + l + sovOsd(uint64(l))
+	}
+	return n
+}
+
+func (m *SyncMapReply) Size() (n int) {
+	var l int
+	_ = l
+	if m.RetCode != 0 {
+		n += 1 + sovOsd(uint64(m.RetCode))
+	}
+	return n
+}
+
 func (m *CreatePgRequest) Size() (n int) {
 	var l int
 	_ = l
@@ -389,6 +677,362 @@ func sovOsd(x uint64) (n int) {
 }
 func sozOsd(x uint64) (n int) {
 	return sovOsd(uint64((x << 1) ^ uint64((int64(x) >> 63))))
+}
+func (this *UnionMap) GetValue() interface{} {
+	if this.Pgmap != nil {
+		return this.Pgmap
+	}
+	if this.Poolmap != nil {
+		return this.Poolmap
+	}
+	if this.Osdmap != nil {
+		return this.Osdmap
+	}
+	return nil
+}
+
+func (this *UnionMap) SetValue(value interface{}) bool {
+	switch vt := value.(type) {
+	case *PgMaps:
+		this.Pgmap = vt
+	case *PoolMap:
+		this.Poolmap = vt
+	case *OsdMap:
+		this.Osdmap = vt
+	default:
+		return false
+	}
+	return true
+}
+func (m *UnionMap) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowOsd
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= (uint64(b) & 0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: UnionMap: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: UnionMap: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Pgmap", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowOsd
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= (int(b) & 0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthOsd
+			}
+			postIndex := iNdEx + msglen
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.Pgmap == nil {
+				m.Pgmap = &PgMaps{}
+			}
+			if err := m.Pgmap.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Poolmap", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowOsd
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= (int(b) & 0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthOsd
+			}
+			postIndex := iNdEx + msglen
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.Poolmap == nil {
+				m.Poolmap = &PoolMap{}
+			}
+			if err := m.Poolmap.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 3:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Osdmap", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowOsd
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= (int(b) & 0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthOsd
+			}
+			postIndex := iNdEx + msglen
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.Osdmap == nil {
+				m.Osdmap = &OsdMap{}
+			}
+			if err := m.Osdmap.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipOsd(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if skippy < 0 {
+				return ErrInvalidLengthOsd
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *SyncMapRequest) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowOsd
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= (uint64(b) & 0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: SyncMapRequest: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: SyncMapRequest: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field MapType", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowOsd
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= (uint64(b) & 0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthOsd
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.MapType = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field UnionMap", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowOsd
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= (int(b) & 0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthOsd
+			}
+			postIndex := iNdEx + msglen
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.UnionMap == nil {
+				m.UnionMap = &UnionMap{}
+			}
+			if err := m.UnionMap.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipOsd(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if skippy < 0 {
+				return ErrInvalidLengthOsd
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *SyncMapReply) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowOsd
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= (uint64(b) & 0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: SyncMapReply: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: SyncMapReply: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field RetCode", wireType)
+			}
+			m.RetCode = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowOsd
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.RetCode |= (int32(b) & 0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		default:
+			iNdEx = preIndex
+			skippy, err := skipOsd(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if skippy < 0 {
+				return ErrInvalidLengthOsd
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
 }
 func (m *CreatePgRequest) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
@@ -827,25 +1471,37 @@ var (
 func init() { proto.RegisterFile("osd.proto", fileDescriptorOsd) }
 
 var fileDescriptorOsd = []byte{
-	// 305 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0x8c, 0x91, 0x4d, 0x4a, 0x03, 0x31,
-	0x14, 0xc7, 0x1b, 0xc1, 0x7e, 0x44, 0xa4, 0x25, 0x20, 0xad, 0x5d, 0x0c, 0x65, 0x56, 0xa5, 0x8b,
-	0x19, 0xa8, 0x5b, 0x57, 0xb6, 0x20, 0xba, 0x50, 0x99, 0x0b, 0x94, 0x74, 0xf2, 0x4c, 0x47, 0x26,
-	0x93, 0x98, 0xbc, 0x2c, 0x66, 0xef, 0x21, 0x3c, 0x92, 0x4b, 0x8f, 0x20, 0xf5, 0x22, 0x52, 0x87,
-	0x3a, 0x4c, 0x05, 0x71, 0x95, 0x90, 0xfc, 0x3f, 0x7e, 0xbc, 0x47, 0x7b, 0xda, 0x89, 0xc8, 0x58,
-	0x8d, 0x9a, 0xb5, 0xbf, 0x0f, 0x37, 0xbe, 0x95, 0x19, 0x6e, 0xfc, 0x3a, 0x4a, 0xb5, 0x8a, 0x9f,
-	0xb4, 0xb7, 0x05, 0x94, 0x2a, 0x13, 0x45, 0x26, 0x37, 0x18, 0x17, 0x50, 0xa0, 0xd5, 0xa6, 0x8c,
-	0x95, 0xcf, 0x31, 0xb3, 0xfc, 0x11, 0xeb, 0xdb, 0x9a, 0x3b, 0x88, 0x15, 0x20, 0x17, 0x1c, 0x79,
-	0x95, 0x19, 0x7a, 0xda, 0x5f, 0x58, 0xe0, 0x08, 0x0f, 0x32, 0x81, 0x67, 0x0f, 0x0e, 0xd9, 0x90,
-	0x76, 0x8c, 0x5c, 0x15, 0x5c, 0xc1, 0x88, 0x4c, 0xc8, 0xb4, 0x97, 0xb4, 0x8d, 0xbc, 0xe3, 0x0a,
-	0xd8, 0x0d, 0x1d, 0x48, 0xab, 0xbd, 0x59, 0x09, 0x70, 0xa9, 0xcd, 0x0c, 0x6a, 0x3b, 0x3a, 0x9a,
-	0x90, 0xe9, 0xc9, 0x3c, 0x88, 0x1a, 0x25, 0xd1, 0xf5, 0x4e, 0xb6, 0xfc, 0x51, 0x25, 0x7d, 0xd9,
-	0x7c, 0x08, 0x67, 0xf4, 0xb4, 0xae, 0x35, 0x79, 0xc9, 0xce, 0x69, 0xd7, 0x02, 0xae, 0x52, 0x2d,
-	0xaa, 0xd6, 0xe3, 0xa4, 0x63, 0x01, 0x17, 0x5a, 0x40, 0x38, 0xa3, 0xfd, 0x25, 0xe4, 0xf0, 0x1f,
-	0xc4, 0x5d, 0x6e, 0xad, 0xfd, 0x3b, 0x77, 0xfe, 0x42, 0x68, 0xfb, 0xde, 0x89, 0xc4, 0xa4, 0xec,
-	0x92, 0x76, 0xf7, 0x38, 0x6c, 0x58, 0x4d, 0xc6, 0x45, 0x07, 0x73, 0x19, 0x9f, 0xfd, 0xfe, 0x30,
-	0x79, 0x19, 0xb6, 0x76, 0xee, 0x7d, 0x69, 0xed, 0x3e, 0x40, 0xae, 0xdd, 0x0d, 0xbe, 0xb0, 0x75,
-	0x35, 0x78, 0xdb, 0x06, 0xe4, 0x7d, 0x1b, 0x90, 0x8f, 0x6d, 0x40, 0x5e, 0x3f, 0x83, 0xd6, 0xba,
-	0xda, 0xf3, 0xc5, 0x57, 0x00, 0x00, 0x00, 0xff, 0xff, 0x7b, 0x1f, 0x1d, 0xc7, 0xfb, 0x01, 0x00,
-	0x00,
+	// 507 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0x8c, 0x53, 0xcb, 0x6e, 0xd3, 0x40,
+	0x14, 0x8d, 0x4b, 0x13, 0x27, 0x37, 0xd0, 0x44, 0xa3, 0x42, 0x21, 0x0b, 0x83, 0x2c, 0x84, 0x68,
+	0x24, 0x12, 0xa9, 0x2c, 0x10, 0x88, 0x0d, 0x34, 0x52, 0x05, 0x22, 0xc4, 0x72, 0x61, 0xc3, 0xc6,
+	0x9a, 0xd8, 0xc3, 0xd4, 0xc8, 0xe3, 0x19, 0x66, 0xc6, 0x0b, 0xff, 0x01, 0xfc, 0x01, 0x4b, 0x24,
+	0x3e, 0x84, 0x6d, 0x97, 0x7c, 0x02, 0x0a, 0x3f, 0x82, 0xc6, 0x8f, 0x58, 0x6e, 0x25, 0xe8, 0xca,
+	0xc7, 0xf7, 0x9c, 0x7b, 0x7c, 0xee, 0x1d, 0x0f, 0x0c, 0xb8, 0x8a, 0x66, 0x42, 0x72, 0xcd, 0x51,
+	0xaf, 0x78, 0xa8, 0xc9, 0x6b, 0x1a, 0xeb, 0xb3, 0x6c, 0x3d, 0x0b, 0x39, 0x9b, 0x7f, 0xe2, 0x99,
+	0x4c, 0x49, 0xce, 0xe2, 0x28, 0x8d, 0xe9, 0x99, 0x9e, 0xa7, 0x24, 0xd5, 0x92, 0x8b, 0x7c, 0xce,
+	0xb2, 0x44, 0xc7, 0x12, 0x7f, 0xd4, 0x0d, 0x5a, 0x63, 0x45, 0xe6, 0x8c, 0x68, 0x1c, 0x61, 0x8d,
+	0x4b, 0xcf, 0xc9, 0x80, 0xf1, 0xb4, 0x82, 0xfb, 0x94, 0x53, 0x5e, 0xc0, 0xb9, 0x41, 0x65, 0xd5,
+	0xfd, 0x6a, 0x41, 0xff, 0x7d, 0x1a, 0xf3, 0x74, 0x89, 0x05, 0xba, 0x0f, 0x5d, 0x41, 0x19, 0x16,
+	0xb7, 0xad, 0x7b, 0xd6, 0xc3, 0xe1, 0xd1, 0x5e, 0xa9, 0x51, 0x33, 0x8f, 0x2e, 0xb1, 0x50, 0x7e,
+	0x49, 0xa2, 0x43, 0xb0, 0x05, 0xe7, 0x89, 0xd1, 0xed, 0x14, 0xba, 0xd1, 0x56, 0xc7, 0x79, 0xb2,
+	0xc4, 0xc2, 0xaf, 0x79, 0xf4, 0x00, 0x7a, 0x5c, 0x45, 0x46, 0x79, 0xad, 0xed, 0xb8, 0x52, 0x91,
+	0x11, 0x56, 0xec, 0xb3, 0xdd, 0xf3, 0xef, 0x77, 0x2d, 0xf7, 0x03, 0xec, 0x9d, 0xe6, 0x69, 0x68,
+	0x08, 0xf2, 0x39, 0x23, 0x4a, 0xa3, 0x3b, 0xd0, 0x67, 0x58, 0x04, 0x3a, 0x17, 0xa4, 0xc8, 0x34,
+	0xf0, 0x6d, 0x86, 0xc5, 0xbb, 0x5c, 0x10, 0xf4, 0x08, 0x06, 0x99, 0xc9, 0x1d, 0x34, 0x39, 0xc6,
+	0xb5, 0x7b, 0x3d, 0x90, 0xdf, 0xcf, 0x2a, 0xe4, 0x1e, 0xc2, 0xf5, 0xad, 0xb7, 0x48, 0x72, 0xe3,
+	0x2c, 0x89, 0x0e, 0x42, 0x1e, 0x95, 0xce, 0x5d, 0xdf, 0x96, 0x44, 0x1f, 0xf3, 0x88, 0xb8, 0x19,
+	0x8c, 0x8e, 0x25, 0xc1, 0x9a, 0x78, 0xb4, 0xce, 0x71, 0x00, 0xb6, 0xa0, 0x41, 0x8a, 0x59, 0x1d,
+	0xa3, 0x27, 0xe8, 0x5b, 0xcc, 0x08, 0x7a, 0x05, 0x63, 0x2a, 0x79, 0x26, 0x82, 0x88, 0xa8, 0x50,
+	0xc6, 0x42, 0x73, 0x59, 0x85, 0x71, 0x66, 0xad, 0x83, 0x99, 0x9d, 0x18, 0xd9, 0x62, 0xab, 0xf2,
+	0x47, 0xb4, 0x5d, 0x70, 0xa7, 0x70, 0xa3, 0xf9, 0xec, 0x7f, 0x22, 0x4e, 0x61, 0xb4, 0x20, 0x09,
+	0xb9, 0x4a, 0x44, 0xe3, 0xdb, 0x68, 0xff, 0xed, 0x3b, 0x7d, 0x02, 0xc3, 0x6a, 0x4b, 0xc5, 0x8e,
+	0x07, 0xd0, 0xf5, 0x4e, 0x96, 0x2f, 0xbc, 0x71, 0x07, 0x01, 0xf4, 0x56, 0xa7, 0x0b, 0x83, 0x2d,
+	0x34, 0x04, 0xdb, 0x5b, 0xad, 0xde, 0x98, 0x97, 0x9d, 0xc9, 0xee, 0x97, 0x1f, 0x4e, 0xe7, 0xe8,
+	0xa7, 0x05, 0xbd, 0x95, 0x8a, 0x7c, 0x11, 0xa2, 0xe7, 0xd0, 0xaf, 0xe7, 0x40, 0x07, 0xf5, 0x89,
+	0x5c, 0x58, 0xe8, 0xe4, 0xe6, 0x65, 0x42, 0x24, 0xb9, 0xdb, 0x31, 0xdd, 0x75, 0xda, 0xa6, 0xfb,
+	0xc2, 0xac, 0x4d, 0x77, 0x6b, 0x30, 0xb7, 0x83, 0x9e, 0x82, 0x5d, 0xe5, 0x47, 0xb7, 0x6a, 0x4d,
+	0xfb, 0x97, 0x9a, 0xec, 0x5f, 0xaa, 0x17, 0xad, 0x2f, 0xc7, 0xe7, 0x1b, 0xc7, 0xfa, 0xb5, 0x71,
+	0xac, 0xdf, 0x1b, 0xc7, 0xfa, 0xf6, 0xc7, 0xe9, 0xac, 0xcb, 0xfb, 0xf8, 0xf8, 0x6f, 0x00, 0x00,
+	0x00, 0xff, 0xff, 0x0b, 0xe0, 0x4f, 0x5b, 0xa3, 0x03, 0x00, 0x00,
 }

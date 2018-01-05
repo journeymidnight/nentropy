@@ -27,9 +27,9 @@ func (s *monitorRpcServer) GetLayout(ctx context.Context, in *protos.LayoutReque
 	hashPgId := helper.HashKey(in.ObjectName) % uint32(pgNumbers)
 	pgName := fmt.Sprintf("%d.%d", poolId, hashPgId)
 	osds := make([]*protos.Osd, 0)
-	for _, v := range clus.pgMaps.Pgmaps[poolId].Pgmap[int32(hashPgId)].OsdIds {
-		helper.Logger.Println(5, "osd to be returned:", *clus.osdMap.MemberList[v])
-		osds = append(osds, clus.osdMap.MemberList[v])
+	for _, v := range clus.pgMaps.Pgmaps[poolId].Pgmap[int32(hashPgId)].Replicas {
+		helper.Logger.Println(5, "osd to be returned:", *clus.osdMap.MemberList[v.OsdId])
+		osds = append(osds, clus.osdMap.MemberList[v.OsdId])
 	}
 	return &protos.LayoutReply{0, pgName, osds}, nil
 }
@@ -424,7 +424,7 @@ func allocateNewPgs(poolMap *protos.PoolMap, pgMaps *protos.PgMaps, osdMap *prot
 	startIndex := len(targetMap.Pgmap)
 	for i := 0; i < int(n); i++ {
 		id := int32(startIndex + i)
-		targetMap.Pgmap[id] = &protos.Pg{id, 0, make([]int32, 0)}
+		targetMap.Pgmap[id] = &protos.Pg{id, 0, make([]protos.PgReplica, 0), 1}
 	}
 	hashRing := consistent.New(osdMap, poolMap.Pools[poolId].Policy)
 	err = updatePgMap(targetMap, poolMap, hashRing)
@@ -432,6 +432,7 @@ func allocateNewPgs(poolMap *protos.PoolMap, pgMaps *protos.PgMaps, osdMap *prot
 		helper.Logger.Print(5, "update pg map failed ", err)
 		return nil, err
 	}
+	newPgMaps.Epoch = newPgMaps.Epoch + 1
 	return &newPgMaps, nil
 }
 
@@ -445,11 +446,19 @@ func updatePgMap(m *protos.PgMap, poolMap *protos.PoolMap, ring *consistent.Cons
 			return err
 		}
 		//		helper.Logger.Print(5, "osds******************", osds)
-
-		m.Pgmap[k].OsdIds = m.Pgmap[k].OsdIds[:0]
+		oldReplicas := make([]protos.PgReplica, 0)
+		copy(oldReplicas, m.Pgmap[k].Replicas)
+		m.Pgmap[k].Replicas = m.Pgmap[k].Replicas[:0]
 		//		helper.Logger.Print(5, "osdids******************", m.Pgmap[k].OsdIds)
 		for _, value := range osds {
-			m.Pgmap[k].OsdIds = append(m.Pgmap[k].OsdIds, value.Id)
+			for _, oldReplica := range oldReplicas {
+				if value.Id == oldReplica.OsdId {
+					m.Pgmap[k].Replicas = append(m.Pgmap[k].Replicas, oldReplica)
+					continue
+				}
+			}
+			m.Pgmap[k].Replicas = append(m.Pgmap[k].Replicas, protos.PgReplica{value.Id, m.Pgmap[k].NextReplicaId})
+			m.Pgmap[k].NextReplicaId = m.Pgmap[k].NextReplicaId + 1
 		}
 	}
 	return nil

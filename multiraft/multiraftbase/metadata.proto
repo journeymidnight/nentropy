@@ -1,5 +1,5 @@
 syntax = "proto3";
-package nentropy.multiraftbase;
+package multiraftbase;
 option go_package = "multiraftbase";
 
 import "gogoproto/gogo.proto";

@@ -13,7 +13,7 @@
 // permissions and limitations under the License.
 
 syntax = "proto3";
-package nentropy.multiraftbase;
+package multiraftbase;
 option go_package = "multiraftbase";
 
 import "metadata.proto";

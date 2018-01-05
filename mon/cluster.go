@@ -31,6 +31,7 @@ import (
 	"github.com/journeymidnight/nentropy/memberlist"
 	"github.com/journeymidnight/nentropy/mon/raftwal"
 	"github.com/journeymidnight/nentropy/protos"
+	"google.golang.org/grpc"
 )
 
 const (
@@ -88,6 +89,37 @@ func putOp(t *protos.Transaction, prefix string, epoch uint64, data []byte) erro
 	return nil
 }
 
+func syncPgMapsToEachOsd(addr string) {
+	pgmaps := clus.pgMaps
+	conn, err := grpc.Dial(addr, grpc.WithInsecure())
+	if err != nil {
+		helper.Logger.Println(5, "fail to dial: %v", err)
+	}
+	defer conn.Close()
+	client := protos.NewOsdRpcClient(conn)
+	req := protos.SyncMapRequest{}
+	req.MapType = "pgmap"
+	req.UnionMap.SetValue(pgmaps)
+	ctx := context.Background()
+	res, err := client.SyncMap(ctx, &req)
+	if err != nil {
+		helper.Logger.Println(5, "Error send SyncMap rpc request", err)
+		return
+	}
+	helper.Logger.Println(5, "Finished! The syncPgMaps response is %s!", res)
+
+}
+
+func syncPgMaps() {
+	osdmap := clus.osdMap
+	for _, v := range osdmap.MemberList {
+		if v.Up == false || v.In == false {
+			continue
+		}
+		go syncPgMapsToEachOsd(v.Addr)
+	}
+}
+
 func handleCommittedMsg(data []byte) error {
 	if data == nil {
 		return nil
@@ -124,6 +156,8 @@ func handleCommittedMsg(data []byte) error {
 					helper.Check(err)
 				}
 				clus.pgMaps = pgMaps
+				go syncPgMaps()
+
 			} else {
 				helper.Errorf("Unknown data type!")
 			}

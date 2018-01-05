@@ -16,8 +16,9 @@
 
 // Use protos/gen.sh to generate .pb.go files.
 syntax = "proto3";
-
+import "gogoproto/gogo.proto";
 package protos;
+
 
 
 service Monitor {
@@ -124,10 +125,16 @@ message PgMap {
     map<int32, Pg>  pgmap = 2;
 }
 
-message Pg{
+message PgReplica {
+    int32 osd_id = 1;
+    int32 replica_index = 2;
+}
+
+message Pg {
     int32 id = 1;
     int32 primary_id = 2;
-    repeated int32 osd_ids = 3;
+    repeated PgReplica replicas = 3 [(gogoproto.nullable) = false];
+    int32 next_replica_id = 4;
 }
 
 message Op {
