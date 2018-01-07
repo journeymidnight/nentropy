@@ -6,9 +6,11 @@ import (
 	"github.com/journeymidnight/nentropy/helper"
 	"github.com/journeymidnight/nentropy/log"
 	"github.com/journeymidnight/nentropy/multiraft/multiraftbase"
+	"github.com/journeymidnight/nentropy/util/idutil"
 	"github.com/journeymidnight/nentropy/util/protoutil"
 	"github.com/journeymidnight/nentropy/util/syncutil"
 	"github.com/journeymidnight/nentropy/util/timeutil"
+	"github.com/journeymidnight/nentropy/util/wait"
 	"github.com/pkg/errors"
 	"golang.org/x/net/context"
 	"math/rand"
@@ -124,6 +126,22 @@ type Replica struct {
 		syncutil.Mutex
 		remotes map[multiraftbase.ReplicaID]struct{}
 	}
+
+	reqIDGen  *idutil.Generator
+	readwaitc chan struct{}
+	// stopping is closed by run goroutine on shutdown.
+	stopping chan struct{}
+
+	readMu syncutil.RWMutex
+	// readNotifier is used to notify the read routine that it can process the request
+	// when there is no error
+	readNotifier *helper.Notifier
+
+	// a chan to send out readState
+	readStateC chan raft.ReadState
+	applyWait  wait.WaitTime
+	// done is closed when all goroutines from start() complete.
+	done chan struct{}
 }
 
 // tick the Raft group, returning any error and true if the raft group exists
@@ -250,6 +268,16 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 		}
 	}
 
+	internalTimeout := time.Second
+	if len(rd.ReadStates) != 0 {
+		helper.Logger.Println(20, "handle readstate message.")
+		select {
+		case r.readStateC <- rd.ReadStates[len(rd.ReadStates)-1]:
+		case <-time.After(internalTimeout):
+			helper.Logger.Println(5, "timed out sending read state")
+		}
+	}
+
 	// Synchronously commit the batch with the Raft log entries and Raft hard
 	// state as we're promising not to lose this data.
 	//
@@ -297,10 +325,19 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 	r.mu.Unlock()
 
 	for _, message := range rd.Messages {
+		helper.Logger.Println(20, "sent message:", "To:", message.To,
+			"From:", message.From,
+			"Type:", message.Type,
+			"Term:", message.Term,
+			"Index:", message.Index,
+			"LogTerm:", message.LogTerm,
+			"context:", message.Context,
+		)
 		r.sendRaftMessage(ctx, message)
 	}
 
 	for _, e := range rd.CommittedEntries {
+		helper.Logger.Println(5, "commit index:", e.Index)
 		switch e.Type {
 		case raftpb.EntryNormal:
 			var commandID multiraftbase.CmdIDKey
@@ -332,11 +369,10 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 					const expl = "while unmarshalling entry"
 					return stats, expl, errors.Wrap(err, expl)
 				}
-
-				helper.Logger.Println(5, "commit entries. EntryNormal: ")
-				if changedRepl := r.processRaftCommand(ctx, commandID, e.Term, e.Index, command); !changedRepl {
-					helper.Logger.Fatalf(5, "unexpected replication change from command %s", &command)
-				}
+			}
+			helper.Logger.Println(5, "commit entries. EntryNormal: ")
+			if changedRepl := r.processRaftCommand(ctx, commandID, e.Term, e.Index, command); !changedRepl {
+				helper.Logger.Fatalf(5, "unexpected replication change from command %s", &command)
 			}
 			stats.processed++
 
@@ -377,9 +413,10 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 		}
 	}
 
-	err = writeInitialReplicaState(ctx, r.store.sysEng, r.GroupID)
+	rsl := makeReplicaStateLoader(r.GroupID)
+	err = rsl.save(ctx, r.store.sysEng, r.mu.state)
 	if err != nil {
-		helper.Logger.Println(5, "Failed to write replica state!")
+		helper.Logger.Println(5, "Failed to write replica state! err:", err)
 	}
 
 	// TODO(bdarnell): need to check replica id and not Advance if it
@@ -433,7 +470,7 @@ func (r *Replica) processRaftCommand(
 
 	var response proposalResult
 	var writeBatch *multiraftbase.WriteBatch
-	{
+	if idKey != "" {
 		var _ *multiraftbase.Error
 		if raftCmd.WriteBatch != nil {
 			writeBatch = raftCmd.WriteBatch
@@ -441,6 +478,10 @@ func (r *Replica) processRaftCommand(
 		response.Reply = &multiraftbase.BatchResponse{}
 		r.applyRaftCommand(ctx, idKey, raftCmd.Method, writeBatch)
 	}
+
+	helper.Logger.Println(5, "processRaftCommand(): RaftAppliedIndex:", index)
+	r.mu.state.RaftAppliedIndex = index
+	r.applyWait.Trigger(index)
 
 	if proposedLocally {
 		proposal.finishRaftApplication(response)
@@ -527,6 +568,11 @@ func (r *Replica) applyRaftCommand(
 		err := putReq.Unmarshal(writeBatch.Data)
 		if err != nil {
 			helper.Logger.Printf(5, "Cannot unmarshal data to kv")
+		}
+
+		err = r.store.sysEng.Put([]byte(putReq.Key), []byte(putReq.Value.RawBytes))
+		if err != nil {
+			helper.Logger.Println(5, "Error putting data to db")
 		}
 
 		helper.Logger.Println(5, "applyRaftCommand: key:", string(putReq.Key))
@@ -616,6 +662,7 @@ func (r *Replica) maybeCoalesceHeartbeat(
 		Term:          msg.Term,
 		Commit:        msg.Commit,
 		Quiesce:       quiesce,
+		Context:       msg.Context,
 	}
 
 	toStore := multiraftbase.StoreIdent{
@@ -910,6 +957,14 @@ func (r *Replica) initRaftMuLockedReplicaMuLocked(
 		return err
 	}
 
+	r.reqIDGen = idutil.NewGenerator(0, time.Now())
+	r.applyWait = wait.NewTimeList()
+	r.readStateC = make(chan raft.ReadState, 1)
+	r.readNotifier = helper.NewNotifier()
+	r.readwaitc = make(chan struct{}, 1)
+
+	go r.linearizableReadLoop()
+
 	return nil
 }
 
@@ -1006,6 +1061,39 @@ func (r *Replica) maybeInitializeRaftGroup(ctx context.Context) {
 	}
 }
 
+// executeReadOnlyBatch updates the read timestamp cache and waits for any
+// overlapping writes currently processing through Raft ahead of us to
+// clear via the command queue.
+func (r *Replica) executeReadOnlyBatch(
+	ctx context.Context, ba multiraftbase.BatchRequest,
+) (br *multiraftbase.BatchResponse, pErr *multiraftbase.Error) {
+
+	//r.store.sysEng.Get()
+	res := multiraftbase.BatchResponse{}
+	req := ba.Request.GetValue().(multiraftbase.Request)
+	if req.Method() == multiraftbase.Get {
+		getReq := req.(*multiraftbase.GetRequest)
+		r.store.enqueueRaftUpdateCheck(r.GroupID)
+		r.linearizableReadNotify(ctx)
+
+		data, err := r.store.sysEng.Get([]byte(getReq.Key))
+		if err != nil {
+			helper.Logger.Println(5, "Error getting data from db.")
+		}
+
+		getRes := multiraftbase.GetResponse{}
+		getRes.Value = &multiraftbase.Value{RawBytes: data}
+		res.Responses = multiraftbase.ResponseUnion{Get: &getRes}
+
+		helper.Logger.Println(5, "read data, key:", string(getReq.Key))
+		helper.Logger.Println(5, "read data, val:", string(data))
+	} else {
+		helper.Logger.Panicln(0, "Unsupported req type.")
+	}
+
+	return &res, pErr
+}
+
 func (r *Replica) Send(
 	ctx context.Context, ba multiraftbase.BatchRequest,
 ) (*multiraftbase.BatchResponse, *multiraftbase.Error) {
@@ -1017,11 +1105,11 @@ func (r *Replica) Send(
 	// If the internal Raft group is not initialized, create it and wake the leader.
 	r.maybeInitializeRaftGroup(ctx)
 
-	useRaft := true
-
-	// Differentiate between admin, read-only and write.
 	var pErr *multiraftbase.Error
-	if useRaft {
+	req := ba.Request.GetValue().(multiraftbase.Request)
+	if req.Method() == multiraftbase.Get {
+		br, pErr = r.executeReadOnlyBatch(ctx, ba)
+	} else if req.Method() == multiraftbase.Put {
 		br, pErr = r.executeWriteBatch(ctx, ba)
 	} else {
 		helper.Logger.Fatalf(5, "don't know how to handle command %s", ba)
@@ -1099,21 +1187,14 @@ func (r *Replica) requestToProposal(
 	var data []byte
 	var err error
 	req := ba.Request.GetValue().(multiraftbase.Request)
-	if req.Method() == multiraftbase.Get {
-		getReq := req.(*multiraftbase.GetRequest)
-		data, err = getReq.Marshal()
-		if err != nil {
-			helper.Logger.Printf(5, "Error marshal put request.")
-		}
-
-	} else if req.Method() == multiraftbase.Put {
+	if req.Method() == multiraftbase.Put {
 		putReq := req.(*multiraftbase.PutRequest)
 		data, err = putReq.Marshal()
 		if err != nil {
 			helper.Logger.Printf(5, "Error marshal put request.")
 		}
 	} else {
-		helper.Logger.Printf(5, "Error marshal put request.")
+		helper.Logger.Panicln(0, "Unsupported req type.")
 	}
 	proposal.command = multiraftbase.RaftCommand{
 		Method:     req.Method(),

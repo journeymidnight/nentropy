@@ -33,6 +33,7 @@ message RaftHeartbeat {
     uint64 term = 4;
     uint64 commit = 5;
     bool quiesce = 6;
+    bytes context = 7;
 }
 
 // RaftMessageRequest is the request used to send raft messages using our

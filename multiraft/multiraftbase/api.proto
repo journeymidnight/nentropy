@@ -31,7 +31,7 @@ message ResponseHeader {
     int64 num_keys = 1;
     // Range or list of ranges used to execute the request. Multiple
     // ranges may be returned for Scan, ReverseScan or DeleteRange.
-    repeated PgInfo pg_infos = 2;
+    repeated PgInfo pg_infos = 2 [(gogoproto.nullable) = false];
 }
 
 // A GetRequest is the argument for the Get() method.
@@ -129,7 +129,7 @@ message BatchResponse {
     }
 
     Header header = 1 [(gogoproto.embed) = true, (gogoproto.nullable) = false];
-    repeated ResponseUnion responses = 2 [(gogoproto.nullable) = false];
+    ResponseUnion responses = 2 [(gogoproto.nullable) = false];
 }
 
 // The two Batch services below are identical, except that some internal

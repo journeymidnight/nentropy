@@ -73,3 +73,16 @@ func (ru *RequestUnion) MustSetInner(args Request) {
 		panic(fmt.Sprintf("%T excludes %T", ru, args))
 	}
 }
+
+// Request is an interface for RPC requests.
+type Response interface {
+	proto.Message
+	// Method returns the request method.
+	Method() Method
+}
+
+// Method implements the Request interface.
+func (*GetResponse) Method() Method { return Get }
+
+// Method implements the Request interface.
+func (*PutResponse) Method() Method { return Put }

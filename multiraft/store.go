@@ -421,11 +421,12 @@ func (s *Store) uncoalesceBeats(
 	beatReqs := make([]multiraftbase.RaftMessageRequest, len(beats))
 	for i, beat := range beats {
 		msg := raftpb.Message{
-			Type:   msgT,
-			From:   uint64(beat.FromReplicaID),
-			To:     uint64(beat.ToReplicaID),
-			Term:   beat.Term,
-			Commit: beat.Commit,
+			Type:    msgT,
+			From:    uint64(beat.FromReplicaID),
+			To:      uint64(beat.ToReplicaID),
+			Term:    beat.Term,
+			Commit:  beat.Commit,
+			Context: beat.Context,
 		}
 		beatReqs[i] = multiraftbase.RaftMessageRequest{
 			GroupID: beat.GroupID,
@@ -617,12 +618,13 @@ func (s *Store) processRaftRequest(
 		if req.Message.Type == raftpb.MsgApp {
 			r.setEstimatedCommitIndexLocked(req.Message.Commit)
 		}
-		helper.Logger.Println(5, "step message:", "To:", req.Message.To,
+		helper.Logger.Println(20, "received message:", "To:", req.Message.To,
 			"From:", req.Message.From,
 			"Type:", req.Message.Type,
 			"Term:", req.Message.Term,
 			"Index:", req.Message.Index,
 			"LogTerm:", req.Message.LogTerm,
+			"Context:", req.Message.Context,
 		)
 		return false, /* !unquiesceAndWakeLeader */
 			raftGroup.Step(req.Message)

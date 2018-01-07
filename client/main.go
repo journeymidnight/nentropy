@@ -10,13 +10,16 @@ import (
 )
 
 var (
-	serverAddr = flag.String("server_addr", "127.0.0.1:10000", "The server address in the format of host:port")
+	addr   = flag.String("server_addr", "127.0.0.1:10000", "The server address in the format of host:port")
+	key    = flag.String("key", "", "key")
+	val    = flag.String("val", "", "val")
+	method = flag.String("method", "", "get or put")
 )
 
 func main() {
 	flag.Parse()
 
-	conn, err := grpc.Dial(*serverAddr, grpc.WithInsecure())
+	conn, err := grpc.Dial(*addr, grpc.WithInsecure())
 	if err != nil {
 		log.Fatalf("fail to dial: %v", err)
 	}
@@ -25,16 +28,35 @@ func main() {
 
 	dumy := multiraftbase.BatchRequest{}
 	dumy.GroupID = "1"
-	val := multiraftbase.Value{RawBytes: []byte("value2")}
-	putReq := multiraftbase.NewPut([]byte("key2"), val)
-	dumy.Request.MustSetInner(putReq)
+	if *method == "get" {
+		getReq := multiraftbase.NewGet([]byte(*key))
+		dumy.Request.MustSetInner(getReq)
 
-	ctx := context.Background()
-	res, err := client.Batch(ctx, &dumy)
-	if err != nil {
-		log.Printf("Error send rpc request!")
-		return
+		ctx := context.Background()
+		res, err := client.Batch(ctx, &dumy)
+		if err != nil {
+			log.Printf("Error send rpc request!")
+			return
+		}
+
+		getRes := res.Responses.GetValue().(*multiraftbase.GetResponse)
+		log.Printf("Finished! res=%s", string(getRes.Value.RawBytes))
+
+	} else if *method == "put" {
+		data := multiraftbase.Value{RawBytes: []byte(*val)}
+		putReq := multiraftbase.NewPut([]byte(*key), data)
+		dumy.Request.MustSetInner(putReq)
+
+		ctx := context.Background()
+		res, err := client.Batch(ctx, &dumy)
+		if err != nil {
+			log.Printf("Error send rpc request!")
+			return
+		}
+
+		log.Printf("Finished! res=%s", res)
+
+	} else {
+		log.Panicln("unknow method.")
 	}
-
-	log.Printf("Finished! The response is %s!", res)
 }

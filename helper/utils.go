@@ -240,3 +240,27 @@ func EncodeStringAscending(b []byte, s string) []byte {
 	arg := (*[0x7fffffff]byte)(unsafe.Pointer(hdr.Data))[:len(s):len(s)]
 	return EncodeBytesAscending(b, arg)
 }
+
+type Notifier struct {
+	c   chan struct{}
+	err error
+}
+
+func NewNotifier() *Notifier {
+	return &Notifier{
+		c: make(chan struct{}),
+	}
+}
+
+func (nc *Notifier) Notify(err error) {
+	nc.err = err
+	close(nc.c)
+}
+
+func (nc *Notifier) GetChan() chan struct{} {
+	return nc.c
+}
+
+func (nc *Notifier) GetErr() error {
+	return nc.err
+}
