@@ -17,23 +17,23 @@
 package main
 
 import (
-	"github.com/journeymidnight/nentropy/log"
+	"github.com/journeymidnight/nentropy/helper"
 )
-
-type Options struct {
-	MonPort          int
-	JoinMon                bool
-	NumPendingProposals int
-	Tracing             float64
-	Monitors            string
-	MyAddr              string
-	RaftId              uint64
-	MaxPendingCount     uint64
-	Logger              *log.Logger
-}
-
-var Config Options
 
 const (
 	GrpcMaxSize = 256 << 20
 )
+
+type Config struct {
+	helper.Config
+	helper.RaftConfig
+}
+
+var config Config
+
+// MakeConfig returns a Context with default values.
+func MakeConfig() *Config {
+	config.Config.InitConfig()
+	config.RaftConfig.SetDefaults()
+	return &config
+}

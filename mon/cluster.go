@@ -176,21 +176,21 @@ func handleCommittedMsg(data []byte) error {
 // and either start or restart RAFT nodes.
 // This function triggers RAFT nodes to be created, and is the entrance to the RAFT
 // world from main.go.
-func StartRaftNodes(walStore *badger.DB) {
+func StartRaftNodes(walStore *badger.DB, grpcSrv *grpc.Server) {
 	clus = new(cluster)
 	clus.ctx, clus.cancel = context.WithCancel(context.Background())
 
-	clus.wal = raftwal.Init(walStore, Config.RaftId)
+	clus.wal = raftwal.Init(walStore, config.RaftId)
 	clus.mapLock = &sync.Mutex{}
 	var wg sync.WaitGroup
 
-	mons := strings.Split(Config.Monitors, ",")
+	mons := strings.Split(config.Monitors, ",")
 	for i, v := range mons {
-		if uint64(i+1) == Config.RaftId {
+		if uint64(i+1) == config.RaftId {
 			clus.myAddr = v
 		}
 	}
-	node := newNode(Config.RaftId, clus.myAddr)
+	node := newNode(config.RaftId, clus.myAddr)
 	if clus.node != nil {
 		helper.AssertTruef(false, "Didn't expect a node in RAFT group mapping: %v", 0)
 	}
@@ -201,7 +201,7 @@ func StartRaftNodes(walStore *badger.DB) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		node.InitAndStartNode(clus.wal)
+		node.InitAndStartNode(clus.wal, grpcSrv)
 	}()
 
 	wg.Wait()

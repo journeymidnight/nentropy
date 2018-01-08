@@ -8,7 +8,6 @@ import (
 	"github.com/journeymidnight/nentropy/protos"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
-	"net"
 )
 
 var (
@@ -478,14 +477,6 @@ func (s *monitorRpcServer) OsdStatusReport(ctx context.Context, in *protos.OsdSt
 	return &protos.OsdStatusReportReply{}, nil
 }
 
-func runServer() {
-	lis, err := net.Listen("tcp", fmt.Sprintf("localhost:%d", 0))
-	if err != nil {
-		logger.Fatalf(5, "failed to listen: %v", err)
-	}
-	helper.Logger.Println(5, "Using monitor rpc port:", lis.Addr().(*net.TCPAddr).Port)
-	var opts []grpc.ServerOption
-	monServer = grpc.NewServer(opts...)
-	protos.RegisterMonitorServer(monServer, newServer())
-	go monServer.Serve(lis)
+func runServer(grpc *grpc.Server) {
+	protos.RegisterMonitorServer(grpc, newServer())
 }

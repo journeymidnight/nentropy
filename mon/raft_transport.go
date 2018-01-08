@@ -9,7 +9,6 @@ import (
 	"golang.org/x/net/context"
 
 	"fmt"
-	"net"
 
 	"github.com/coreos/etcd/raft"
 	"github.com/coreos/etcd/raft/raftpb"
@@ -32,7 +31,7 @@ type Raft interface {
 
 // Transport is network interface for raft
 type Transport interface {
-	Start()
+	Start(grpcSrv *grpc.Server)
 	Send(m raftpb.Message)
 	Disconnect()
 	AddPeer(id uint64, rc protos.RaftContext)
@@ -55,8 +54,7 @@ type grpcRaftNode struct {
 }
 
 var (
-	raftRPCNode   grpcRaftNode
-	raftRPCServer *grpc.Server
+	raftRPCNode grpcRaftNode
 )
 
 // peerPool stores the peers' addresses and our connections to them.  It has exactly one
@@ -132,17 +130,8 @@ func (w *trans) Disconnect() {
 
 }
 
-func (w *trans) Start() {
-	laddr := "0.0.0.0"
-	var err error
-	ln, err := net.Listen("tcp", fmt.Sprintf("%s:%d", laddr, Config.MonPort))
-	if err != nil {
-		helper.Logger.Fatalf(0, "While running server: %v", err)
-		return
-	}
-	helper.Logger.Printf(0, "Worker listening at address: %v", ln.Addr())
-	protos.RegisterRaftNodeServer(raftRPCServer, &raftRPCNode)
-	go raftRPCServer.Serve(ln)
+func (w *trans) Start(grpc *grpc.Server) {
+	protos.RegisterRaftNodeServer(grpc, &raftRPCNode)
 }
 
 func (w *trans) AddPeer(id uint64, rc protos.RaftContext) {
@@ -327,9 +316,6 @@ func (rn *grpcRaftNode) Echo(ctx context.Context, in *protos.Payload) (*protos.P
 
 // StopServer stop the server
 func StopServer() {
-	if raftRPCServer != nil { // possible if Config.InMemoryComm == true
-		raftRPCServer.GracefulStop() // blocking stop server
-	}
 }
 
 // GetTransport return Transport interface
@@ -339,7 +325,6 @@ func GetTransport() Transport {
 
 // InitRaftTransport init global variable
 func InitRaftTransport(id uint64, raft Raft, addr []string) {
-	raftRPCServer = grpc.NewServer()
 	peers := peerPool{
 		peers: make(map[uint64]peerPoolEntry),
 	}

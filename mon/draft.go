@@ -33,6 +33,7 @@ import (
 	"github.com/journeymidnight/nentropy/memberlist"
 	"github.com/journeymidnight/nentropy/mon/raftwal"
 	"github.com/journeymidnight/nentropy/protos"
+	"google.golang.org/grpc"
 )
 
 const (
@@ -418,8 +419,8 @@ func (n *node) Run() {
 			}
 
 		case <-n.stop:
-			if peerId, has := getCluster().Peer(Config.RaftId); has && n.AmLeader() {
-				n.Raft().TransferLeadership(n.ctx, Config.RaftId, peerId)
+			if peerId, has := getCluster().Peer(config.RaftId); has && n.AmLeader() {
+				n.Raft().TransferLeadership(n.ctx, config.RaftId, peerId)
 				go func() {
 					select {
 					case <-n.ctx.Done(): // time out
@@ -465,7 +466,7 @@ func (n *node) snapshotPeriodically() {
 	for {
 		select {
 		case <-ticker.C:
-			n.snapshot(Config.MaxPendingCount)
+			n.snapshot(config.MaxPendingCount)
 
 		case <-n.done:
 			return
@@ -613,10 +614,10 @@ func (n *node) initFromWal(wal *raftwal.Wal) (restart bool, rerr error) {
 }
 
 // InitAndStartNode gets called after having at least one membership sync with the cluster.
-func (n *node) InitAndStartNode(wal *raftwal.Wal) {
+func (n *node) InitAndStartNode(wal *raftwal.Wal, grpcSrv *grpc.Server) {
 	InitRaftTransport(n.id, n, n.peersAddr)
 	n.transport = GetTransport()
-	n.transport.Start()
+	n.transport.Start(grpcSrv)
 
 	restart, err := n.initFromWal(wal)
 	helper.Check(err)
@@ -632,7 +633,7 @@ func (n *node) InitAndStartNode(wal *raftwal.Wal) {
 
 	} else {
 		helper.Logger.Printf(10, "New Node for cluster")
-		if Config.JoinMon {
+		if config.JoinMon {
 			n.joinPeers()
 			rpeers = nil
 		}
