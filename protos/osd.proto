@@ -51,7 +51,7 @@ message UnionMap {
 }
 
 message SyncMapRequest {
-    string map_type = 1;
+    SyncMapType map_type = 1;
     UnionMap union_map = 2;
 }
 

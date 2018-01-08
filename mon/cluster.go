@@ -98,7 +98,7 @@ func syncPgMapsToEachOsd(addr string) {
 	defer conn.Close()
 	client := protos.NewOsdRpcClient(conn)
 	req := protos.SyncMapRequest{}
-	req.MapType = "pgmap"
+	req.MapType = protos.PGMAP
 	req.UnionMap.SetValue(pgmaps)
 	ctx := context.Background()
 	res, err := client.SyncMap(ctx, &req)
