@@ -130,6 +130,8 @@ func (c *Config) parseCmdArgs() {
 		"specify node type [osd/mon].")
 	flag.StringVar(&c.AdvertiseAddr, "advertiseAddr", "",
 		"specify rpc listen address, like [10.11.11.11:8888]")
+	flag.Uint64Var(&c.RaftId, "idx", DefaultConfig.RaftId,
+		"RAFT ID that this server will use to join RAFT cluster.")
 
 	flag.Parse()
 	if !flag.Parsed() {
