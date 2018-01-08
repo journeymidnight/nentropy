@@ -23,12 +23,13 @@ const (
 )
 
 type Member struct {
-	IsMon    bool
-	Name     string
-	Addr     string
-	Port     uint16
-	RaftPort uint16
-	ID       uint64
+	IsMon     bool
+	IsPrimary bool
+	Name      string
+	Addr      string
+	Port      uint16
+	RaftPort  uint16
+	ID        uint64
 }
 
 type NotifyMemberEvent func(MemberEventType, Member) error
@@ -101,7 +102,9 @@ func recvChanEvent(myName string) {
 	}
 }
 
-func Init(isMon bool, id uint64, myAddr string, logger *log.Logger, join string) {
+var SetMonPrimary func()
+
+func Init(isMon bool, isPrimary bool, id uint64, myAddr string, logger *log.Logger, join string) {
 	c := memberlist.DefaultLocalConfig()
 	hostname, _ := os.Hostname()
 	c.Name = hostname + "-" + uuid.NewUUID().String()
@@ -110,6 +113,7 @@ func Init(isMon bool, id uint64, myAddr string, logger *log.Logger, join string)
 	c.Logger = logger
 	member := Member{}
 	member.IsMon = isMon
+	member.IsPrimary = isPrimary
 	member.Addr = myAddr
 	member.ID = id
 	member.Name = fmt.Sprintf("%d", id)
@@ -117,7 +121,9 @@ func Init(isMon bool, id uint64, myAddr string, logger *log.Logger, join string)
 	if err != nil {
 		panic("Failed to json member. : " + err.Error())
 	}
-	c.Delegate = &MemberDelegate{meta: meta}
+	helper.Logger.Println(5, "Init member:", member)
+	mock := &MemberDelegate{meta: meta}
+	c.Delegate = mock
 	if isMon {
 		eventCh = make(chan memberlist.NodeEvent, MEMBER_LIST_CHAN_EVENT_NUM)
 		c.Events = &memberlist.ChannelEventDelegate{Ch: eventCh}
@@ -147,6 +153,17 @@ func Init(isMon bool, id uint64, myAddr string, logger *log.Logger, join string)
 		go recvChanEvent(c.Name)
 	}
 
+	SetMonPrimary = func() {
+		member.IsPrimary = true
+		meta, err := json.Marshal(member)
+		if err != nil {
+			panic("Failed to json member. : " + err.Error())
+		}
+		mock.meta = meta
+		List.UpdateNode(0)
+		helper.Logger.Println(5, "SetMonPrimary member:", member)
+	}
+
 }
 
 func GetMembers() (members []Member) {
@@ -164,6 +181,15 @@ func GetMembers() (members []Member) {
 func GetMemberByName(name string) *Member {
 	for _, v := range GetMembers() {
 		if v.Name == name {
+			return &v
+		}
+	}
+	return nil
+}
+
+func GetPrimaryMon() *Member {
+	for _, v := range GetMembers() {
+		if v.IsPrimary == true {
 			return &v
 		}
 	}

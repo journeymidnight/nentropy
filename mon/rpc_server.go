@@ -464,6 +464,20 @@ func updatePgMap(m *protos.PgMap, poolMap *protos.PoolMap, ring *consistent.Cons
 	return nil
 }
 
+func (s *monitorRpcServer) OsdStatusReport(ctx context.Context, in *protos.OsdStatusReportRequest) (*protos.OsdStatusReportReply, error) {
+	if clus.isPrimaryMon != true {
+		return &protos.OsdStatusReportReply{}, errors.New("not primary monitor, please check!")
+	}
+	nodeId := in.GetNodeId()
+	pgNames := in.GetOwnPrimaryPgs()
+	clus.internalMapLock.Lock()
+	for _, v := range pgNames {
+		clus.primaryPgLocationMap[v] = nodeId
+	}
+	clus.internalMapLock.Unlock()
+	return &protos.OsdStatusReportReply{}, nil
+}
+
 func runServer() {
 	lis, err := net.Listen("tcp", fmt.Sprintf("localhost:%d", 0))
 	if err != nil {

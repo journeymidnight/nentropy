@@ -26,7 +26,17 @@ service Monitor {
     rpc OsdConfig(OsdConfigRequest) returns (OsdConfigReply) {}
     rpc PoolConfig(PoolConfigRequest) returns (PoolConfigReply) {}
     rpc PgConfig(PgConfigRequest) returns (PgConfigReply) {}
+    rpc OsdStatusReport(OsdStatusReportRequest) returns (OsdStatusReportReply) {}
 
+}
+
+message OsdStatusReportRequest {
+    int32 node_id = 1;
+    repeated string own_primary_pgs = 2;
+}
+
+message OsdStatusReportReply {
+    int32 ret_code = 1;
 }
 
 message LayoutRequest {

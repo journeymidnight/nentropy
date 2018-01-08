@@ -41,16 +41,19 @@ const (
 )
 
 type cluster struct {
-	ctx     context.Context
-	cancel  context.CancelFunc
-	wal     *raftwal.Wal
-	node    *node
-	myAddr  string
-	osdMap  protos.OsdMap
-	poolMap protos.PoolMap
-	pgMaps  protos.PgMaps
-	monMap  protos.MonMap
-	mapLock *sync.Mutex
+	ctx                  context.Context
+	cancel               context.CancelFunc
+	wal                  *raftwal.Wal
+	node                 *node
+	myAddr               string
+	isPrimaryMon         bool
+	primaryPgLocationMap map[string]int32
+	internalMapLock      *sync.Mutex
+	osdMap               protos.OsdMap
+	poolMap              protos.PoolMap
+	pgMaps               protos.PgMaps
+	monMap               protos.MonMap
+	mapLock              *sync.Mutex
 }
 
 var clus *cluster

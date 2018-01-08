@@ -62,7 +62,17 @@ func NewOsdServer(ctx context.Context, cfg Config, stopper *stop.Stopper) (*OsdS
 	s.grpc = rpc.NewServer()
 
 	//init member list here
-	memberlist.Init(false, (uint64)(cfg.NodeID), cfg.AdvertiseAddr, logger.Logger, cfg.JoinMemberAddr)
+	memberlist.Init(false, false, (uint64)(cfg.NodeID), cfg.AdvertiseAddr, logger.Logger, cfg.JoinMemberAddr)
+
+	//i := 1
+	//for i <= 100 {
+	//	mon := memberlist.GetPrimaryMon()
+	//	if mon != nil {
+	//		helper.Logger.Println(5, "got primary mon", mon)
+	//	}
+	//	time.Sleep(1 * time.Second)
+	//	i = i + 1
+	//}
 
 	s.raftTransport = multiraft.NewRaftTransport(
 		s.cfg.AmbientCtx,

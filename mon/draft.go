@@ -30,6 +30,7 @@ import (
 	"golang.org/x/net/trace"
 
 	"github.com/journeymidnight/nentropy/helper"
+	"github.com/journeymidnight/nentropy/memberlist"
 	"github.com/journeymidnight/nentropy/mon/raftwal"
 	"github.com/journeymidnight/nentropy/protos"
 )
@@ -352,12 +353,23 @@ func (n *node) Run() {
 
 		case rd := <-n.Raft().Ready():
 			if rd.SoftState != nil {
+				helper.Logger.Println(5, "enter raft ready change SoftState:", rd.RaftState, leader)
 				if rd.RaftState == raft.StateFollower && leader {
 					// stepped down as leader do a sync membership immediately
 					//cluster().syncMemberships()
+					clus.internalMapLock.Lock()
+					clus.isPrimaryMon = false
+					clus.primaryPgLocationMap = nil
+					clus.internalMapLock.Unlock()
+
 				} else if rd.RaftState == raft.StateLeader && !leader {
 					//leaseMgr().resetLease(n.gid)
 					//cluster().syncMemberships()
+					clus.internalMapLock.Lock()
+					clus.isPrimaryMon = true
+					clus.primaryPgLocationMap = make(map[string]int32)
+					memberlist.SetMonPrimary()
+					clus.internalMapLock.Unlock()
 				}
 				leader = rd.RaftState == raft.StateLeader
 			}
