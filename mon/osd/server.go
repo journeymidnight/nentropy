@@ -34,6 +34,8 @@ type OsdServer struct {
 	storeCfg        multiraft.StoreConfig // Config to use and pass to stores
 }
 
+const OSD_STATUS_REPORT_PERIOD = 2 * time.Second
+
 // NewServer creates a Server from a server.Context.
 func NewOsdServer(ctx context.Context, cfg Config, stopper *stop.Stopper) (*OsdServer, error) {
 	if _, err := net.ResolveTCPAddr("tcp", cfg.AdvertiseAddr); err != nil {
@@ -178,6 +180,29 @@ func (s *OsdServer) Batch(
 	return br, nil
 }
 
+func (s *OsdServer) sendOsdStatusToMon(addr string) {
+	conn, err := grpc.Dial(addr, grpc.WithInsecure())
+	if err != nil {
+		helper.Logger.Println(5, "fail to dial: %v", err)
+	}
+	defer conn.Close()
+	client := protos.NewMonitorClient(conn)
+	groups, _ := s.store.GetGroupIdsByLeader()
+	req := protos.OsdStatusReportRequest{}
+	req.NodeId = int32(s.cfg.NodeID)
+	req.OwnPrimaryPgs = groups
+	ctx := context.Background()
+	res, err := client.OsdStatusReport(ctx, &req)
+	if err != nil {
+		helper.Logger.Println(5, "Error send rpc request!")
+		return
+	}
+
+	getRes := res.GetRetCode()
+	helper.Logger.Println(5, "Finished! retcode=%d", getRes)
+
+}
+
 // Start starts the server on the specified port, starts gossip and initializes
 // the node using the engines from the server's context.
 //
@@ -204,6 +229,24 @@ func (s *OsdServer) Start(ctx context.Context) error {
 		s.grpc.Serve(ln)
 	})
 
+	s.stopper.RunWorker(workersCtx, func(context.Context) {
+		reportTicker := time.NewTicker(OSD_STATUS_REPORT_PERIOD)
+		defer reportTicker.Stop()
+		for {
+			select {
+			case <-reportTicker.C:
+				mon := memberlist.GetLeaderMon()
+				if mon == nil {
+					helper.Logger.Println(5, "can not get primary mon addr yet!")
+					continue
+				}
+				s.sendOsdStatusToMon(mon.Addr)
+			case <-s.stopper.ShouldStop():
+				return
+			}
+		}
+
+	})
 	//replicas :=
 	//	[]multiraftbase.ReplicaDescriptor{
 	//		{

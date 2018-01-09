@@ -994,6 +994,12 @@ func (r *Replica) quiesce() bool {
 	return r.quiesceLocked()
 }
 
+func (r *Replica) amLeader() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.mu.replicaID == r.mu.leaderID
+}
+
 func (r *Replica) quiesceLocked() bool {
 	//_ := r.AnnotateCtx(context.TODO())
 	if len(r.mu.proposals) != 0 {

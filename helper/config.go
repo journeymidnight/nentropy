@@ -76,7 +76,6 @@ type Config struct {
 	NumPendingProposals int
 	Tracing             float64
 	Monitors            string
-	MyAddr              string
 	RaftId              uint64
 	MaxPendingCount     uint64
 	MemberBindPort      int
@@ -103,7 +102,6 @@ var DefaultConfig = Config{
 	NumPendingProposals: 2000,
 	Tracing:             0.0,
 	Monitors:            "",
-	MyAddr:              "",
 	RaftId:              1,
 	MaxPendingCount:     1000,
 	MemberBindPort:      7946,

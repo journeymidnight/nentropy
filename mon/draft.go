@@ -360,7 +360,8 @@ func (n *node) Run() {
 					//cluster().syncMemberships()
 					clus.internalMapLock.Lock()
 					clus.isPrimaryMon = false
-					clus.primaryPgLocationMap = nil
+					clus.leaderPgLocationMap = nil
+					memberlist.SetMonFollower()
 					clus.internalMapLock.Unlock()
 
 				} else if rd.RaftState == raft.StateLeader && !leader {
@@ -368,8 +369,8 @@ func (n *node) Run() {
 					//cluster().syncMemberships()
 					clus.internalMapLock.Lock()
 					clus.isPrimaryMon = true
-					clus.primaryPgLocationMap = make(map[string]int32)
-					memberlist.SetMonPrimary()
+					clus.leaderPgLocationMap = make(map[string]int32)
+					memberlist.SetMonLeader()
 					clus.internalMapLock.Unlock()
 				}
 				leader = rd.RaftState == raft.StateLeader

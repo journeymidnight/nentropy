@@ -471,7 +471,7 @@ func (s *monitorRpcServer) OsdStatusReport(ctx context.Context, in *protos.OsdSt
 	pgNames := in.GetOwnPrimaryPgs()
 	clus.internalMapLock.Lock()
 	for _, v := range pgNames {
-		clus.primaryPgLocationMap[v] = nodeId
+		clus.leaderPgLocationMap[v] = nodeId
 	}
 	clus.internalMapLock.Unlock()
 	return &protos.OsdStatusReportReply{}, nil

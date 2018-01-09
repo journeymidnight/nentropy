@@ -904,3 +904,17 @@ func (s *Store) BootstrapGroup(initialValues []multiraftbase.KeyValue, group *mu
 
 	return nil
 }
+
+func (s *Store) GetGroupIdsByLeader() ([]string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	vector := make([]string, 0)
+	s.mu.replicas.Range(func(key, value interface{}) bool {
+		replica, _ := value.(*Replica)
+		if replica.amLeader() {
+			vector = append(vector, string(replica.GroupID))
+		}
+		return true
+	})
+	return vector, nil
+}

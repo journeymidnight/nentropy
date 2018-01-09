@@ -23,13 +23,13 @@ const (
 )
 
 type Member struct {
-	IsMon     bool
-	IsPrimary bool
-	Name      string
-	Addr      string
-	Port      uint16
-	RaftPort  uint16
-	ID        uint64
+	IsMon    bool
+	IsLeader bool
+	Name     string
+	Addr     string
+	Port     uint16
+	RaftPort uint16
+	ID       uint64
 }
 
 type NotifyMemberEvent func(MemberEventType, Member) error
@@ -102,9 +102,10 @@ func recvChanEvent(myName string) {
 	}
 }
 
-var SetMonPrimary func()
+var SetMonLeader func()
+var SetMonFollower func()
 
-func Init(isMon bool, isPrimary bool, id uint64, myAddr string, logger *log.Logger, join string) {
+func Init(isMon bool, isLeader bool, id uint64, advertiseAddr string, logger *log.Logger, join string) {
 	c := memberlist.DefaultLocalConfig()
 	hostname, _ := os.Hostname()
 	c.Name = hostname + "-" + uuid.NewUUID().String()
@@ -113,8 +114,8 @@ func Init(isMon bool, isPrimary bool, id uint64, myAddr string, logger *log.Logg
 	c.Logger = logger
 	member := Member{}
 	member.IsMon = isMon
-	member.IsPrimary = isPrimary
-	member.Addr = myAddr
+	member.IsLeader = isLeader
+	member.Addr = advertiseAddr
 	member.ID = id
 	member.Name = fmt.Sprintf("%d", id)
 	meta, err := json.Marshal(member)
@@ -153,8 +154,8 @@ func Init(isMon bool, isPrimary bool, id uint64, myAddr string, logger *log.Logg
 		go recvChanEvent(c.Name)
 	}
 
-	SetMonPrimary = func() {
-		member.IsPrimary = true
+	SetMonLeader = func() {
+		member.IsLeader = true
 		meta, err := json.Marshal(member)
 		if err != nil {
 			panic("Failed to json member. : " + err.Error())
@@ -162,6 +163,17 @@ func Init(isMon bool, isPrimary bool, id uint64, myAddr string, logger *log.Logg
 		mock.meta = meta
 		List.UpdateNode(0)
 		helper.Logger.Println(5, "SetMonPrimary member:", member)
+	}
+
+	SetMonFollower = func() {
+		member.IsLeader = false
+		meta, err := json.Marshal(member)
+		if err != nil {
+			panic("Failed to json member. : " + err.Error())
+		}
+		mock.meta = meta
+		List.UpdateNode(0)
+		helper.Logger.Println(5, "SetMonFollower member:", member)
 	}
 
 }
@@ -187,9 +199,9 @@ func GetMemberByName(name string) *Member {
 	return nil
 }
 
-func GetPrimaryMon() *Member {
+func GetLeaderMon() *Member {
 	for _, v := range GetMembers() {
-		if v.IsPrimary == true {
+		if v.IsLeader == true {
 			return &v
 		}
 	}

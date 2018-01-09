@@ -82,7 +82,8 @@ func main() {
 
 	go StartRaftNodes(WALstore, grpcSrv)
 
-	memberlist.Init(true, false, helper.CONFIG.RaftId, helper.CONFIG.MyAddr, logger.Logger, helper.CONFIG.JoinMemberAddr)
+	helper.Logger.Println(5, "raftid, advertiseaddr", cfg.RaftId, cfg.AdvertiseAddr)
+	memberlist.Init(true, false, cfg.RaftId, cfg.AdvertiseAddr, logger.Logger, cfg.JoinMemberAddr)
 	memberlist.SetNotifyFunc(NotifyMemberEvent)
 
 	runServer(grpcSrv)
