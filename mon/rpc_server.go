@@ -8,6 +8,8 @@ import (
 	"github.com/journeymidnight/nentropy/protos"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
+	"strconv"
+	"strings"
 )
 
 var (
@@ -357,7 +359,23 @@ func HandlePgList(req *protos.PgConfigRequest) (*protos.PgConfigReply, error) {
 	if err != nil {
 		return &protos.PgConfigReply{}, err
 	}
-	return &protos.PgConfigReply{0, pgmaps.Epoch, pgmaps.Pgmaps[poolId]}, nil
+	leaderMap := make(map[int32]int32)
+	for pgName, nodeId := range clus.leaderPgLocationMap {
+		res := strings.Split(pgName, ".")
+		pool_id, err := strconv.Atoi(res[0])
+		if err != nil {
+			continue
+		}
+		pg_id, err := strconv.Atoi(res[1])
+		if err != nil {
+			continue
+		}
+		if int32(pool_id) == poolId {
+			leaderMap[int32(pg_id)] = nodeId
+		}
+
+	}
+	return &protos.PgConfigReply{0, pgmaps.Epoch, pgmaps.Pgmaps[poolId], leaderMap}, nil
 }
 
 //func copyPg(src *protos.Pg) protos.Pg {

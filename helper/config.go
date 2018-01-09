@@ -106,6 +106,7 @@ var DefaultConfig = Config{
 	MaxPendingCount:     1000,
 	MemberBindPort:      7946,
 	JoinMemberAddr:      "",
+	NodeType:            "osd",
 }
 
 var CONFIG Config

@@ -64,7 +64,9 @@ func NewOsdServer(ctx context.Context, cfg Config, stopper *stop.Stopper) (*OsdS
 	s.grpc = rpc.NewServer()
 
 	//init member list here
-	memberlist.Init(false, false, (uint64)(cfg.NodeID), cfg.AdvertiseAddr, logger.Logger, cfg.JoinMemberAddr)
+	rpcPort := Listener.Addr().(*net.TCPAddr).Port
+	advertiseAddr := memberlist.GetMyIpAddress(rpcPort)
+	memberlist.Init(false, false, (uint64)(cfg.NodeID), advertiseAddr, cfg.MemberBindPort, logger.Logger, cfg.JoinMemberAddr)
 
 	//i := 1
 	//for i <= 100 {
@@ -199,7 +201,7 @@ func (s *OsdServer) sendOsdStatusToMon(addr string) {
 	}
 
 	getRes := res.GetRetCode()
-	helper.Logger.Println(5, "Finished! retcode=%d", getRes)
+	helper.Logger.Println(20, "Finished! retcode=%d", getRes)
 
 }
 
@@ -209,13 +211,7 @@ func (s *OsdServer) sendOsdStatusToMon(addr string) {
 // The passed context can be used to trace the server startup. The context
 // should represent the general startup operation.
 func (s *OsdServer) Start(ctx context.Context) error {
-	ln, err := net.Listen("tcp", s.cfg.Config.AdvertiseAddr)
-	if err != nil {
-		return ListenError{
-			error: err,
-			Addr:  s.cfg.Config.AdvertiseAddr,
-		}
-	}
+
 	workersCtx := context.Background()
 	//s.stopper.RunWorker(workersCtx, func(context.Context) {
 	//	<-s.stopper.ShouldQuiesce()
@@ -226,7 +222,7 @@ func (s *OsdServer) Start(ctx context.Context) error {
 	//})
 
 	s.stopper.RunWorker(workersCtx, func(context.Context) {
-		s.grpc.Serve(ln)
+		s.grpc.Serve(Listener)
 	})
 
 	s.stopper.RunWorker(workersCtx, func(context.Context) {

@@ -14,11 +14,11 @@ import (
 )
 
 var (
-	logger      *log.Logger
-	rpcListener net.Listener
-	raftPort    int
-	cfg         *Config
-	stopper     *stop.Stopper
+	logger   *log.Logger
+	Listener net.Listener
+	raftPort int
+	cfg      *Config
+	stopper  *stop.Stopper
 )
 
 func main() {
@@ -31,6 +31,12 @@ func main() {
 	signal.Notify(signalCh, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
 
 	errChan := make(chan error, 1)
+	var err error
+	Listener, err = net.Listen("tcp", ":0")
+	if err != nil {
+		panic("take up a random port failed")
+	}
+	logger.Println(5, "Listen at :", Listener.Addr())
 	var s *OsdServer
 	go func() {
 		defer func() {

@@ -165,7 +165,13 @@ func listPgs() {
 	for _, k := range keys {
 		fmt.Println("================================")
 		fmt.Println("id:", reply.Map.Pgmap[int32(k)].Id)
-		fmt.Println("osds:", reply.Map.Pgmap[int32(k)].OsdIds)
+		fmt.Println("osds:", reply.Map.Pgmap[int32(k)].Replicas)
+		if val, ok := reply.LeaderMap[int32(k)]; ok {
+			//do something here
+			fmt.Println("leader:", val)
+		} else {
+			fmt.Println("leader:", 0)
+		}
 	}
 
 	return

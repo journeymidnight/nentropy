@@ -7,7 +7,9 @@ import (
 	"github.com/journeymidnight/nentropy/helper"
 	"github.com/pborman/uuid"
 	"log"
+	"net"
 	"os"
+	"strconv"
 )
 
 const (
@@ -105,12 +107,30 @@ func recvChanEvent(myName string) {
 var SetMonLeader func()
 var SetMonFollower func()
 
-func Init(isMon bool, isLeader bool, id uint64, advertiseAddr string, logger *log.Logger, join string) {
+func GetMyIpAddress(port int) string {
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		os.Stderr.WriteString("Oops: " + err.Error() + "\n")
+		os.Exit(1)
+		return ""
+	}
+
+	for _, a := range addrs {
+		if ipnet, ok := a.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
+			if ipnet.IP.To4() != nil {
+				return ipnet.IP.String() + ":" + strconv.Itoa(port)
+			}
+		}
+	}
+	return ""
+}
+
+func Init(isMon bool, isLeader bool, id uint64, advertiseAddr string, memberBindPort int, logger *log.Logger, join string) {
 	c := memberlist.DefaultLocalConfig()
 	hostname, _ := os.Hostname()
 	c.Name = hostname + "-" + uuid.NewUUID().String()
 	logger.Println("Memberlist config name:", c.Name)
-	c.BindPort = helper.CONFIG.MemberBindPort
+	c.BindPort = memberBindPort
 	c.Logger = logger
 	member := Member{}
 	member.IsMon = isMon
