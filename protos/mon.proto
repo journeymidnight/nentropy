@@ -181,7 +181,8 @@ message PgConfigReply {
     int32 ret_code = 1;
     uint64 epoch  = 2;
     PgMap map = 3;
-    map<int32, int32>  leader_map = 4;
+    PgMaps maps = 4;
+    map<int32, int32>  leader_map = 5;
 }
 
 message MonAddr {

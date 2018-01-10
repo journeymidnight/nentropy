@@ -51,11 +51,11 @@ func main() {
 		if err := func() error {
 			s, err := NewOsdServer(ctx, *cfg, stopper)
 			if err != nil {
-				return errors.New("failed to create server")
+				return errors.New("failed to create server : " + err.Error())
 			}
 
 			if err := s.Start(ctx); err != nil {
-				return errors.New("failed to start server")
+				return errors.New("failed to start server : " + err.Error())
 			}
 
 			return nil

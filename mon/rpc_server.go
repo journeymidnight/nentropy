@@ -355,27 +355,30 @@ func GetPoolIdByName(name string) (int32, error) {
 
 func HandlePgList(req *protos.PgConfigRequest) (*protos.PgConfigReply, error) {
 	pgmaps, _ := GetCurrPgMaps()
-	poolId, err := GetPoolIdByName(req.Pool)
-	if err != nil {
-		return &protos.PgConfigReply{}, err
-	}
 	leaderMap := make(map[int32]int32)
-	for pgName, nodeId := range clus.leaderPgLocationMap {
-		res := strings.Split(pgName, ".")
-		pool_id, err := strconv.Atoi(res[0])
+	if req.Pool != "" {
+		poolId, err := GetPoolIdByName(req.Pool)
 		if err != nil {
-			continue
+			return &protos.PgConfigReply{}, err
 		}
-		pg_id, err := strconv.Atoi(res[1])
-		if err != nil {
-			continue
+		for pgName, nodeId := range clus.leaderPgLocationMap {
+			res := strings.Split(pgName, ".")
+			pool_id, err := strconv.Atoi(res[0])
+			if err != nil {
+				continue
+			}
+			pg_id, err := strconv.Atoi(res[1])
+			if err != nil {
+				continue
+			}
+			if int32(pool_id) == poolId {
+				leaderMap[int32(pg_id)] = nodeId
+			}
 		}
-		if int32(pool_id) == poolId {
-			leaderMap[int32(pg_id)] = nodeId
-		}
-
+		return &protos.PgConfigReply{0, pgmaps.Epoch, pgmaps.Pgmaps[poolId], nil, leaderMap}, nil
+	} else {
+		return &protos.PgConfigReply{0, pgmaps.Epoch, nil, &pgmaps, nil}, nil
 	}
-	return &protos.PgConfigReply{0, pgmaps.Epoch, pgmaps.Pgmaps[poolId], leaderMap}, nil
 }
 
 //func copyPg(src *protos.Pg) protos.Pg {
@@ -432,13 +435,19 @@ func allocateNewPgs(poolMap *protos.PoolMap, pgMaps *protos.PgMaps, osdMap *prot
 		return &newPgMaps, err
 	}
 
+	helper.Logger.Println(5, "debug allocateNewPgs")
+	helper.Logger.Println(5, "debug allocateNewPgs", newPgMaps.Pgmaps)
+	helper.Logger.Println(5, "debug allocateNewPgs", poolId)
 	if _, ok := newPgMaps.Pgmaps[poolId]; !ok {
+		if newPgMaps.Pgmaps == nil {
+			newPgMaps.Pgmaps = make(map[int32]*protos.PgMap)
+		}
 		newPgMaps.Pgmaps[poolId] = &protos.PgMap{}
 		newPgMaps.Pgmaps[poolId].PoolId = poolId
 		newPgMaps.Pgmaps[poolId].Pgmap = make(map[int32]*protos.Pg)
 	}
 	targetMap := newPgMaps.Pgmaps[poolId]
-	startIndex := len(targetMap.Pgmap)
+	startIndex := len(targetMap.Pgmap) + 1
 	for i := 0; i < int(n); i++ {
 		id := int32(startIndex + i)
 		targetMap.Pgmap[id] = &protos.Pg{id, 0, make([]protos.PgReplica, 0), 1}

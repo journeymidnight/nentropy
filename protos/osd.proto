@@ -51,8 +51,8 @@ message UnionMap {
 }
 
 message SyncMapRequest {
-    SyncMapType map_type = 1;
-    UnionMap union_map = 2;
+    SyncMapType map_type = 1 ;
+    UnionMap union_map = 2 [(gogoproto.nullable) = false];
 }
 
 message SyncMapReply {

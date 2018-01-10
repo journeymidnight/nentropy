@@ -36,6 +36,42 @@ type OsdServer struct {
 
 const OSD_STATUS_REPORT_PERIOD = 2 * time.Second
 
+func getOsdMap() (*protos.OsdMap, error) {
+	mon := memberlist.GetLeaderMon()
+	conn, err := grpc.Dial(mon.Addr, grpc.WithInsecure())
+	if err != nil {
+		helper.Logger.Printf(5, "fail to dial: %v", err)
+		return nil, err
+	}
+	defer conn.Close()
+	client := protos.NewMonitorClient(conn)
+	req := protos.OsdConfigRequest{"", &protos.Osd{}, protos.OsdConfigRequest_LIST}
+	reply, err := client.OsdConfig(context.Background(), &req)
+	if err != nil {
+		fmt.Println("list osds error: ", err)
+		return nil, err
+	}
+	return reply.Map, nil
+}
+
+func getPgMaps() (*protos.PgMaps, error) {
+	mon := memberlist.GetLeaderMon()
+	conn, err := grpc.Dial(mon.Addr, grpc.WithInsecure())
+	if err != nil {
+		helper.Logger.Printf(5, "fail to dial: %v", err)
+		return nil, err
+	}
+	defer conn.Close()
+	client := protos.NewMonitorClient(conn)
+	req := protos.PgConfigRequest{"", protos.PgConfigRequest_LIST, "", 0}
+	reply, err := client.PgConfig(context.Background(), &req)
+	if err != nil {
+		fmt.Println("list osds error: ", err)
+		return nil, err
+	}
+	return reply.Maps, nil
+}
+
 // NewServer creates a Server from a server.Context.
 func NewOsdServer(ctx context.Context, cfg Config, stopper *stop.Stopper) (*OsdServer, error) {
 	if _, err := net.ResolveTCPAddr("tcp", cfg.AdvertiseAddr); err != nil {
@@ -43,9 +79,11 @@ func NewOsdServer(ctx context.Context, cfg Config, stopper *stop.Stopper) (*OsdS
 	}
 
 	s := &OsdServer{
-		stopper: stopper,
-		cfg:     cfg,
-		nodeID:  fmt.Sprintf("%d.%d", cfg.NodeType, cfg.NodeID),
+		stopper:        stopper,
+		cfg:            cfg,
+		nodeID:         fmt.Sprintf("%d.%d", cfg.NodeType, cfg.NodeID),
+		confChangeLock: &sync.Mutex{},
+		mapLock:        &sync.Mutex{},
 	}
 
 	// Add a dynamic log tag value for the node ID.
@@ -67,6 +105,34 @@ func NewOsdServer(ctx context.Context, cfg Config, stopper *stop.Stopper) (*OsdS
 	rpcPort := Listener.Addr().(*net.TCPAddr).Port
 	advertiseAddr := memberlist.GetMyIpAddress(rpcPort)
 	memberlist.Init(false, false, (uint64)(cfg.NodeID), advertiseAddr, cfg.MemberBindPort, logger.Logger, cfg.JoinMemberAddr)
+
+	//get osd map
+	osdmap, err := getOsdMap()
+	if err != nil {
+		return nil, err
+	}
+
+	//check if osd not existed in osd map
+	found := false
+	for k, _ := range osdmap.MemberList {
+		if k == int32(cfg.NodeID) {
+			found = true
+			break
+		}
+	}
+	if found == false {
+		memberlist.List.Shutdown()
+		return nil, errors.New(fmt.Sprintf("Invaid osd id %d, should create osd first", cfg.NodeID))
+	}
+
+	//get pgsmap
+	pgmaps, err := getPgMaps()
+	if err != nil {
+		return nil, err
+	}
+	s.pgMaps = pgmaps
+
+	//TODO: load existed pgs
 
 	//i := 1
 	//for i <= 100 {
@@ -186,6 +252,7 @@ func (s *OsdServer) sendOsdStatusToMon(addr string) {
 	conn, err := grpc.Dial(addr, grpc.WithInsecure())
 	if err != nil {
 		helper.Logger.Println(5, "fail to dial: %v", err)
+		return
 	}
 	defer conn.Close()
 	client := protos.NewMonitorClient(conn)
@@ -201,7 +268,7 @@ func (s *OsdServer) sendOsdStatusToMon(addr string) {
 	}
 
 	getRes := res.GetRetCode()
-	helper.Logger.Println(20, "Finished! retcode=%d", getRes)
+	helper.Logger.Println(5, "Finished! sendOsdStatusToMon retcode=%d", getRes, len(groups))
 
 }
 

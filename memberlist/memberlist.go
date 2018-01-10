@@ -72,6 +72,16 @@ func (m *MemberDelegate) MergeRemoteState(s []byte, join bool) {
 	m.remoteState = s
 }
 
+type MonitorMergeDelegate struct {
+	invoked bool
+}
+
+func (c *MonitorMergeDelegate) NotifyMerge(nodes []*memberlist.Node) error {
+	c.invoked = true
+
+	return fmt.Errorf("Custom merge canceled")
+}
+
 func recvChanEvent(myName string) {
 	for {
 		select {
@@ -156,7 +166,7 @@ func Init(isMon bool, isLeader bool, id uint64, advertiseAddr string, memberBind
 	}
 
 	helper.Logger.Printf(5, "Join member addr is %s.", join)
-	if !isMon && join != "" {
+	if join != "" {
 		//strs := strings.Split(helper.CONFIG.JoinMemberAddr, ",")
 		strs := []string{join}
 		_, err := List.Join(strs)
@@ -221,6 +231,7 @@ func GetMemberByName(name string) *Member {
 
 func GetLeaderMon() *Member {
 	for _, v := range GetMembers() {
+		helper.Logger.Println(5, "member", v)
 		if v.IsLeader == true {
 			return &v
 		}

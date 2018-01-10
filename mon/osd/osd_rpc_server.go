@@ -42,7 +42,7 @@ func (s *OsdServer) createOrRemoveReplica() {
 				groupDes.PoolId = int64(poolId)
 				groupDes.PgId = int64(pgId)
 				for _, subReplica := range pg.Replicas {
-					groupDes.Replicas = append(groupDes.Replicas, multiraftbase.ReplicaDescriptor{multiraftbase.NodeID(s.nodeID), 0, multiraftbase.ReplicaID(subReplica.ReplicaIndex)})
+					groupDes.Replicas = append(groupDes.Replicas, multiraftbase.ReplicaDescriptor{multiraftbase.NodeID(fmt.Sprintf("osd.%d", subReplica.OsdId)), 0, multiraftbase.ReplicaID(subReplica.ReplicaIndex)})
 				}
 				groupDes.NextReplicaID = multiraftbase.ReplicaID(pg.NextReplicaId)
 				go s.store.BootstrapGroup(nil, &groupDes)
@@ -63,6 +63,10 @@ func (s *OsdServer) SyncMap(ctx context.Context, in *protos.SyncMapRequest) (*pr
 	switch in.MapType {
 	case protos.PGMAP:
 		newPgMaps := in.UnionMap.GetPgmap()
+		helper.Logger.Println(5, "unionmap0", in.UnionMap)
+		helper.Logger.Println(5, "unionmap1", newPgMaps)
+		helper.Logger.Println(5, "wich one will panic 0", newPgMaps.Epoch)
+
 		if newPgMaps.Epoch > s.pgMaps.Epoch {
 			s.pgMaps = newPgMaps
 			go s.createOrRemoveReplica()

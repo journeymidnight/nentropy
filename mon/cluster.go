@@ -102,7 +102,13 @@ func syncPgMapsToEachOsd(addr string) {
 	client := protos.NewOsdRpcClient(conn)
 	req := protos.SyncMapRequest{}
 	req.MapType = protos.PGMAP
-	req.UnionMap.SetValue(pgmaps)
+	req.UnionMap.Reset()
+	setSuccess := req.UnionMap.SetValue(&pgmaps)
+	if setSuccess != true {
+		helper.Logger.Println(5, "Error send SyncMap rpc request, internal error")
+		return
+	}
+
 	ctx := context.Background()
 	res, err := client.SyncMap(ctx, &req)
 	if err != nil {
@@ -119,6 +125,7 @@ func syncPgMaps() {
 		if v.Up == false || v.In == false {
 			continue
 		}
+		helper.Logger.Println(5, "call syncPgMaps to :", v.Addr)
 		go syncPgMapsToEachOsd(v.Addr)
 	}
 }
@@ -159,8 +166,9 @@ func handleCommittedMsg(data []byte) error {
 					helper.Check(err)
 				}
 				clus.pgMaps = pgMaps
-				go syncPgMaps()
-
+				if clus.node.AmLeader() {
+					go syncPgMaps()
+				}
 			} else {
 				helper.Errorf("Unknown data type!")
 			}
@@ -316,10 +324,11 @@ func NotifyMemberEvent(eventType memberlist.MemberEventType, member memberlist.M
 	if member.IsMon {
 		return nil
 	}
-	var exist bool
-	if _, ok := clus.osdMap.MemberList[int32(member.ID)]; ok {
-		exist = true
+
+	if _, ok := clus.osdMap.MemberList[int32(member.ID)]; !ok {
+		return nil
 	}
+
 	if clus.osdMap.MemberList == nil {
 		clus.osdMap.MemberList = make(map[int32]*protos.Osd)
 	}
@@ -331,9 +340,6 @@ func NotifyMemberEvent(eventType memberlist.MemberEventType, member memberlist.M
 	}
 
 	if eventType == memberlist.MemberJoin {
-		if exist {
-			return nil
-		}
 		osdMap := protos.OsdMap{}
 		data, err := clus.osdMap.Marshal()
 		if err != nil {
@@ -346,17 +352,12 @@ func NotifyMemberEvent(eventType memberlist.MemberEventType, member memberlist.M
 			return err
 		}
 		osdMap.Epoch++
-		if osdMap.MemberList == nil {
-			osdMap.MemberList = make(map[int32]*protos.Osd)
-		}
-		osdMap.MemberList[int32(member.ID)] = &protos.Osd{Id: int32(member.ID)}
-		helper.Logger.Println(5, "New member added! id:", member.ID)
+		osdMap.MemberList[int32(member.ID)].Up = true
+		osdMap.MemberList[int32(member.ID)].Addr = member.Addr
+		helper.Logger.Println(5, "Osd info updated! id:", member.ID)
 		ProposeOsdMap(&osdMap)
 
 	} else if eventType == memberlist.MemberLeave {
-		if !exist {
-			return nil
-		}
 		osdMap := protos.OsdMap{}
 		data, err := clus.osdMap.Marshal()
 		if err != nil {
@@ -369,8 +370,8 @@ func NotifyMemberEvent(eventType memberlist.MemberEventType, member memberlist.M
 			return err
 		}
 		osdMap.Epoch++
-		delete(osdMap.MemberList, int32(member.ID))
-		helper.Logger.Println(0, "New member leave! id:", member.ID)
+		osdMap.MemberList[int32(member.ID)].Up = false
+		helper.Logger.Println(0, "Osd info updated! id:", member.ID)
 		ProposeOsdMap(&osdMap)
 
 	} else {

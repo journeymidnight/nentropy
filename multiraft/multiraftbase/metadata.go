@@ -137,9 +137,6 @@ func (r ReplicaDescriptor) Validate() error {
 	if r.NodeID == "" {
 		return errors.Errorf("NodeID must not be empty")
 	}
-	if r.StoreID == 0 {
-		return errors.Errorf("StoreID must not be zero")
-	}
 	if r.ReplicaID == 0 {
 		return errors.Errorf("ReplicaID must not be zero")
 	}

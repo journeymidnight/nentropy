@@ -839,6 +839,7 @@ func (s *Store) addReplicaInternalLocked(repl *Replica) error {
 func (s *Store) BootstrapGroup(initialValues []multiraftbase.KeyValue, group *multiraftbase.GroupDescriptor) error {
 	desc := *group
 	if err := desc.Validate(); err != nil {
+		helper.Logger.Println(5, "BootstrapGroup quit 0 ", err.Error())
 		return err
 	}
 	/*
@@ -860,16 +861,19 @@ func (s *Store) BootstrapGroup(initialValues []multiraftbase.KeyValue, group *mu
 	*/
 	_, found := group.GetReplicaDescriptor(s.nodeDesc.NodeID)
 	if !found {
+		helper.Logger.Println(5, "BootstrapGroup quit 1 ")
 		return errors.New(fmt.Sprintf("send to wrong node %s", s.nodeDesc.NodeID))
 	}
 	r, err := NewReplica(&desc, s, 0)
 	if err != nil {
+		helper.Logger.Println(5, "BootstrapGroup quit 2 ", err.Error())
 		return err
 	}
 	s.mu.Lock()
 	err = s.addReplicaInternalLocked(r)
 	s.mu.Unlock()
 	if err != nil {
+		helper.Logger.Println(5, "BootstrapGroup quit 3 ", err.Error())
 		return err
 	}
 	if _, ok := desc.GetReplicaDescriptor(s.NodeID()); !ok {
@@ -895,13 +899,14 @@ func (s *Store) BootstrapGroup(initialValues []multiraftbase.KeyValue, group *mu
 		if err != nil {
 			r.mu.Unlock()
 			r.raftMu.Unlock()
+			helper.Logger.Println(5, "BootstrapGroup quit 4 ", err.Error())
 			return err
 		}
 		r.mu.internalRaftGroup = raftGroup
 	}
 	r.mu.Unlock()
 	r.raftMu.Unlock()
-
+	helper.Logger.Println(5, "BootstrapGroup quit 5 ")
 	return nil
 }
 
@@ -911,8 +916,10 @@ func (s *Store) GetGroupIdsByLeader() ([]string, error) {
 	vector := make([]string, 0)
 	s.mu.replicas.Range(func(key, value interface{}) bool {
 		replica, _ := value.(*Replica)
+		helper.Logger.Println(5, "check one replica*******************:", replica)
 		if replica.amLeader() {
 			vector = append(vector, string(replica.GroupID))
+			helper.Logger.Println(5, "find one leader*******************:", string(replica.GroupID))
 		}
 		return true
 	})
