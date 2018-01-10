@@ -19,6 +19,19 @@ var (
 type monitorRpcServer struct {
 }
 
+func (s *monitorRpcServer) GetMonMap(ctx context.Context, in *protos.MonConfigRequest) (*protos.MonConfigReply, error) {
+	peerAddr := clus.node.peersAddr
+	monMap := protos.MonMap{Epoch: 0, MonMap: make(map[uint64]*protos.Mon)}
+	leaderID := clus.node.LeaderID()
+	res := protos.MonConfigReply{Map: &monMap, LeadId: leaderID}
+	for _, v := range clus.node._confState.Nodes {
+		if addr, ok := peerAddr[v]; ok {
+			res.Map.MonMap[v] = &protos.Mon{Id: v, Addr: addr}
+		}
+	}
+	return &res, nil
+}
+
 func (s *monitorRpcServer) GetLayout(ctx context.Context, in *protos.LayoutRequest) (*protos.LayoutReply, error) {
 	poolId, err := GetPoolIdByName(in.PoolName)
 	if err != nil {

@@ -22,11 +22,21 @@ package protos;
 
 
 service Monitor {
+    rpc GetMonMap (MonConfigRequest) returns (MonConfigReply) {}
     rpc GetLayout (LayoutRequest) returns (LayoutReply) {}
     rpc OsdConfig(OsdConfigRequest) returns (OsdConfigReply) {}
     rpc PoolConfig(PoolConfigRequest) returns (PoolConfigReply) {}
     rpc PgConfig(PgConfigRequest) returns (PgConfigReply) {}
     rpc OsdStatusReport(OsdStatusReportRequest) returns (OsdStatusReportReply) {}
+}
+
+message MonConfigRequest {
+    string method = 1;
+}
+
+message MonConfigReply {
+    uint64 lead_id = 1;
+    MonMap map = 2;
 }
 
 message OsdStatusReportRequest {
@@ -185,13 +195,12 @@ message PgConfigReply {
     map<int32, int32>  leader_map = 5;
 }
 
-message MonAddr {
-    uint32 id = 1;
+message Mon {
+    uint64 id = 1;
     string addr = 2;
-    uint32 port = 3;
 }
 
 message MonMap {
     uint64 epoch  = 1;
-    map<uint32, MonAddr>  monMap = 2;
+    map<uint64, Mon>  monMap = 2;
 }

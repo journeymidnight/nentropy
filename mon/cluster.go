@@ -23,13 +23,13 @@ import (
 	"golang.org/x/net/context"
 
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/dgraph-io/badger"
 	"github.com/journeymidnight/nentropy/helper"
 	"github.com/journeymidnight/nentropy/memberlist"
 	"github.com/journeymidnight/nentropy/mon/raftwal"
+	"github.com/journeymidnight/nentropy/mon/transport"
 	"github.com/journeymidnight/nentropy/protos"
 	"google.golang.org/grpc"
 )
@@ -184,7 +184,7 @@ func handleCommittedMsg(data []byte) error {
 // and either start or restart RAFT nodes.
 // This function triggers RAFT nodes to be created, and is the entrance to the RAFT
 // world from main.go.
-func StartRaftNodes(walStore *badger.DB, grpcSrv *grpc.Server) {
+func StartRaftNodes(walStore *badger.DB, grpcSrv *grpc.Server, peers []string, myAddr string) {
 	clus = new(cluster)
 	clus.ctx, clus.cancel = context.WithCancel(context.Background())
 
@@ -193,20 +193,18 @@ func StartRaftNodes(walStore *badger.DB, grpcSrv *grpc.Server) {
 	clus.internalMapLock = &sync.Mutex{}
 	var wg sync.WaitGroup
 
-	mons := strings.Split(config.Monitors, ",")
-	for i, v := range mons {
-		if uint64(i+1) == config.RaftId {
-			clus.myAddr = v
-		}
-	}
-	node := newNode(config.RaftId, clus.myAddr)
+	clus.myAddr = myAddr
+	node := newNode(config.RaftId, myAddr)
 	if clus.node != nil {
 		helper.AssertTruef(false, "Didn't expect a node in RAFT group mapping: %v", 0)
 	}
 	node.SetCommittedMsgHandler(handleCommittedMsg)
 	clus.node = node
 
-	node.peersAddr = mons
+	node.peersAddr = make(map[uint64]string)
+	for k, v := range peers {
+		node.peersAddr[uint64(k+1)] = v
+	}
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -219,7 +217,7 @@ func StartRaftNodes(walStore *badger.DB, grpcSrv *grpc.Server) {
 // BlockingStop stops all the nodes, server between other workers and syncs all marks.
 func BlockingStop() {
 	clus.Node().Stop() // blocking stop all nodes
-	StopServer()
+	transport.StopServer()
 	// blocking sync all marks
 	_, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()

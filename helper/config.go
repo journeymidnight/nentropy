@@ -71,7 +71,6 @@ type Config struct {
 	DebugMode           bool
 	LogLevel            int //1-20
 	WALDir              string
-	MonPort             int
 	JoinMon             bool
 	NumPendingProposals int
 	Tracing             float64
@@ -98,7 +97,6 @@ var DefaultConfig = Config{
 	LogLevel:            15,
 	WALDir:              "w",
 	JoinMon:             false,
-	MonPort:             7900,
 	NumPendingProposals: 2000,
 	Tracing:             0.0,
 	Monitors:            "",
@@ -115,8 +113,6 @@ func (c *Config) parseCmdArgs() {
 
 	flag.StringVar(&c.WALDir, "w", DefaultConfig.WALDir,
 		"Directory to store raft write-ahead logs.")
-	flag.IntVar(&c.MonPort, "monPort", DefaultConfig.MonPort,
-		"Port used by mon for internal communication.")
 	flag.StringVar(&c.Monitors, "mons", DefaultConfig.Monitors,
 		"IP_ADDRESS:PORT of any healthy peer.")
 	flag.IntVar(&c.MemberBindPort, "memberBindPort", 0,

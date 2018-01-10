@@ -33,6 +33,7 @@ import (
 	"github.com/journeymidnight/nentropy/log"
 	"github.com/journeymidnight/nentropy/memberlist"
 	"net"
+	"strings"
 )
 
 var (
@@ -69,18 +70,38 @@ func newGrpcServer() *grpc.Server {
 	return grpc.NewServer(opts...)
 }
 
+func getIpAndPort(mons string, id int) (string, string, []string) {
+	myAddr := ""
+	peers := strings.Split(mons, ",")
+	for i, v := range peers {
+		if (i + 1) == id {
+			myAddr = v
+		}
+	}
+	if myAddr == "" {
+		panic("Cannot parse my addr.")
+	}
+	s := strings.Split(myAddr, ":")
+	if len(s) != 2 {
+		panic("No ip or port for myself")
+	}
+	return s[0], s[1], peers
+}
+
 func main() {
 	rand.Seed(time.Now().UnixNano())
 
 	cfg = MakeConfig()
 	logger = helper.Logger
 
+	ip, port, peers := getIpAndPort(cfg.Monitors, int(cfg.RaftId))
+	helper.Logger.Println(5, "ip:", ip, " port:", port, " peers:", peers)
 	initStorage()
 	defer disposeStorage()
 
 	grpcSrv := newGrpcServer()
 
-	go StartRaftNodes(WALstore, grpcSrv)
+	go StartRaftNodes(WALstore, grpcSrv, peers, ip+":"+port)
 
 	helper.Logger.Println(5, "raftid, advertiseaddr", cfg.RaftId, cfg.AdvertiseAddr)
 	memberlist.Init(true, false, cfg.RaftId, cfg.AdvertiseAddr, cfg.MemberBindPort, logger.Logger, cfg.JoinMemberAddr)
@@ -89,7 +110,7 @@ func main() {
 	runServer(grpcSrv)
 
 	laddr := "0.0.0.0"
-	ln, err := net.Listen("tcp", fmt.Sprintf("%s:%d", laddr, config.MonPort))
+	ln, err := net.Listen("tcp", fmt.Sprintf("%s:%s", laddr, port))
 	if err != nil {
 		helper.Logger.Fatalf(0, "While running server: %v", err)
 		return

@@ -18,7 +18,6 @@
 package main
 
 import (
-	"log"
 	"math/rand"
 	"sync"
 	"time"
@@ -30,8 +29,10 @@ import (
 	"golang.org/x/net/trace"
 
 	"github.com/journeymidnight/nentropy/helper"
+	"github.com/journeymidnight/nentropy/log"
 	"github.com/journeymidnight/nentropy/memberlist"
 	"github.com/journeymidnight/nentropy/mon/raftwal"
+	"github.com/journeymidnight/nentropy/mon/transport"
 	"github.com/journeymidnight/nentropy/protos"
 	"google.golang.org/grpc"
 )
@@ -39,14 +40,6 @@ import (
 const (
 	errorNodeIDExists = "Error Node ID already exists in the cluster"
 )
-
-type peerPoolEntry struct {
-	// Never the empty string.  Possibly a bogus address -- bad port number, the value
-	// of *myAddr, or some screwed up Raft config.
-	addr string
-	// An owning reference to a pool for this peer (or nil if addr is sufficiently bogus).
-	poolOrNil *pool
-}
 
 type HandleCommittedMsg func(data []byte) error
 type HandleConfChange func(data []byte) error
@@ -115,12 +108,13 @@ type node struct {
 	done        chan struct{} // to check whether node is running or not
 	gid         uint32
 	id          uint64
-	peersAddr   []string // raft peer URLs
+	peersAddr   map[uint64]string
 	props       proposals
 	raftContext *protos.RaftContext
 	store       *raft.MemoryStorage
 	wal         *raftwal.Wal
-	transport   Transport
+	transport   transport.Transport
+	leader      bool
 
 	canCampaign bool
 
@@ -182,7 +176,7 @@ func newNode(id uint64, myAddr string) *node {
 			Storage:         store,
 			MaxSizePerMsg:   256 << 10,
 			MaxInflightMsgs: 256,
-			Logger:          &raft.DefaultLogger{Logger: helper.Logger.Logger},
+			Logger:          log.NewRaftLogger(helper.Logger),
 		},
 		applyCh:     make(chan raftpb.Entry, numPendingMutations),
 		props:       props,
@@ -318,14 +312,14 @@ func (n *node) saveToStorage(s raftpb.Snapshot, h raftpb.HardState,
 	if !raft.IsEmptySnap(s) {
 		le, err := n.store.LastIndex()
 		if err != nil {
-			log.Fatalf("While retrieving last index: %v\n", err)
+			helper.Logger.Fatalf(0, "While retrieving last index: %v\n", err)
 		}
 		if s.Metadata.Index <= le {
 			return
 		}
 
 		if err := n.store.ApplySnapshot(s); err != nil {
-			log.Fatalf("Applying snapshot: %v", err)
+			helper.Logger.Fatalf(0, "Applying snapshot: %v", err)
 		}
 	}
 
@@ -341,7 +335,6 @@ func (n *node) retrieveSnapshot(peerID uint64) {
 
 func (n *node) Run() {
 	firstRun := true
-	var leader bool
 	// See also our configuration of HeartbeatTick and ElectionTick.
 	ticker := time.NewTicker(20 * time.Millisecond)
 	defer ticker.Stop()
@@ -354,8 +347,8 @@ func (n *node) Run() {
 
 		case rd := <-n.Raft().Ready():
 			if rd.SoftState != nil {
-				helper.Logger.Println(5, "enter raft ready change SoftState:", rd.RaftState, leader)
-				if rd.RaftState == raft.StateFollower && leader {
+				helper.Logger.Println(5, "enter raft ready change SoftState:", rd.RaftState, n.leader)
+				if rd.RaftState == raft.StateFollower && n.leader {
 					// stepped down as leader do a sync membership immediately
 					//cluster().syncMemberships()
 					clus.internalMapLock.Lock()
@@ -364,7 +357,7 @@ func (n *node) Run() {
 					memberlist.SetMonFollower()
 					clus.internalMapLock.Unlock()
 
-				} else if rd.RaftState == raft.StateLeader && !leader {
+				} else if rd.RaftState == raft.StateLeader && !n.leader {
 					//leaseMgr().resetLease(n.gid)
 					//cluster().syncMemberships()
 					clus.internalMapLock.Lock()
@@ -373,7 +366,7 @@ func (n *node) Run() {
 					memberlist.SetMonLeader()
 					clus.internalMapLock.Unlock()
 				}
-				leader = rd.RaftState == raft.StateLeader
+				n.leader = rd.RaftState == raft.StateLeader
 			}
 			helper.Check(n.wal.StoreSnapshot(n.gid, rd.Snapshot))
 			helper.Check(n.wal.Store(n.gid, rd.HardState, rd.Entries))
@@ -501,36 +494,6 @@ func (n *node) snapshot(skip uint64) {
 	*/
 }
 
-func (rn *grpcRaftNode) JoinCluster(ctx context.Context, rc *protos.RaftContext) (*protos.Payload, error) {
-	/*
-		if ctx.Err() != nil {
-			return &protos.Payload{}, ctx.Err()
-		}
-
-		// TODO:
-		// Check the node if it is exist
-
-		node := clus.Node()
-		if node == nil {
-			return &protos.Payload{}, nil
-		}
-		helper.Logger.Println(10, "JoinCluster: id:", rc.Id, "Addr:", rc.Addr)
-		node.Connect(rc.Id, rc.Addr)
-		helper.Logger.Println(10, "after connection")
-
-		c := make(chan error, 1)
-		go func() { c <- node.AddToCluster(ctx, rc.Id) }()
-
-		select {
-		case <-ctx.Done():
-			return &protos.Payload{}, ctx.Err()
-		case err := <-c:
-			return &protos.Payload{}, err
-		}
-	*/
-	return nil, nil
-}
-
 func (n *node) joinPeers() {
 	/*
 		var id int
@@ -616,8 +579,7 @@ func (n *node) initFromWal(wal *raftwal.Wal) (restart bool, rerr error) {
 
 // InitAndStartNode gets called after having at least one membership sync with the cluster.
 func (n *node) InitAndStartNode(wal *raftwal.Wal, grpcSrv *grpc.Server) {
-	InitRaftTransport(n.id, n, n.peersAddr)
-	n.transport = GetTransport()
+	n.transport = transport.InitRaftTransport(n.id, n, n.peersAddr)
 	n.transport.Start(grpcSrv)
 
 	restart, err := n.initFromWal(wal)
@@ -656,6 +618,14 @@ func (n *node) AmLeader() bool {
 	}
 	r := n.Raft()
 	return r.Status().Lead == r.Status().ID
+}
+
+func (n *node) LeaderID() uint64 {
+	if n.Raft() == nil {
+		return 0
+	}
+	r := n.Raft()
+	return r.Status().Lead
 }
 
 func (n *node) Process(ctx context.Context, m raftpb.Message) error {
