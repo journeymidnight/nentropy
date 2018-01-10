@@ -1,4 +1,4 @@
-package main
+package transport
 
 import (
 	"bytes"
@@ -19,6 +19,11 @@ import (
 
 const (
 	messageBatchSoftLimit = 10000000
+)
+
+var (
+	errNoPeerPoolEntry = fmt.Errorf("no peerPool entry")
+	errNoPeerPool      = fmt.Errorf("no peerPool pool, could not connect")
 )
 
 // Raft is used to call functions in draft
@@ -43,19 +48,27 @@ type sendmsg struct {
 	data []byte
 }
 
-// grpcRaftNode struct implements the gRPC server interface.
-type grpcRaftNode struct {
+// GrpcRaftNode struct implements the gRPC server interface.
+type GrpcRaftNode struct {
 	sync.Mutex
 	messages  chan sendmsg
 	id        uint64
-	peersAddr []string // raft peer URLs
+	peersAddr map[uint64]string
 	peers     peerPool
 	raft      Raft
 }
 
 var (
-	raftRPCNode grpcRaftNode
+	raftRPCNode GrpcRaftNode
 )
+
+type peerPoolEntry struct {
+	// Never the empty string.  Possibly a bogus address -- bad port number, the value
+	// of *myAddr, or some screwed up Raft config.
+	addr string
+	// An owning reference to a pool for this peer (or nil if addr is sufficiently bogus).
+	poolOrNil *pool
+}
 
 // peerPool stores the peers' addresses and our connections to them.  It has exactly one
 // entry for every peer other than ourselves.  Some of these peers might be unreachable or
@@ -64,11 +77,6 @@ type peerPool struct {
 	sync.RWMutex
 	peers map[uint64]peerPoolEntry
 }
-
-var (
-	errNoPeerPoolEntry = fmt.Errorf("no peerPool entry")
-	errNoPeerPool      = fmt.Errorf("no peerPool pool, could not connect")
-)
 
 // getPool returns the non-nil pool for a peer.  This might error even if get(id)
 // succeeds, if the pool is nil.  This happens if the peer was configured so badly (it had
@@ -108,41 +116,7 @@ func (p *peerPool) set(id uint64, addr string, pl *pool) {
 	p.peers[id] = peerPoolEntry{addr, pl}
 }
 
-type trans grpcRaftNode
-
-func (w *trans) Send(m raftpb.Message) {
-	helper.AssertTruef(w.id != m.To, "Seding message to itself")
-	data, err := m.Marshal()
-	helper.Check(err)
-	if m.Type != raftpb.MsgHeartbeat && m.Type != raftpb.MsgHeartbeatResp {
-		helper.Logger.Printf(5, "\t\tSENDING: %v %v-->%v\n", m.Type, m.From, m.To)
-	}
-	select {
-	case w.messages <- sendmsg{to: m.To, data: data}:
-		// pass
-	default:
-		// TODO: It's bad to fail like this.
-		helper.Logger.Fatalf(0, "Unable to push messages to channel in send")
-	}
-}
-
-func (w *trans) Disconnect() {
-
-}
-
-func (w *trans) Start(grpc *grpc.Server) {
-	protos.RegisterRaftNodeServer(grpc, &raftRPCNode)
-}
-
-func (w *trans) AddPeer(id uint64, rc protos.RaftContext) {
-	w.peersAddr = append(w.peersAddr, rc.Addr)
-}
-
-func (w *trans) RemovePeer(id uint64) {
-
-}
-
-func (rn *grpcRaftNode) applyMessage(ctx context.Context, msg raftpb.Message) error {
+func (rn *GrpcRaftNode) applyMessage(ctx context.Context, msg raftpb.Message) error {
 	var rc protos.RaftContext
 	helper.Check(rc.Unmarshal(msg.Context))
 	rn.connect(msg.From, rc.Addr)
@@ -158,7 +132,7 @@ func (rn *grpcRaftNode) applyMessage(ctx context.Context, msg raftpb.Message) er
 	}
 }
 
-func (rn *grpcRaftNode) batchAndSendMessages() {
+func (rn *GrpcRaftNode) batchAndSendMessages() {
 	batches := make(map[uint64]*bytes.Buffer)
 	for {
 		totalSize := 0
@@ -205,17 +179,17 @@ func (rn *grpcRaftNode) batchAndSendMessages() {
 
 // You must call release on the pool.  Can error for some pid's for which GetPeer
 // succeeds.
-func (rn *grpcRaftNode) getPeerPool(pid uint64) (*pool, error) {
+func (rn *GrpcRaftNode) getPeerPool(pid uint64) (*pool, error) {
 	return rn.peers.getPool(pid)
 }
 
 // Never returns ("", true)
-func (rn *grpcRaftNode) GetPeer(pid uint64) (string, bool) {
+func (rn *GrpcRaftNode) GetPeer(pid uint64) (string, bool) {
 	return rn.peers.get(pid)
 }
 
 // addr must not be empty.
-func (rn *grpcRaftNode) SetPeer(pid uint64, addr string, poolOrNil *pool) {
+func (rn *GrpcRaftNode) SetPeer(pid uint64, addr string, poolOrNil *pool) {
 	helper.AssertTruef(addr != "", "SetPeer for peer %d has empty addr.", pid)
 	rn.peers.set(pid, addr, poolOrNil)
 }
@@ -223,7 +197,7 @@ func (rn *grpcRaftNode) SetPeer(pid uint64, addr string, poolOrNil *pool) {
 // Connects the node and makes its peerPool refer to the constructed pool and address
 // (possibly updating ourselves from the old address.)  (Unless pid is ourselves, in which
 // case this does nothing.)
-func (rn *grpcRaftNode) connect(pid uint64, addr string) {
+func (rn *GrpcRaftNode) connect(pid uint64, addr string) {
 	if pid == rn.id {
 		return
 	}
@@ -242,11 +216,11 @@ func (rn *grpcRaftNode) connect(pid uint64, addr string) {
 	rn.SetPeer(pid, addr, p)
 }
 
-func (rn *grpcRaftNode) doSendMessage(to uint64, data []byte) {
+func (rn *GrpcRaftNode) doSendMessage(to uint64, data []byte) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 
-	addr := rn.peersAddr[to-1]
+	addr := rn.peersAddr[to]
 	rn.connect(to, addr)
 	pool, err := rn.getPeerPool(to)
 	if err != nil {
@@ -276,7 +250,37 @@ func (rn *grpcRaftNode) doSendMessage(to uint64, data []byte) {
 	}
 }
 
-func (rn *grpcRaftNode) RaftMessage(ctx context.Context, query *protos.Payload) (*protos.Payload, error) {
+func (rn *GrpcRaftNode) JoinCluster(ctx context.Context, rc *protos.RaftContext) (*protos.Payload, error) {
+	/*
+		if ctx.Err() != nil {
+			return &protos.Payload{}, ctx.Err()
+		}
+
+		// TODO:
+		// Check the node if it is exist
+
+		node := clus.Node()
+		if node == nil {
+			return &protos.Payload{}, nil
+		}
+		helper.Logger.Println(10, "JoinCluster: id:", rc.Id, "Addr:", rc.Addr)
+		node.Connect(rc.Id, rc.Addr)
+		helper.Logger.Println(10, "after connection")
+
+		c := make(chan error, 1)
+		go func() { c <- node.AddToCluster(ctx, rc.Id) }()
+
+		select {
+		case <-ctx.Done():
+			return &protos.Payload{}, ctx.Err()
+		case err := <-c:
+			return &protos.Payload{}, err
+		}
+	*/
+	return nil, nil
+}
+
+func (rn *GrpcRaftNode) RaftMessage(ctx context.Context, query *protos.Payload) (*protos.Payload, error) {
 	if ctx.Err() != nil {
 		return &protos.Payload{}, ctx.Err()
 	}
@@ -310,7 +314,7 @@ func (rn *grpcRaftNode) RaftMessage(ctx context.Context, query *protos.Payload) 
 
 // Hello rpc call is used to check connection with other workers after mon
 // tcp server for this instance starts.
-func (rn *grpcRaftNode) Echo(ctx context.Context, in *protos.Payload) (*protos.Payload, error) {
+func (rn *GrpcRaftNode) Echo(ctx context.Context, in *protos.Payload) (*protos.Payload, error) {
 	return &protos.Payload{Data: in.Data}, nil
 }
 
@@ -318,21 +322,50 @@ func (rn *grpcRaftNode) Echo(ctx context.Context, in *protos.Payload) (*protos.P
 func StopServer() {
 }
 
-// GetTransport return Transport interface
-func GetTransport() Transport {
-	return (*trans)(&raftRPCNode)
+func (w *GrpcRaftNode) Send(m raftpb.Message) {
+	helper.AssertTruef(w.id != m.To, "Seding message to itself")
+	data, err := m.Marshal()
+	helper.Check(err)
+	if m.Type != raftpb.MsgHeartbeat && m.Type != raftpb.MsgHeartbeatResp {
+		helper.Logger.Printf(5, "\t\tSENDING: %v %v-->%v\n", m.Type, m.From, m.To)
+	}
+	select {
+	case w.messages <- sendmsg{to: m.To, data: data}:
+		// pass
+	default:
+		// TODO: It's bad to fail like this.
+		helper.Logger.Fatalf(0, "Unable to push messages to channel in send")
+	}
+}
+
+func (w *GrpcRaftNode) Disconnect() {
+
+}
+
+func (w *GrpcRaftNode) Start(grpc *grpc.Server) {
+	protos.RegisterRaftNodeServer(grpc, &raftRPCNode)
+}
+
+func (w *GrpcRaftNode) AddPeer(id uint64, rc protos.RaftContext) {
+	w.peersAddr[id] = rc.Addr
+}
+
+func (w *GrpcRaftNode) RemovePeer(id uint64) {
+
 }
 
 // InitRaftTransport init global variable
-func InitRaftTransport(id uint64, raft Raft, addr []string) {
+func InitRaftTransport(id uint64, raft Raft, addr map[uint64]string) Transport {
 	peers := peerPool{
 		peers: make(map[uint64]peerPoolEntry),
 	}
-	raftRPCNode = grpcRaftNode{id: id,
+	raftRPCNode = GrpcRaftNode{
+		id:        id,
 		messages:  make(chan sendmsg, 1000),
 		peers:     peers,
 		raft:      raft,
 		peersAddr: addr,
 	}
 	go raftRPCNode.batchAndSendMessages()
+	return &raftRPCNode
 }

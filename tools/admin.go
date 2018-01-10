@@ -218,8 +218,38 @@ func objectHandle() {
 	return
 }
 
+func getMonMap(addr string) *pb.MonMap {
+	var opts []grpc.DialOption
+	opts = append(opts, grpc.WithInsecure())
+	conn, err := grpc.Dial(addr, opts...)
+	if err != nil {
+		log.Fatalf("fail to dial: %v", err)
+	}
+	defer conn.Close()
+	cli := pb.NewMonitorClient(conn)
+	req := pb.MonConfigRequest{Method: "GET"}
+	rep, err := cli.GetMonMap(context.Background(), &req)
+	if err != nil {
+		log.Fatalf("fail to get mon map: %v", err)
+	}
+	return rep.Map
+}
+
 func main() {
 	flag.Parse()
+	/*
+		var monLeader string
+		monmap := getMonMap(*serverAddr)
+		for _, v := range monmap.MonMap {
+			if v.Leader {
+				monLeader = v.Addr
+				break
+			}
+		}
+		if monLeader == "" {
+			log.Fatalf("fail to get montors leader from map.")
+		}
+	*/
 	var opts []grpc.DialOption
 	opts = append(opts, grpc.WithInsecure())
 	conn, err := grpc.Dial(*serverAddr, opts...)
@@ -228,6 +258,7 @@ func main() {
 	}
 	defer conn.Close()
 	client = pb.NewMonitorClient(conn)
+
 	switch *target {
 	case "pool":
 		poolHandle()
