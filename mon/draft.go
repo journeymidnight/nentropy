@@ -18,7 +18,6 @@
 package main
 
 import (
-	"log"
 	"math/rand"
 	"sync"
 	"time"
@@ -30,6 +29,7 @@ import (
 	"golang.org/x/net/trace"
 
 	"github.com/journeymidnight/nentropy/helper"
+	"github.com/journeymidnight/nentropy/log"
 	"github.com/journeymidnight/nentropy/memberlist"
 	"github.com/journeymidnight/nentropy/mon/raftwal"
 	"github.com/journeymidnight/nentropy/mon/transport"
@@ -176,7 +176,7 @@ func newNode(id uint64, myAddr string) *node {
 			Storage:         store,
 			MaxSizePerMsg:   256 << 10,
 			MaxInflightMsgs: 256,
-			Logger:          &raft.DefaultLogger{Logger: helper.Logger.Logger},
+			Logger:          log.NewRaftLogger(helper.Logger),
 		},
 		applyCh:     make(chan raftpb.Entry, numPendingMutations),
 		props:       props,
@@ -312,14 +312,14 @@ func (n *node) saveToStorage(s raftpb.Snapshot, h raftpb.HardState,
 	if !raft.IsEmptySnap(s) {
 		le, err := n.store.LastIndex()
 		if err != nil {
-			log.Fatalf("While retrieving last index: %v\n", err)
+			helper.Logger.Fatalf(0, "While retrieving last index: %v\n", err)
 		}
 		if s.Metadata.Index <= le {
 			return
 		}
 
 		if err := n.store.ApplySnapshot(s); err != nil {
-			log.Fatalf("Applying snapshot: %v", err)
+			helper.Logger.Fatalf(0, "Applying snapshot: %v", err)
 		}
 	}
 
@@ -377,7 +377,6 @@ func (n *node) Run() {
 				// NOTE: We can do some optimizations here to drop messages.
 				msg.Context = rcBytes
 				//n.send(msg)
-				helper.Logger.Println(5, "msg, from:", msg.From, " to:", msg.To, " type:", msg.Type)
 				n.transport.Send(msg)
 			}
 
@@ -619,6 +618,14 @@ func (n *node) AmLeader() bool {
 	}
 	r := n.Raft()
 	return r.Status().Lead == r.Status().ID
+}
+
+func (n *node) LeaderID() uint64 {
+	if n.Raft() == nil {
+		return 0
+	}
+	r := n.Raft()
+	return r.Status().Lead
 }
 
 func (n *node) Process(ctx context.Context, m raftpb.Message) error {

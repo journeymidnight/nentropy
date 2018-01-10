@@ -35,7 +35,8 @@ message MonConfigRequest {
 }
 
 message MonConfigReply {
-    MonMap map = 1;
+    uint64 lead_id = 1;
+    MonMap map = 2;
 }
 
 message OsdStatusReportRequest {
@@ -196,7 +197,6 @@ message PgConfigReply {
 message Mon {
     uint64 id = 1;
     string addr = 2;
-    bool leader = 3;
 }
 
 message MonMap {

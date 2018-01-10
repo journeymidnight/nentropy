@@ -218,7 +218,7 @@ func objectHandle() {
 	return
 }
 
-func getMonMap(addr string) *pb.MonMap {
+func getMonMap(addr string) *pb.MonConfigReply {
 	var opts []grpc.DialOption
 	opts = append(opts, grpc.WithInsecure())
 	conn, err := grpc.Dial(addr, opts...)
@@ -232,27 +232,26 @@ func getMonMap(addr string) *pb.MonMap {
 	if err != nil {
 		log.Fatalf("fail to get mon map: %v", err)
 	}
-	return rep.Map
+	return rep
 }
 
 func main() {
 	flag.Parse()
-	/*
-		var monLeader string
-		monmap := getMonMap(*serverAddr)
-		for _, v := range monmap.MonMap {
-			if v.Leader {
-				monLeader = v.Addr
-				break
-			}
+
+	var monLeader string
+	res := getMonMap(*serverAddr)
+	for _, v := range res.Map.MonMap {
+		if v.Id == res.LeadId {
+			monLeader = v.Addr
 		}
-		if monLeader == "" {
-			log.Fatalf("fail to get montors leader from map.")
-		}
-	*/
+	}
+	if monLeader == "" {
+		log.Fatalf("fail to get montors leader from map.")
+	}
+	fmt.Println("leader is ", monLeader)
 	var opts []grpc.DialOption
 	opts = append(opts, grpc.WithInsecure())
-	conn, err := grpc.Dial(*serverAddr, opts...)
+	conn, err := grpc.Dial(monLeader, opts...)
 	if err != nil {
 		log.Fatalf("fail to dial: %v", err)
 	}
