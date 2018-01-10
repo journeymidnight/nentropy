@@ -41,6 +41,7 @@ func (s *OsdServer) createOrRemoveReplica() {
 				groupDes := multiraftbase.GroupDescriptor{}
 				groupDes.PoolId = int64(poolId)
 				groupDes.PgId = int64(pgId)
+				groupDes.GroupID = multiraftbase.GroupID(fmt.Sprintf("%d.%d", poolId, pgId))
 				for _, subReplica := range pg.Replicas {
 					groupDes.Replicas = append(groupDes.Replicas, multiraftbase.ReplicaDescriptor{multiraftbase.NodeID(fmt.Sprintf("osd.%d", subReplica.OsdId)), 0, multiraftbase.ReplicaID(subReplica.ReplicaIndex)})
 				}

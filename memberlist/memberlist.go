@@ -147,7 +147,11 @@ func Init(isMon bool, isLeader bool, id uint64, advertiseAddr string, memberBind
 	member.IsLeader = isLeader
 	member.Addr = advertiseAddr
 	member.ID = id
-	member.Name = fmt.Sprintf("%d", id)
+	if !isMon {
+		member.Name = fmt.Sprintf("osd.%d", id)
+	} else {
+		member.Name = fmt.Sprintf("%d", id)
+	}
 	meta, err := json.Marshal(member)
 	if err != nil {
 		panic("Failed to json member. : " + err.Error())
