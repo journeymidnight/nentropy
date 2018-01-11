@@ -45,11 +45,12 @@ func newOnode(oid []byte) *onode {
 }
 
 func getDataKey(oid []byte, offset uint64) []byte {
-	buf := make([]byte, binary.MaxVarintLen64)
-	binary.PutUvarint(buf[:], offset)
-	newbuf := make([]byte, binary.MaxVarintLen64+len(oid))
-	copy(newbuf, append(oid, buf...))
-	return newbuf
+    buf := make([]byte, binary.MaxVarintLen64)
+    binary.PutUvarint(buf[:], offset)
+    newbuf := make([]byte, binary.MaxVarintLen64+len(oid))
+    copy(newbuf, oid)
+    newbuf = append(newbuf, buf...)
+    return newbuf
 }
 
 func getOffset(oid, s []byte) uint64 {
