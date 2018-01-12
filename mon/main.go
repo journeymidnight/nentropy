@@ -48,7 +48,7 @@ type ServerState struct {
 }
 
 func initStorage() {
-	dir, err := helper.GetDataDir(config.RootDir, config.RaftId, true)
+	dir, err := helper.GetDataDir(config.BaseDir, config.RaftId, true)
 	if err != nil {
 		helper.Fatal("Error creating data dir! err:", err)
 	}

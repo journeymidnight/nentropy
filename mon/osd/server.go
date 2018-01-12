@@ -36,8 +36,8 @@ type OsdServer struct {
 
 const OSD_STATUS_REPORT_PERIOD = 2 * time.Second
 
-func getOSDDataDir(rootDir string, id int) string {
-	return fmt.Sprintf("%s/osd.%d", rootDir, id)
+func getOSDDataDir(baseDir string, id int) string {
+	return fmt.Sprintf("%s/osd.%d", baseDir, id)
 }
 
 func getOsdMap() (*protos.OsdMap, error) {
@@ -158,7 +158,7 @@ func NewOsdServer(ctx context.Context, cfg Config, stopper *stop.Stopper) (*OsdS
 
 	multiraftbase.RegisterInternalServer(s.grpc, s)
 
-	dir, err := helper.GetDataDir(config.RootDir, uint64(config.NodeID), false)
+	dir, err := helper.GetDataDir(config.BaseDir, uint64(config.NodeID), false)
 	if err != nil {
 		helper.Fatal("Error creating data dir! err:", err)
 	}
@@ -239,8 +239,7 @@ func (s *OsdServer) Batch(
 			br = &multiraftbase.BatchResponse{}
 		}
 		if br.Error != nil {
-			helper.Fatalf("attempting to return both a plain error (%s) and roachpb.Error (%s)", err, br.Error,
-			)
+			helper.Fatalf("attempting to return both a plain error (%s) and roachpb.Error (%s)", err, br.Error)
 		}
 		br.Error = multiraftbase.NewError(err)
 	}

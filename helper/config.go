@@ -81,7 +81,7 @@ type Config struct {
 	JoinMemberAddr      string
 	NodeID              int
 	NodeType            string
-	RootDir             string
+	BaseDir             string
 
 	// AdvertiseAddr is the address advertised by the server to other nodes
 	// in the cluster. It should be reachable by all other nodes and should
@@ -128,7 +128,7 @@ func (c *Config) parseCmdArgs() {
 		"specify rpc listen address, like [10.11.11.11:8888]")
 	flag.Uint64Var(&c.RaftId, "idx", DefaultConfig.RaftId,
 		"RAFT ID that this server will use to join RAFT cluster.")
-	flag.StringVar(&c.RootDir, "rootDir", "./rootdir",
+	flag.StringVar(&c.BaseDir, "baseDir", "./basedir",
 		"RAFT ID that this server will use to join RAFT cluster.")
 
 	flag.Parse()

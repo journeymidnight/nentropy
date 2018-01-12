@@ -265,12 +265,12 @@ func (nc *Notifier) GetErr() error {
 	return nc.err
 }
 
-func GetDataDir(rootDir string, id uint64, isMon bool) (string, error) {
+func GetDataDir(baseDir string, id uint64, isMon bool) (string, error) {
 	var dir string
 	if isMon {
-		dir = fmt.Sprintf("%s/mon.%d", rootDir, id)
+		dir = fmt.Sprintf("%s/mon.%d", baseDir, id)
 	} else {
-		dir = fmt.Sprintf("%s/osd.%d", rootDir, id)
+		dir = fmt.Sprintf("%s/osd.%d", baseDir, id)
 	}
 	_, err := os.Stat(dir)
 	if err == nil {
