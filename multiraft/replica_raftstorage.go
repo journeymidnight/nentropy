@@ -38,7 +38,8 @@ var _ raft.Storage = (*replicaRaftStorage)(nil)
 // InitialState requires that r.mu is held.
 func (r *replicaRaftStorage) InitialState() (raftpb.HardState, raftpb.ConfState, error) {
 	ctx := r.AnnotateCtx(context.TODO())
-	hs, err := r.mu.stateLoader.loadHardState(ctx, r.store.sysEng)
+	eng := r.store.loadGroupEngine(r.mu.state.Desc.GroupID)
+	hs, err := r.mu.stateLoader.loadHardState(ctx, eng)
 	// For uninitialized ranges, membership is unknown at this point.
 	if raft.IsEmptyHardState(hs) || err != nil {
 		return raftpb.HardState{}, raftpb.ConfState{}, err
@@ -57,7 +58,8 @@ func (r *replicaRaftStorage) InitialState() (raftpb.HardState, raftpb.ConfState,
 // proposals count towards maxBytes with their payloads inlined.
 func (r *replicaRaftStorage) Entries(lo, hi, maxBytes uint64) ([]raftpb.Entry, error) {
 	ctx := r.AnnotateCtx(context.TODO())
-	return entries(ctx, r.store.sysEng, r.GroupID, r.store.raftEntryCache,
+	eng := r.store.loadGroupEngine(r.mu.state.Desc.GroupID)
+	return entries(ctx, eng, r.GroupID, r.store.raftEntryCache,
 		lo, hi, maxBytes)
 }
 
@@ -183,7 +185,8 @@ func (r *replicaRaftStorage) Term(i uint64) (uint64, error) {
 		return term, nil
 	}
 	ctx := r.AnnotateCtx(context.TODO())
-	return term(ctx, r.store.sysEng, r.GroupID, r.store.raftEntryCache, i)
+	eng := r.store.loadGroupEngine(r.mu.state.Desc.GroupID)
+	return term(ctx, eng, r.GroupID, r.store.raftEntryCache, i)
 }
 
 // raftTermLocked requires that r.mu is locked for reading.
@@ -235,7 +238,8 @@ func (r *Replica) raftTruncatedStateLocked(
 	if r.mu.state.TruncatedState != nil {
 		return *r.mu.state.TruncatedState, nil
 	}
-	ts, err := r.mu.stateLoader.loadTruncatedState(ctx, r.store.sysEng)
+	eng := r.store.loadGroupEngine(r.mu.state.Desc.GroupID)
+	ts, err := r.mu.stateLoader.loadTruncatedState(ctx, eng)
 	if err != nil {
 		return ts, err
 	}

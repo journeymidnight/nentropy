@@ -84,6 +84,18 @@ func (sc *StoreConfig) SetDefaults() {
 	sc.RaftConfig.SetDefaults()
 }
 
+func (s *Store) loadGroupEngine(groupID multiraftbase.GroupID) engine.Engine {
+	value, ok := s.engines.Load(groupID)
+	if !ok {
+		helper.Fatal("Cannot find db handle when write data. Group:", string(groupID))
+	}
+	eng, ok := value.(engine.Engine)
+	if !ok {
+		helper.Fatal("Cannot convert to db handle when write data. Group:", string(groupID))
+	}
+	return eng
+}
+
 func (s *Store) processReady(ctx context.Context, id multiraftbase.GroupID) {
 	value, ok := s.mu.replicas.Load(id)
 	if !ok {
@@ -873,10 +885,10 @@ func (s *Store) BootstrapGroup(initialValues []multiraftbase.KeyValue, group *mu
 	opt := engine.KVOpt{Dir: dir}
 	eng, err := engine.NewBadgerDB(&opt)
 	if err != nil {
+		helper.Println(5, "Can not new a badger db.")
 		return err
 	}
 	s.engines.Store(desc.GroupID, eng)
-
 	_, found := group.GetReplicaDescriptor(s.nodeDesc.NodeID)
 	if !found {
 		helper.Println(5, "BootstrapGroup quit 1 ")

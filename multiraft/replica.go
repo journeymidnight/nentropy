@@ -247,7 +247,8 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 	// Use a more efficient write-only batch because we don't need to do any
 	// reads from the batch. Any reads are performed via the "distinct" batch
 	// which passes the reads through to the underlying DB.
-	batch := r.store.sysEng.NewBatch()
+	eng := r.store.loadGroupEngine(r.mu.state.Desc.GroupID)
+	batch := eng.NewBatch()
 	defer batch.Close()
 
 	//prevLastIndex := lastIndex
@@ -416,7 +417,7 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 	}
 
 	rsl := makeReplicaStateLoader(r.GroupID)
-	err = rsl.save(ctx, r.store.sysEng, r.mu.state)
+	err = rsl.save(ctx, eng, r.mu.state)
 	if err != nil {
 		helper.Println(5, "Failed to write replica state! err:", err)
 	}
@@ -571,14 +572,7 @@ func (r *Replica) applyRaftCommand(
 		if err != nil {
 			helper.Printf(5, "Cannot unmarshal data to kv")
 		}
-		value, ok := r.store.engines.Load(r.Desc().GroupID)
-		if !ok {
-			helper.Fatal("Cannot find db handle when write data. Group:", string(r.Desc().GroupID))
-		}
-		eng, ok := value.(engine.Engine)
-		if !ok {
-			helper.Fatal("Cannot convert to db handle when write data. Group:", string(r.Desc().GroupID))
-		}
+		eng := r.store.loadGroupEngine(r.Desc().GroupID)
 		err = stripeWrite(eng, []byte(putReq.Key), []byte(putReq.Value.RawBytes), 0, uint64(len(putReq.Value.RawBytes)))
 		if err != nil {
 			helper.Println(5, "Error putting data to db")
@@ -936,17 +930,18 @@ func (r *Replica) initRaftMuLockedReplicaMuLocked(
 
 	var err error
 
-	if r.mu.state, err = r.mu.stateLoader.load(ctx, r.store.sysEng, desc); err != nil {
+	eng := r.store.loadGroupEngine(desc.GroupID)
+	if r.mu.state, err = r.mu.stateLoader.load(ctx, eng, desc); err != nil {
 		return err
 	}
 
-	r.mu.lastIndex, err = r.mu.stateLoader.loadLastIndex(ctx, r.store.sysEng)
+	r.mu.lastIndex, err = r.mu.stateLoader.loadLastIndex(ctx, eng)
 	if err != nil {
 		return err
 	}
 	r.mu.lastTerm = invalidLastTerm
 
-	_, err = r.mu.stateLoader.loadReplicaDestroyedError(ctx, r.store.sysEng)
+	_, err = r.mu.stateLoader.loadReplicaDestroyedError(ctx, eng)
 	if err != nil {
 		return err
 	}
@@ -1083,7 +1078,6 @@ func (r *Replica) executeReadOnlyBatch(
 	ctx context.Context, ba multiraftbase.BatchRequest,
 ) (br *multiraftbase.BatchResponse, pErr *multiraftbase.Error) {
 
-	//r.store.sysEng.Get()
 	res := multiraftbase.BatchResponse{}
 	req := ba.Request.GetValue().(multiraftbase.Request)
 	if req.Method() == multiraftbase.Get {
@@ -1091,14 +1085,7 @@ func (r *Replica) executeReadOnlyBatch(
 		r.store.enqueueRaftUpdateCheck(r.GroupID)
 		r.linearizableReadNotify(ctx)
 
-		value, ok := r.store.engines.Load(r.Desc().GroupID)
-		if !ok {
-			helper.Fatal("Cannot find db handle when read data. Group:", string(r.Desc().GroupID))
-		}
-		eng, ok := value.(engine.Engine)
-		if !ok {
-			helper.Fatal("Cannot convert to db handle when read data. Group:", string(r.Desc().GroupID))
-		}
+		eng := r.store.loadGroupEngine(r.Desc().GroupID)
 		data, err := stripeRead(eng, []byte(getReq.Key), 0, 0xffffffff)
 		if err != nil {
 			helper.Println(5, "Error getting data from db.")
