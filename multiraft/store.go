@@ -20,9 +20,6 @@ import (
 	"time"
 )
 
-// Engines is a container of engines, allowing convenient closing.
-type Engines map[string]engine.Engine
-
 var storeSchedulerConcurrency = envutil.EnvOrDefaultInt(
 	"NENTROPY_SCHEDULER_CONCURRENCY", 1)
 
@@ -35,6 +32,8 @@ var enablePreVote = envutil.EnvOrDefaultBool(
 // a store; the rest will have sane defaults set if omitted.
 type StoreConfig struct {
 	AmbientCtx helper.AmbientContext
+	BaseDir    string
+	NodeID     int
 	helper.RaftConfig
 	Transport                   *RaftTransport
 	RPCContext                  *rpc.Context
@@ -62,7 +61,8 @@ type Store struct {
 		replicas       sync.Map //map[multiraftbase.GroupID]*Replica
 		uninitReplicas map[multiraftbase.GroupID]*Replica
 	}
-	engines        Engines
+
+	engines        sync.Map //map[multiraftbase.GroupID]engine.Engine
 	sysEng         engine.Engine
 	raftEntryCache *raftEntryCache
 	started        int32
@@ -776,9 +776,6 @@ func (s *Store) HandleSnapshot(
 	return nil
 }
 
-// Engine accessor.
-func (s *Store) Engine() engine.Engine { return s.engines["system"] }
-
 // StoreID accessor.
 func (s *Store) StoreID() multiraftbase.StoreID { return s.Ident.StoreID }
 
@@ -836,6 +833,14 @@ func (s *Store) addReplicaInternalLocked(repl *Replica) error {
 	return nil
 }
 
+func (s *Store) getReplicaWorkDir(groupID multiraftbase.GroupID) (string, error) {
+	dir, err := helper.GetDataDir(s.cfg.BaseDir, uint64(s.cfg.NodeID), false)
+	if err != nil {
+		helper.Fatal("Error creating data dir! err:", err)
+	}
+	return dir + "/" + string(groupID), nil
+}
+
 func (s *Store) BootstrapGroup(initialValues []multiraftbase.KeyValue, group *multiraftbase.GroupDescriptor) error {
 	desc := *group
 	if err := desc.Validate(); err != nil {
@@ -859,6 +864,19 @@ func (s *Store) BootstrapGroup(initialValues []multiraftbase.KeyValue, group *mu
 			return err
 		}
 	*/
+
+	dir, err := s.getReplicaWorkDir(desc.GroupID)
+	if err != nil {
+		helper.Fatalln("Can not get replica data dir. group:", string(desc.GroupID))
+	}
+	helper.Println(10, "Create pg group data dir:", dir)
+	opt := engine.KVOpt{Dir: dir}
+	eng, err := engine.NewBadgerDB(&opt)
+	if err != nil {
+		return err
+	}
+	s.engines.Store(desc.GroupID, eng)
+
 	_, found := group.GetReplicaDescriptor(s.nodeDesc.NodeID)
 	if !found {
 		helper.Println(5, "BootstrapGroup quit 1 ")

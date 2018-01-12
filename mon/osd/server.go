@@ -58,6 +58,10 @@ func getOsdMap() (*protos.OsdMap, error) {
 	return reply.Map, nil
 }
 
+func getPgWorkDir(string multiraftbase.GroupID) (string, error) {
+	return "", nil
+}
+
 func getPgMaps() (*protos.PgMaps, error) {
 	mon := memberlist.GetLeaderMon()
 	conn, err := grpc.Dial(mon.Addr, grpc.WithInsecure())
@@ -74,6 +78,14 @@ func getPgMaps() (*protos.PgMaps, error) {
 		return nil, err
 	}
 	return reply.Maps, nil
+}
+
+func getOsdSysDataDir() (string, error) {
+	dir, err := helper.GetDataDir(config.BaseDir, uint64(config.NodeID), false)
+	if err != nil {
+		helper.Fatal("Error creating data dir! err:", err)
+	}
+	return dir + "/sys-data", nil
 }
 
 // NewServer creates a Server from a server.Context.
@@ -158,7 +170,7 @@ func NewOsdServer(ctx context.Context, cfg Config, stopper *stop.Stopper) (*OsdS
 
 	multiraftbase.RegisterInternalServer(s.grpc, s)
 
-	dir, err := helper.GetDataDir(config.BaseDir, uint64(config.NodeID), false)
+	dir, err := getOsdSysDataDir()
 	if err != nil {
 		helper.Fatal("Error creating data dir! err:", err)
 	}
@@ -175,6 +187,8 @@ func NewOsdServer(ctx context.Context, cfg Config, stopper *stop.Stopper) (*OsdS
 		Transport:                   s.raftTransport,
 		CoalescedHeartbeatsInterval: 50 * time.Millisecond,
 		RaftHeartbeatIntervalTicks:  1,
+		NodeID:  config.NodeID,
+		BaseDir: config.BaseDir,
 	}
 	desc := multiraftbase.NodeDescriptor{}
 	desc.NodeID = multiraftbase.NodeID(fmt.Sprintf("%s.%d", s.cfg.NodeType, s.cfg.NodeID))

@@ -47,8 +47,16 @@ type ServerState struct {
 	WALstore *badger.DB
 }
 
-func initStorage() {
+func getMonDataDir() (string, error) {
 	dir, err := helper.GetDataDir(config.BaseDir, config.RaftId, true)
+	if err != nil {
+		return "", err
+	}
+	return dir + "/sys-data", nil
+}
+
+func initStorage() {
+	dir, err := getMonDataDir()
 	if err != nil {
 		helper.Fatal("Error creating data dir! err:", err)
 	}

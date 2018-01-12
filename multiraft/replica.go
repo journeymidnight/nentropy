@@ -6,6 +6,7 @@ import (
 	"github.com/journeymidnight/nentropy/helper"
 	"github.com/journeymidnight/nentropy/log"
 	"github.com/journeymidnight/nentropy/multiraft/multiraftbase"
+	"github.com/journeymidnight/nentropy/storage/engine"
 	"github.com/journeymidnight/nentropy/util/idutil"
 	"github.com/journeymidnight/nentropy/util/protoutil"
 	"github.com/journeymidnight/nentropy/util/syncutil"
@@ -46,7 +47,8 @@ type Replica struct {
 	// TODO(tschottdorf): Duplicates r.mu.state.desc.RangeID; revisit that.
 	GroupID multiraftbase.GroupID // Should only be set by the constructor.
 
-	store *Store
+	store  *Store
+	engine engine.Engine
 
 	creatingReplica *multiraftbase.ReplicaDescriptor
 
@@ -569,8 +571,15 @@ func (r *Replica) applyRaftCommand(
 		if err != nil {
 			helper.Printf(5, "Cannot unmarshal data to kv")
 		}
-
-		err = stripeWrite(r.store.sysEng, []byte(putReq.Key), []byte(putReq.Value.RawBytes), 0, uint64(len(putReq.Value.RawBytes)))
+		value, ok := r.store.engines.Load(r.Desc().GroupID)
+		if !ok {
+			helper.Fatal("Cannot find db handle when write data. Group:", string(r.Desc().GroupID))
+		}
+		eng, ok := value.(engine.Engine)
+		if !ok {
+			helper.Fatal("Cannot convert to db handle when write data. Group:", string(r.Desc().GroupID))
+		}
+		err = stripeWrite(eng, []byte(putReq.Key), []byte(putReq.Value.RawBytes), 0, uint64(len(putReq.Value.RawBytes)))
 		if err != nil {
 			helper.Println(5, "Error putting data to db")
 		}
@@ -1082,7 +1091,15 @@ func (r *Replica) executeReadOnlyBatch(
 		r.store.enqueueRaftUpdateCheck(r.GroupID)
 		r.linearizableReadNotify(ctx)
 
-		data, err := stripeRead(r.store.sysEng, []byte(getReq.Key), 0, 0xffffffff)
+		value, ok := r.store.engines.Load(r.Desc().GroupID)
+		if !ok {
+			helper.Fatal("Cannot find db handle when read data. Group:", string(r.Desc().GroupID))
+		}
+		eng, ok := value.(engine.Engine)
+		if !ok {
+			helper.Fatal("Cannot convert to db handle when read data. Group:", string(r.Desc().GroupID))
+		}
+		data, err := stripeRead(eng, []byte(getReq.Key), 0, 0xffffffff)
 		if err != nil {
 			helper.Println(5, "Error getting data from db.")
 		}

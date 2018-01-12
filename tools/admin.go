@@ -7,7 +7,9 @@ import (
 	pb "github.com/journeymidnight/nentropy/protos"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
+	"io/ioutil"
 	"log"
+	"os"
 	"sort"
 )
 
@@ -278,7 +280,12 @@ func objectHandle() {
 		for _, osd := range result.Osds {
 			fmt.Println(fmt.Sprintf("id:%d addr:%s weight:%d host:%s zone:%s up:%v in:%v", osd.Id, osd.Addr, osd.Weight, osd.Host, osd.Zone, osd.Up, osd.In))
 		}
-		err = putObject(result.PgName, result.Osds[0].Addr, []byte(*object), []byte(*val))
+		data, err := ioutil.ReadFile(*val)
+		if err != nil {
+			fmt.Println("Error reading local file, err:", err)
+			return
+		}
+		err = putObject(result.PgName, result.Osds[0].Addr, []byte(*object), data)
 		if err != nil {
 			fmt.Println("Error getting object from osd, err:", err)
 		}
@@ -294,9 +301,14 @@ func objectHandle() {
 		for _, osd := range result.Osds {
 			fmt.Println(fmt.Sprintf("id:%d addr:%s weight:%d host:%s zone:%s up:%v in:%v", osd.Id, osd.Addr, osd.Weight, osd.Host, osd.Zone, osd.Up, osd.In))
 		}
-		_, err = getObject(result.PgName, result.Osds[0].Addr, []byte(*object))
+		data, err := getObject(result.PgName, result.Osds[0].Addr, []byte(*object))
 		if err != nil {
 			fmt.Println("Error putting object from osd, err:", err)
+		}
+		err = ioutil.WriteFile(*val, data, os.ModePerm)
+		if err != nil {
+			fmt.Println("Error writing local file, err:", err)
+			return
 		}
 	default:
 		fmt.Println("unsupport cmd, should be put/get/delete/search")
