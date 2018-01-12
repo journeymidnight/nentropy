@@ -43,10 +43,10 @@ func (r *Replica) linearizableReadLoop() {
 				if !done {
 					// a previous request might time out. now we should ignore the response of it and
 					// continue waiting for the response of the current requests.
-					helper.Logger.Printf(5, "ignored out-of-date read index response (want %v, got %v)", rs.RequestCtx, ctx)
+					helper.Printf(5, "ignored out-of-date read index response (want %v, got %v)", rs.RequestCtx, ctx)
 				}
 			case <-time.After(5 * time.Second):
-				helper.Logger.Printf(5, "timed out waiting for read index response")
+				helper.Printf(5, "timed out waiting for read index response")
 				nr.Notify(errors.New("netropy: request timed out"))
 				timeout = true
 			case <-r.stopping:

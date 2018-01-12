@@ -26,7 +26,7 @@ func CreatePidfile(pidFile string) error {
 func RemovePidfile(pidFile string) {
 	if pidFile != "" {
 		if err := os.Remove(pidFile); err != nil {
-			Logger.Printf(5, "error to remove pidfile %s:", err)
+			Printf(5, "error to remove pidfile %s:", err)
 		}
 	}
 }
@@ -263,4 +263,26 @@ func (nc *Notifier) GetChan() chan struct{} {
 
 func (nc *Notifier) GetErr() error {
 	return nc.err
+}
+
+func GetDataDir(rootDir string, id uint64, isMon bool) (string, error) {
+	var dir string
+	if isMon {
+		dir = fmt.Sprintf("%s/mon.%d", rootDir, id)
+	} else {
+		dir = fmt.Sprintf("%s/osd.%d", rootDir, id)
+	}
+	_, err := os.Stat(dir)
+	if err == nil {
+		return dir, nil
+	}
+	if os.IsNotExist(err) {
+		err := os.MkdirAll(dir, os.ModePerm)
+		if err != nil {
+			Println(0, "Cannot create data dir! err:", err)
+		}
+		return dir, nil
+	} else {
+		return "", err
+	}
 }

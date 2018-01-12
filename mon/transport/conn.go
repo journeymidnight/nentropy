@@ -77,7 +77,7 @@ func (p *poolsi) release(pl *pool) {
 func destroyPool(pl *pool) {
 	err := pl.conn.Close()
 	if err != nil {
-		helper.Logger.Printf(5, "Error closing cluster connection: %v\n", err.Error())
+		helper.Printf(5, "Error closing cluster connection: %v\n", err.Error())
 	}
 }
 
@@ -96,7 +96,7 @@ func (p *poolsi) connect(addr string) (*pool, bool) {
 	// TODO: Rename newPool to newConn, rename pool.
 	// TODO: This can get triggered with totally bogus config.
 	if err != nil {
-		helper.Logger.Fatalf(0, "Unable to connect to host %s", addr)
+		helper.Fatalf("Unable to connect to host %s", addr)
 	}
 
 	p.Lock()
@@ -117,11 +117,11 @@ func (p *poolsi) connect(addr string) (*pool, bool) {
 		defer p.release(pool)
 		err = testConnection(pool)
 		if err != nil {
-			helper.Logger.Printf(0, "Connection to %q fails, got error: %v\n", addr, err)
+			helper.Printf(0, "Connection to %q fails, got error: %v\n", addr, err)
 			// Don't return -- let's still put the empty pool in the map.  Its users
 			// have to handle errors later anyway.
 		} else {
-			helper.Logger.Printf(0, "Connection with %q healthy.\n", addr)
+			helper.Printf(0, "Connection with %q healthy.\n", addr)
 		}
 	}()
 

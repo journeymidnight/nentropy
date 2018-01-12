@@ -297,7 +297,7 @@ func (bq *baseQueue) MaybeAdd(repl *Replica) {
 
 	should, priority := bq.impl.shouldQueue(ctx, repl, cfg)
 	if _, err := bq.addInternal(ctx, repl.Desc(), should, priority); !isExpectedQueueError(err) {
-		helper.Logger.Printf(5, "unable to add: %s", err)
+		helper.Printf(5, "unable to add: %s", err)
 	}
 }
 
@@ -312,7 +312,7 @@ func (bq *baseQueue) addInternal(
 	}
 
 	if bq.mu.disabled {
-		helper.Logger.Printf(5, "queue disabled")
+		helper.Printf(5, "queue disabled")
 		return false, errQueueDisabled
 	}
 
@@ -486,7 +486,7 @@ func (bq *baseQueue) maybeAddToPurgatory(
 ) {
 	// Check whether the failure is a purgatory error and whether the queue supports it.
 	if _, ok := errors.Cause(triggeringErr).(purgatoryError); !ok || bq.impl.purgatoryChan() == nil {
-		helper.Logger.Printf(5, "%s", triggeringErr)
+		helper.Printf(5, "%s", triggeringErr)
 		return
 	}
 	bq.mu.Lock()
@@ -529,7 +529,7 @@ func (bq *baseQueue) maybeAddToPurgatory(
 				for _, id := range ranges {
 					repl, err := bq.store.GetReplica(id)
 					if err != nil {
-						helper.Logger.Printf(5, "range %s no longer exists on store: %s", id, err)
+						helper.Printf(5, "range %s no longer exists on store: %s", id, err)
 						return
 					}
 					annotatedCtx := repl.AnnotateCtx(ctx)
@@ -545,7 +545,7 @@ func (bq *baseQueue) maybeAddToPurgatory(
 				}
 				bq.mu.Lock()
 				if len(bq.mu.purgatory) == 0 {
-					helper.Logger.Printf(5, "purgatory is now empty")
+					helper.Printf(5, "purgatory is now empty")
 					bq.mu.purgatory = nil
 					bq.mu.Unlock()
 					return
@@ -560,7 +560,7 @@ func (bq *baseQueue) maybeAddToPurgatory(
 				}
 				bq.mu.Unlock()
 				for errStr, count := range errMap {
-					helper.Logger.Printf(5, "%d replicas failing with %q", count, errStr)
+					helper.Printf(5, "%d replicas failing with %q", count, errStr)
 				}
 			case <-stopper.ShouldStop():
 				return

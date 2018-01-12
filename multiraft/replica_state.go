@@ -145,7 +145,7 @@ func (rsl replicaStateLoader) load(
 	if s.RaftAppliedIndex, err = rsl.loadAppliedIndex(ctx, reader); err != nil {
 		return multiraftbase.ReplicaState{}, err
 	}
-	helper.Logger.Println(5, "loadAppliedIndex, index:", s.RaftAppliedIndex)
+	helper.Println(5, "loadAppliedIndex, index:", s.RaftAppliedIndex)
 
 	// The truncated state should not be optional (i.e. the pointer is
 	// pointless), but it is and the migration is not worth it.

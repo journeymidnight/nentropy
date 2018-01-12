@@ -211,7 +211,7 @@ func (rn *GrpcRaftNode) connect(pid uint64, addr string) {
 	p, ok := pools().connect(addr)
 	if !ok {
 		// TODO: Note this fact in more general peer health info somehow.
-		helper.Logger.Printf(10, "Peer %d claims same host as me\n", pid)
+		helper.Printf(10, "Peer %d claims same host as me\n", pid)
 	}
 	rn.SetPeer(pid, addr, p)
 }
@@ -263,9 +263,9 @@ func (rn *GrpcRaftNode) JoinCluster(ctx context.Context, rc *protos.RaftContext)
 		if node == nil {
 			return &protos.Payload{}, nil
 		}
-		helper.Logger.Println(10, "JoinCluster: id:", rc.Id, "Addr:", rc.Addr)
+		helper.Println(10, "JoinCluster: id:", rc.Id, "Addr:", rc.Addr)
 		node.Connect(rc.Id, rc.Addr)
-		helper.Logger.Println(10, "after connection")
+		helper.Println(10, "after connection")
 
 		c := make(chan error, 1)
 		go func() { c <- node.AddToCluster(ctx, rc.Id) }()
@@ -301,7 +301,7 @@ func (rn *GrpcRaftNode) RaftMessage(ctx context.Context, query *protos.Payload) 
 			helper.Check(err)
 		}
 		if msg.Type != raftpb.MsgHeartbeat && msg.Type != raftpb.MsgHeartbeatResp {
-			helper.Logger.Printf(10, "RECEIVED: %v %v-->%v\n", msg.Type, msg.From, msg.To)
+			helper.Printf(10, "RECEIVED: %v %v-->%v\n", msg.Type, msg.From, msg.To)
 		}
 		if err := rn.applyMessage(ctx, msg); err != nil {
 			return &protos.Payload{}, err
@@ -327,14 +327,14 @@ func (w *GrpcRaftNode) Send(m raftpb.Message) {
 	data, err := m.Marshal()
 	helper.Check(err)
 	if m.Type != raftpb.MsgHeartbeat && m.Type != raftpb.MsgHeartbeatResp {
-		helper.Logger.Printf(5, "\t\tSENDING: %v %v-->%v\n", m.Type, m.From, m.To)
+		helper.Printf(5, "\t\tSENDING: %v %v-->%v\n", m.Type, m.From, m.To)
 	}
 	select {
 	case w.messages <- sendmsg{to: m.To, data: data}:
 		// pass
 	default:
 		// TODO: It's bad to fail like this.
-		helper.Logger.Fatalf(0, "Unable to push messages to channel in send")
+		helper.Fatalf("Unable to push messages to channel in send")
 	}
 }
 

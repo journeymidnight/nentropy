@@ -25,14 +25,14 @@ import (
 // Check logs fatal if err != nil.
 func Check(err error) {
 	if err != nil {
-		Logger.Fatalf(0, "%+v", Wrap(err))
+		Fatalf("%+v", Wrap(err))
 	}
 }
 
 // Checkf is Check with extra info.
 func Checkf(err error, format string, args ...interface{}) {
 	if err != nil {
-		Logger.Fatalf(0, "%+v", Wrapf(err, format, args...))
+		Fatalf("%+v", Wrapf(err, format, args...))
 	}
 }
 
@@ -44,14 +44,14 @@ func Check2(_ interface{}, err error) {
 // AssertTrue asserts that b is true. Otherwise, it would log fatal.
 func AssertTrue(b bool) {
 	if !b {
-		Logger.Fatalf(0, "%+v", Errorf("Assert failed"))
+		Fatalf("%+v", Errorf("Assert failed"))
 	}
 }
 
 // AssertTruef is AssertTrue with extra info.
 func AssertTruef(b bool, format string, args ...interface{}) {
 	if !b {
-		Logger.Fatalf(0, "%+v", Errorf(format, args...))
+		Fatalf("%+v", Errorf(format, args...))
 	}
 }
 
@@ -80,9 +80,4 @@ func Errorf(format string, args ...interface{}) error {
 		return fmt.Errorf(format, args...)
 	}
 	return errors.Errorf(format, args...)
-}
-
-// Fatalf logs fatal.
-func Fatalf(format string, args ...interface{}) {
-	Logger.Fatalf(0, "%+v", Errorf(format, args...))
 }

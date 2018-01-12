@@ -19,6 +19,7 @@ package helper
 import (
 	"bufio"
 	"bytes"
+	"fmt"
 	"github.com/dustin/go-humanize"
 	"github.com/journeymidnight/nentropy/log"
 	"os"
@@ -73,9 +74,9 @@ func ErrorIf(err error, msg string, data ...interface{}) {
 	if err == nil {
 		return
 	}
-	Logger.Printf(5, msg, data...)
-	Logger.Println(5, "With error: ", err.Error())
-	Logger.Println(5, "System Info: ", sysInfo())
+	Printf(5, msg, data...)
+	Println(5, "With error: ", err.Error())
+	Println(5, "System Info: ", sysInfo())
 }
 
 // fatalIf wrapper function which takes error and prints error messages.
@@ -83,9 +84,63 @@ func FatalIf(err error, msg string, data ...interface{}) {
 	if err == nil {
 		return
 	}
-	Logger.Printf(5, msg, data...)
-	Logger.Println(5, "With error: ", err.Error())
-	Logger.Println(5, "System Info: ", sysInfo())
-	Logger.Println(5, "Stack trace: ", stackInfo())
+	Printf(5, msg, data...)
+	Println(5, "With error: ", err.Error())
+	Println(5, "System Info: ", sysInfo())
+	Println(5, "Stack trace: ", stackInfo())
 	os.Exit(1)
+}
+
+// Printf calls l.Output to print to the logger.
+// Arguments are handled in the manner of fmt.Printf.
+func Printf(level int, format string, v ...interface{}) {
+	if Logger != nil {
+		Logger.Printf(level, fmt.Sprintf(format, v...))
+	}
+}
+
+// Print calls l.Output to print to the logger.
+// Arguments are handled in the manner of fmt.Print.
+func Print(level int, v ...interface{}) {
+	Logger.Print(level, fmt.Sprint(v...))
+}
+
+// Println calls l.Output to print to the logger.
+// Arguments are handled in the manner of fmt.Println.
+func Println(level int, v ...interface{}) {
+	Logger.Println(level, fmt.Sprintln(v...))
+}
+
+// Fatal is equivalent to l.Print() followed by a call to os.Exit(1).
+func Fatal(v ...interface{}) {
+	Logger.Fatal(0, fmt.Sprint(v...))
+}
+
+// Fatalf is equivalent to l.Printf() followed by a call to os.Exit(1).
+func Fatalf(format string, v ...interface{}) {
+	Logger.Fatalf(0, fmt.Sprintf(format, v...))
+}
+
+// Fatalln is equivalent to l.Println() followed by a call to os.Exit(1).
+func Fatalln(v ...interface{}) {
+	Logger.Fatalln(0, fmt.Sprintln(v...))
+}
+
+// Panic is equivalent to l.Print() followed by a call to panic().
+func Panic(level int, v ...interface{}) {
+	Logger.Panic(level, fmt.Sprint(v...))
+}
+
+// Panicf is equivalent to l.Printf() followed by a call to panic().
+func Panicf(level int, format string, v ...interface{}) {
+	Logger.Panicf(level, fmt.Sprintf(format, v...))
+}
+
+// Panicln is equivalent to l.Println() followed by a call to panic().
+func Panicln(level int, v ...interface{}) {
+	Logger.Panicln(level, fmt.Sprintln(v...))
+}
+
+func init() {
+	Logger = log.New(os.Stdout, "[nentropy]", log.LstdFlags, 5)
 }

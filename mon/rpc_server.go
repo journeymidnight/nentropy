@@ -38,13 +38,30 @@ func (s *monitorRpcServer) GetLayout(ctx context.Context, in *protos.LayoutReque
 		return &protos.LayoutReply{}, err
 	}
 	pgNumbers := clus.poolMap.Pools[poolId].PgNumbers
-	hashPgId := helper.HashKey(in.ObjectName) % uint32(pgNumbers)
+	hashPgId := helper.HashKey(in.ObjectName)%uint32(pgNumbers) + 1
 	pgName := fmt.Sprintf("%d.%d", poolId, hashPgId)
-	osds := make([]*protos.Osd, 0)
-	for _, v := range clus.pgMaps.Pgmaps[poolId].Pgmap[int32(hashPgId)].Replicas {
-		helper.Logger.Println(5, "osd to be returned:", *clus.osdMap.MemberList[v.OsdId])
-		osds = append(osds, clus.osdMap.MemberList[v.OsdId])
+	if v, ok := clus.leaderPgLocationMap[pgName]; ok {
+		clus.pgMaps.Pgmaps[poolId].Pgmap[int32(hashPgId)].PrimaryId = v
+	} else {
+		helper.Println(5, "No primary osd for pg ", pgName)
 	}
+
+	osds := make([]*protos.Osd, 0)
+	nonPrimayOsds := make([]*protos.Osd, 0)
+	for _, v := range clus.pgMaps.Pgmaps[poolId].Pgmap[int32(hashPgId)].Replicas {
+		helper.Println(5, "osd to be returned:", *clus.osdMap.MemberList[v.OsdId])
+		if clus.pgMaps.Pgmaps[poolId].Pgmap[int32(hashPgId)].PrimaryId == v.OsdId {
+			osds = append(osds, clus.osdMap.MemberList[v.OsdId])
+		} else {
+			nonPrimayOsds = append(nonPrimayOsds, clus.osdMap.MemberList[v.OsdId])
+		}
+	}
+	if len(osds) == 0 {
+		helper.Println(5, "No primary id in replicas for pg ", pgName)
+	}
+
+	osds = append(osds, nonPrimayOsds...)
+
 	return &protos.LayoutReply{0, pgName, osds}, nil
 }
 
@@ -130,12 +147,12 @@ func HandleOsdAdd(req *protos.OsdConfigRequest) (*protos.OsdConfigReply, error) 
 	newOsdMap := protos.OsdMap{}
 	data, err := clus.osdMap.Marshal()
 	if err != nil {
-		helper.Logger.Println(5, "Eorror marshal osdmap!")
+		helper.Println(5, "Eorror marshal osdmap!")
 		return &protos.OsdConfigReply{}, err
 	}
 	err = newOsdMap.Unmarshal(data)
 	if err != nil {
-		helper.Logger.Println(5, "Eorror unmarshal osdmap!")
+		helper.Println(5, "Eorror unmarshal osdmap!")
 		return &protos.OsdConfigReply{}, err
 	}
 
@@ -143,30 +160,30 @@ func HandleOsdAdd(req *protos.OsdConfigRequest) (*protos.OsdConfigReply, error) 
 	for k, v := range clus.osdMap.MemberList {
 		newOsdMap.MemberList[k] = v
 	}
-	helper.Logger.Println(5, "osd to be added:", *req.Osd)
+	helper.Println(5, "osd to be added:", *req.Osd)
 	newOsdMap.MemberList[req.Osd.Id] = req.Osd
 	trans := protos.Transaction{}
 	err = PrepareOsdMap(&trans, &newOsdMap)
 	if err != nil {
-		helper.Logger.Print(5, "prepare osd map failed", err)
+		helper.Print(5, "prepare osd map failed", err)
 		return &protos.OsdConfigReply{}, err
 	}
 
 	newPgmaps, err := updatePgmaps(&clus.poolMap, &clus.pgMaps, &newOsdMap)
 	if err != nil {
-		helper.Logger.Print(5, "update pg maps failed", err)
+		helper.Print(5, "update pg maps failed", err)
 		return &protos.OsdConfigReply{}, err
 	}
 
 	err = PreparePgMap(&trans, newPgmaps)
 	if err != nil {
-		helper.Logger.Print(5, "prepare pg maps failed", err)
+		helper.Print(5, "prepare pg maps failed", err)
 		return &protos.OsdConfigReply{}, err
 	}
 
 	err = proposeData(&trans)
 	if err != nil {
-		helper.Logger.Print(5, "propose data failed", err)
+		helper.Print(5, "propose data failed", err)
 		return &protos.OsdConfigReply{}, err
 	}
 	return &protos.OsdConfigReply{}, err
@@ -188,24 +205,24 @@ func HandleOsdDel(req *protos.OsdConfigRequest) (*protos.OsdConfigReply, error) 
 	trans := protos.Transaction{}
 	err := PrepareOsdMap(&trans, &newOsdMap)
 	if err != nil {
-		helper.Logger.Print(5, "prepare osd map failed", err)
+		helper.Print(5, "prepare osd map failed", err)
 		return &protos.OsdConfigReply{}, err
 	}
 	newPgmaps, err := updatePgmaps(&clus.poolMap, &clus.pgMaps, &newOsdMap)
 	if err != nil {
-		helper.Logger.Print(5, "update pg maps failed", err)
+		helper.Print(5, "update pg maps failed", err)
 		return &protos.OsdConfigReply{}, err
 	}
 
 	err = PreparePgMap(&trans, newPgmaps)
 	if err != nil {
-		helper.Logger.Print(5, "prepare pg maps failed", err)
+		helper.Print(5, "prepare pg maps failed", err)
 		return &protos.OsdConfigReply{}, err
 	}
 
 	err = proposeData(&trans)
 	if err != nil {
-		helper.Logger.Print(5, "propose data failed", err)
+		helper.Print(5, "propose data failed", err)
 		return &protos.OsdConfigReply{}, err
 	}
 	return &protos.OsdConfigReply{}, err
@@ -272,25 +289,25 @@ func HandlePoolCreate(req *protos.PoolConfigRequest) (*protos.PoolConfigReply, e
 	trans := protos.Transaction{}
 	err := PreparePoolMap(&trans, &newPoolMap)
 	if err != nil {
-		helper.Logger.Print(5, "prepare pool map failed", err)
+		helper.Print(5, "prepare pool map failed", err)
 		return &protos.PoolConfigReply{}, err
 	}
 
 	newPgMaps, err := allocateNewPgs(&newPoolMap, &clus.pgMaps, &clus.osdMap, newId, req.PgNumbers)
 	if err != nil {
-		helper.Logger.Print(5, "prepare allocate new pgs failed", err)
+		helper.Print(5, "prepare allocate new pgs failed", err)
 		return &protos.PoolConfigReply{}, err
 	}
 
 	err = PreparePgMap(&trans, newPgMaps)
 	if err != nil {
-		helper.Logger.Print(5, "prepare pg maps failed", err)
+		helper.Print(5, "prepare pg maps failed", err)
 		return &protos.PoolConfigReply{}, err
 	}
 
 	err = proposeData(&trans)
 	if err != nil {
-		helper.Logger.Print(5, "propose data failed", err)
+		helper.Print(5, "propose data failed", err)
 		return &protos.PoolConfigReply{}, err
 	}
 
@@ -328,19 +345,19 @@ func HandlePoolDelete(req *protos.PoolConfigRequest) (*protos.PoolConfigReply, e
 	trans := protos.Transaction{}
 	err := PreparePoolMap(&trans, &newPoolMap)
 	if err != nil {
-		helper.Logger.Print(5, "prepare pool map failed", err)
+		helper.Print(5, "prepare pool map failed", err)
 		return &protos.PoolConfigReply{}, err
 	}
 
 	err = PreparePgMap(&trans, &newPgMaps)
 	if err != nil {
-		helper.Logger.Print(5, "prepare pg maps failed", err)
+		helper.Print(5, "prepare pg maps failed", err)
 		return &protos.PoolConfigReply{}, err
 	}
 
 	err = proposeData(&trans)
 	if err != nil {
-		helper.Logger.Print(5, "propose data failed", err)
+		helper.Print(5, "propose data failed", err)
 		return &protos.PoolConfigReply{}, err
 	}
 
@@ -415,12 +432,12 @@ func updatePgmaps(poolMap *protos.PoolMap, pgMaps *protos.PgMaps, osdMap *protos
 	newPgMaps := protos.PgMaps{}
 	data, err := pgMaps.Marshal()
 	if err != nil {
-		helper.Logger.Println(5, "Eorror marshal PgMaps!")
+		helper.Println(5, "Eorror marshal PgMaps!")
 		return &newPgMaps, err
 	}
 	err = newPgMaps.Unmarshal(data)
 	if err != nil {
-		helper.Logger.Println(5, "Eorror unmarshal PgMaps!")
+		helper.Println(5, "Eorror unmarshal PgMaps!")
 		return &newPgMaps, err
 	}
 
@@ -428,7 +445,7 @@ func updatePgmaps(poolMap *protos.PoolMap, pgMaps *protos.PgMaps, osdMap *protos
 		hashRing := consistent.New(osdMap, poolMap.Pools[k].Policy)
 		err = updatePgMap(newPgMaps.Pgmaps[k], poolMap, hashRing)
 		if err != nil {
-			helper.Logger.Print(5, "update pg map failed ", err)
+			helper.Print(5, "update pg map failed ", err)
 			return nil, err
 		}
 	}
@@ -439,18 +456,18 @@ func allocateNewPgs(poolMap *protos.PoolMap, pgMaps *protos.PgMaps, osdMap *prot
 	newPgMaps := protos.PgMaps{}
 	data, err := pgMaps.Marshal()
 	if err != nil {
-		helper.Logger.Println(5, "Eorror marshal PgMaps!")
+		helper.Println(5, "Eorror marshal PgMaps!")
 		return &newPgMaps, err
 	}
 	err = newPgMaps.Unmarshal(data)
 	if err != nil {
-		helper.Logger.Println(5, "Eorror unmarshal PgMaps!")
+		helper.Println(5, "Eorror unmarshal PgMaps!")
 		return &newPgMaps, err
 	}
 
-	helper.Logger.Println(5, "debug allocateNewPgs")
-	helper.Logger.Println(5, "debug allocateNewPgs", newPgMaps.Pgmaps)
-	helper.Logger.Println(5, "debug allocateNewPgs", poolId)
+	helper.Println(5, "debug allocateNewPgs")
+	helper.Println(5, "debug allocateNewPgs", newPgMaps.Pgmaps)
+	helper.Println(5, "debug allocateNewPgs", poolId)
 	if _, ok := newPgMaps.Pgmaps[poolId]; !ok {
 		if newPgMaps.Pgmaps == nil {
 			newPgMaps.Pgmaps = make(map[int32]*protos.PgMap)
@@ -468,7 +485,7 @@ func allocateNewPgs(poolMap *protos.PoolMap, pgMaps *protos.PgMaps, osdMap *prot
 	hashRing := consistent.New(osdMap, poolMap.Pools[poolId].Policy)
 	err = updatePgMap(targetMap, poolMap, hashRing)
 	if err != nil {
-		helper.Logger.Print(5, "update pg map failed ", err)
+		helper.Print(5, "update pg map failed ", err)
 		return nil, err
 	}
 	newPgMaps.Epoch = newPgMaps.Epoch + 1
@@ -478,17 +495,17 @@ func allocateNewPgs(poolMap *protos.PoolMap, pgMaps *protos.PgMaps, osdMap *prot
 func updatePgMap(m *protos.PgMap, poolMap *protos.PoolMap, ring *consistent.Consistent) error {
 	poolId := m.PoolId
 	for k, pg := range m.Pgmap {
-		helper.Logger.Println(5, "start getn: ", fmt.Sprintf("%d.%d", poolId, pg.Id))
+		helper.Println(5, "start getn: ", fmt.Sprintf("%d.%d", poolId, pg.Id))
 		osds, err := ring.GetN(fmt.Sprintf("%d.%d", poolId, pg.Id), int(poolMap.Pools[poolId].Size_))
-		helper.Logger.Println(5, "end getn:", osds)
+		helper.Println(5, "end getn:", osds)
 		if err != nil {
 			return err
 		}
-		//		helper.Logger.Print(5, "osds******************", osds)
+		//		helper.Print(5, "osds******************", osds)
 		oldReplicas := make([]protos.PgReplica, 0)
 		copy(oldReplicas, m.Pgmap[k].Replicas)
 		m.Pgmap[k].Replicas = m.Pgmap[k].Replicas[:0]
-		//		helper.Logger.Print(5, "osdids******************", m.Pgmap[k].OsdIds)
+		//		helper.Print(5, "osdids******************", m.Pgmap[k].OsdIds)
 		for _, value := range osds {
 			for _, oldReplica := range oldReplicas {
 				if value.Id == oldReplica.OsdId {

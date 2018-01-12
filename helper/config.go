@@ -81,6 +81,7 @@ type Config struct {
 	JoinMemberAddr      string
 	NodeID              int
 	NodeType            string
+	RootDir             string
 
 	// AdvertiseAddr is the address advertised by the server to other nodes
 	// in the cluster. It should be reachable by all other nodes and should
@@ -127,10 +128,12 @@ func (c *Config) parseCmdArgs() {
 		"specify rpc listen address, like [10.11.11.11:8888]")
 	flag.Uint64Var(&c.RaftId, "idx", DefaultConfig.RaftId,
 		"RAFT ID that this server will use to join RAFT cluster.")
+	flag.StringVar(&c.RootDir, "rootDir", "./rootdir",
+		"RAFT ID that this server will use to join RAFT cluster.")
 
 	flag.Parse()
 	if !flag.Parsed() {
-		Logger.Fatal(0, "Unable to parse flags")
+		Fatal(0, "Unable to parse flags")
 	}
 	//TODO: add argument check here
 
@@ -159,7 +162,7 @@ func (c *Config) InitConfig() {
 	f, err = os.OpenFile(c.LogPath, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
 	if err != nil {
 		Logger = log.New(os.Stdout, "[nentropy]", log.LstdFlags, defaults.LogLevel)
-		Logger.Printf(0, "Failed to open log file %s, use stdout!", c.LogPath)
+		Printf(0, "Failed to open log file %s, use stdout!", c.LogPath)
 	} else {
 		defer f.Close()
 		Logger = log.New(f, "[nentropy]", log.LstdFlags, defaults.LogLevel)

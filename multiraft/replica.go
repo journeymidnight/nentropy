@@ -155,7 +155,7 @@ func (r *Replica) tick() (bool, error) {
 	// If the raft group is uninitialized, do not initialize raft groups on
 	// tick.
 	if r.mu.internalRaftGroup == nil {
-		helper.Logger.Printf(5, "Replica %d has no raft group to tick.", r.mu.replicaID)
+		helper.Printf(5, "Replica %d has no raft group to tick.", r.mu.replicaID)
 		return false, nil
 	}
 
@@ -231,7 +231,7 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 		return stats, "", nil
 	}
 
-	helper.Logger.Printf(20, "get ready from raft group")
+	helper.Printf(20, "get ready from raft group")
 
 	//refreshReason := noReason
 	if rd.SoftState != nil && leaderID != multiraftbase.ReplicaID(rd.SoftState.Lead) {
@@ -255,14 +255,14 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 		if lastIndex, lastTerm, raftLogSize, err = r.append(
 			ctx, batch, lastIndex, lastTerm, raftLogSize, rd.Entries,
 		); err != nil {
-			helper.Logger.Println(10, "Failed to append entries! err:", err)
+			helper.Println(10, "Failed to append entries! err:", err)
 			const expl = "during append"
 			return stats, expl, errors.Wrap(err, expl)
 		}
 	}
 	if !raft.IsEmptyHardState(rd.HardState) {
 		if err := r.raftMu.stateLoader.setHardState(ctx, batch, rd.HardState); err != nil {
-			helper.Logger.Println(10, "Failed to set hard state! err:", err)
+			helper.Println(10, "Failed to set hard state! err:", err)
 			const expl = "during setHardState"
 			return stats, expl, errors.Wrap(err, expl)
 		}
@@ -270,11 +270,11 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 
 	internalTimeout := time.Second
 	if len(rd.ReadStates) != 0 {
-		helper.Logger.Println(20, "handle readstate message.")
+		helper.Println(20, "handle readstate message.")
 		select {
 		case r.readStateC <- rd.ReadStates[len(rd.ReadStates)-1]:
 		case <-time.After(internalTimeout):
-			helper.Logger.Println(5, "timed out sending read state")
+			helper.Println(5, "timed out sending read state")
 		}
 	}
 
@@ -293,7 +293,7 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 	// infer the that entries are persisted on the node that sends a snapshot.
 	//start := timeutil.Now()
 	if err := batch.Commit(); err != nil {
-		helper.Logger.Println(10, "Failed to commit! err:", err)
+		helper.Println(10, "Failed to commit! err:", err)
 		const expl = "while committing batch"
 		return stats, expl, errors.Wrap(err, expl)
 	}
@@ -325,7 +325,7 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 	r.mu.Unlock()
 
 	for _, message := range rd.Messages {
-		helper.Logger.Println(20, "sent message:", "To:", message.To,
+		helper.Println(20, "sent message:", "To:", message.To,
 			"From:", message.From,
 			"Type:", message.Type,
 			"Term:", message.Term,
@@ -337,7 +337,7 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 	}
 
 	for _, e := range rd.CommittedEntries {
-		helper.Logger.Println(5, "commit index:", e.Index)
+		helper.Println(5, "commit index:", e.Index)
 		switch e.Type {
 		case raftpb.EntryNormal:
 			var commandID multiraftbase.CmdIDKey
@@ -370,9 +370,9 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 					return stats, expl, errors.Wrap(err, expl)
 				}
 			}
-			helper.Logger.Println(5, "commit entries. EntryNormal: ")
+			helper.Println(5, "commit entries. EntryNormal: ")
 			if changedRepl := r.processRaftCommand(ctx, commandID, e.Term, e.Index, command); !changedRepl {
-				helper.Logger.Fatalf(5, "unexpected replication change from command %s", &command)
+				helper.Fatalf("unexpected replication change from command %s", &command)
 			}
 			stats.processed++
 
@@ -409,14 +409,14 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 				return stats, expl, errors.Wrap(err, expl)
 			}
 		default:
-			helper.Logger.Fatalf(5, "unexpected Raft entry: %v", e)
+			helper.Fatalf("unexpected Raft entry: %v", e)
 		}
 	}
 
 	rsl := makeReplicaStateLoader(r.GroupID)
 	err = rsl.save(ctx, r.store.sysEng, r.mu.state)
 	if err != nil {
-		helper.Logger.Println(5, "Failed to write replica state! err:", err)
+		helper.Println(5, "Failed to write replica state! err:", err)
 	}
 
 	// TODO(bdarnell): need to check replica id and not Advance if it
@@ -452,7 +452,7 @@ func (r *Replica) processRaftCommand(
 	raftCmd multiraftbase.RaftCommand,
 ) bool {
 	if index == 0 {
-		helper.Logger.Fatalf(5, "processRaftCommand requires a non-zero index")
+		helper.Fatalf("processRaftCommand requires a non-zero index")
 	}
 
 	r.mu.Lock()
@@ -479,14 +479,14 @@ func (r *Replica) processRaftCommand(
 		r.applyRaftCommand(ctx, idKey, raftCmd.Method, writeBatch)
 	}
 
-	helper.Logger.Println(5, "processRaftCommand(): RaftAppliedIndex:", index)
+	helper.Println(5, "processRaftCommand(): RaftAppliedIndex:", index)
 	r.mu.state.RaftAppliedIndex = index
 	r.applyWait.Trigger(index)
 
 	if proposedLocally {
 		proposal.finishRaftApplication(response)
 	} else if response.Err != nil {
-		helper.Logger.Printf(5, "applying raft command resulted in error: %s", response.Err)
+		helper.Printf(5, "applying raft command resulted in error: %s", response.Err)
 	}
 
 	return true
@@ -521,7 +521,7 @@ func newReplica(groupID multiraftbase.GroupID, store *Store) *Replica {
 		r.AnnotateCtx(context.Background()),
 		500*time.Millisecond,
 		func(ctx context.Context, msg string, args ...interface{}) {
-			helper.Logger.Printf(5, "raftMu: "+msg, args...)
+			helper.Printf(5, "raftMu: "+msg, args...)
 		},
 	)
 	r.raftMu.timedMutex = makeTimedMutex(raftMuLogger)
@@ -561,24 +561,24 @@ func (r *Replica) applyRaftCommand(
 		getReq := multiraftbase.GetRequest{}
 		err := getReq.Unmarshal(writeBatch.Data)
 		if err != nil {
-			helper.Logger.Printf(5, "Cannot unmarshal data to kv")
+			helper.Printf(5, "Cannot unmarshal data to kv")
 		}
 	} else if method == multiraftbase.Put {
 		putReq := multiraftbase.PutRequest{}
 		err := putReq.Unmarshal(writeBatch.Data)
 		if err != nil {
-			helper.Logger.Printf(5, "Cannot unmarshal data to kv")
+			helper.Printf(5, "Cannot unmarshal data to kv")
 		}
 
-		err = r.store.sysEng.Put([]byte(putReq.Key), []byte(putReq.Value.RawBytes))
+		err = stripeWrite(r.store.sysEng, []byte(putReq.Key), []byte(putReq.Value.RawBytes), 0, uint64(len(putReq.Value.RawBytes)))
 		if err != nil {
-			helper.Logger.Println(5, "Error putting data to db")
+			helper.Println(5, "Error putting data to db")
 		}
 
-		helper.Logger.Println(5, "applyRaftCommand: key:", string(putReq.Key))
-		helper.Logger.Println(5, "applyRaftCommand: value:", string(putReq.Value.RawBytes))
+		helper.Println(5, "applyRaftCommand: key:", string(putReq.Key))
+		helper.Println(5, "applyRaftCommand: value:", string(putReq.Value.RawBytes))
 	} else {
-		helper.Logger.Printf(5, "Unexpected raft command method.")
+		helper.Printf(5, "Unexpected raft command method.")
 	}
 
 	return nil
@@ -600,24 +600,24 @@ func (r *Replica) getReplicaDescriptorByIDRLocked(
 // sendRaftMessage sends a Raft message.
 func (r *Replica) sendRaftMessage(ctx context.Context, msg raftpb.Message) {
 	r.mu.Lock()
-	helper.Logger.Printf(20, "sendRaftMessage: from: %d, to: %d", msg.From, msg.To)
+	helper.Printf(20, "sendRaftMessage: from: %d, to: %d", msg.From, msg.To)
 	fromReplica, fromErr := r.getReplicaDescriptorByIDRLocked(multiraftbase.ReplicaID(msg.From), r.mu.lastToReplica)
 	toReplica, toErr := r.getReplicaDescriptorByIDRLocked(multiraftbase.ReplicaID(msg.To), r.mu.lastFromReplica)
 	r.mu.Unlock()
 
 	if fromErr != nil {
-		helper.Logger.Printf(20, "failed to look up sender replica %d in r%d while sending %s: %s",
+		helper.Printf(20, "failed to look up sender replica %d in r%d while sending %s: %s",
 			msg.From, r.GroupID, msg.Type, fromErr)
 		return
 	}
 	if toErr != nil {
-		helper.Logger.Printf(20, "failed to look up recipient replica %d in r%d while sending %s: %s",
+		helper.Printf(20, "failed to look up recipient replica %d in r%d while sending %s: %s",
 			msg.To, r.GroupID, msg.Type, toErr)
 		return
 	}
 
 	if r.maybeCoalesceHeartbeat(ctx, msg, toReplica, fromReplica, false) {
-		helper.Logger.Printf(20, "maybeCoalesceHeartbeat return for heartbeat msg ")
+		helper.Printf(20, "maybeCoalesceHeartbeat return for heartbeat msg ")
 		return
 	}
 
@@ -631,7 +631,7 @@ func (r *Replica) sendRaftMessage(ctx context.Context, msg raftpb.Message) {
 			raftGroup.ReportUnreachable(msg.To)
 			return true, nil
 		}); err != nil {
-			helper.Logger.Fatalln(5, err)
+			helper.Fatalln(err)
 		}
 	}
 }
@@ -743,7 +743,7 @@ func (r *Replica) withRaftGroupLocked(
 			shouldCampaignOnCreation = r.isSoloReplicaRLocked()
 		}
 		if shouldCampaignOnCreation {
-			helper.Logger.Printf(3, "campaigning")
+			helper.Printf(3, "campaigning")
 			if err := raftGroup.Campaign(); err != nil {
 				return err
 			}
@@ -765,7 +765,7 @@ func makeIDKey() multiraftbase.CmdIDKey {
 
 func (r *Replica) unquiesceAndWakeLeaderLocked() {
 	if r.mu.quiescent {
-		helper.Logger.Printf(5, "unquiescing: waking leader")
+		helper.Printf(5, "unquiescing: waking leader")
 		r.mu.quiescent = false
 		// Propose an empty command which will wake the leader.
 		_ = r.mu.internalRaftGroup.Propose(encodeRaftCommandV1(makeIDKey(), nil))
@@ -790,7 +790,7 @@ func (r *Replica) withRaftGroup(
 // the Raft group.
 func (r *Replica) sendRaftMessageRequest(ctx context.Context, req *multiraftbase.RaftMessageRequest) bool {
 
-	//helper.Logger.Printf(5, "sending raft request %+v", req)
+	//helper.Printf(5, "sending raft request %+v", req)
 
 	ok := r.store.cfg.Transport.SendAsync(req)
 	return ok
@@ -912,9 +912,9 @@ func (r *Replica) initRaftMuLockedReplicaMuLocked(
 ) error {
 	ctx := r.AnnotateCtx(context.TODO())
 	if r.mu.state.Desc != nil && r.isInitializedRLocked() {
-		helper.Logger.Fatalf(5, "r%d: cannot reinitialize an initialized replica", desc.GroupID)
+		helper.Fatalf("r%d: cannot reinitialize an initialized replica", desc.GroupID)
 	}
-	helper.Logger.Println(10, "GroupID:", r.GroupID, " replicaID:", replicaID)
+	helper.Println(10, "GroupID:", r.GroupID, " replicaID:", replicaID)
 	if desc.IsInitialized() && replicaID != 0 {
 		return errors.Errorf("replicaID must be 0 when creating an initialized replica")
 	}
@@ -1003,11 +1003,11 @@ func (r *Replica) amLeader() bool {
 func (r *Replica) quiesceLocked() bool {
 	//_ := r.AnnotateCtx(context.TODO())
 	if len(r.mu.proposals) != 0 {
-		helper.Logger.Printf(5, "not quiescing: %d pending commands", len(r.mu.proposals))
+		helper.Printf(5, "not quiescing: %d pending commands", len(r.mu.proposals))
 		return false
 	}
 	if !r.mu.quiescent {
-		helper.Logger.Printf(5, "quiescing")
+		helper.Printf(5, "quiescing")
 		r.mu.quiescent = true
 	}
 	return true
@@ -1063,7 +1063,7 @@ func (r *Replica) maybeInitializeRaftGroup(ctx context.Context) {
 	if err := r.withRaftGroupLocked(shouldCampaignOnCreation, func(raftGroup *raft.RawNode) (bool, error) {
 		return true, nil
 	}); err != nil {
-		helper.Logger.Printf(5, "unable to initialize raft group: %s", err)
+		helper.Printf(5, "unable to initialize raft group: %s", err)
 	}
 }
 
@@ -1082,19 +1082,19 @@ func (r *Replica) executeReadOnlyBatch(
 		r.store.enqueueRaftUpdateCheck(r.GroupID)
 		r.linearizableReadNotify(ctx)
 
-		data, err := r.store.sysEng.Get([]byte(getReq.Key))
+		data, err := stripeRead(r.store.sysEng, []byte(getReq.Key), 0, 0xffffffff)
 		if err != nil {
-			helper.Logger.Println(5, "Error getting data from db.")
+			helper.Println(5, "Error getting data from db.")
 		}
 
 		getRes := multiraftbase.GetResponse{}
 		getRes.Value = &multiraftbase.Value{RawBytes: data}
 		res.Responses = multiraftbase.ResponseUnion{Get: &getRes}
 
-		helper.Logger.Println(5, "read data, key:", string(getReq.Key))
-		helper.Logger.Println(5, "read data, val:", string(data))
+		helper.Println(5, "read data, key:", string(getReq.Key))
+		helper.Println(5, "read data, val:", string(data))
 	} else {
-		helper.Logger.Panicln(0, "Unsupported req type.")
+		helper.Panicln(0, "Unsupported req type.")
 	}
 
 	return &res, pErr
@@ -1118,11 +1118,11 @@ func (r *Replica) Send(
 	} else if req.Method() == multiraftbase.Put {
 		br, pErr = r.executeWriteBatch(ctx, ba)
 	} else {
-		helper.Logger.Fatalf(5, "don't know how to handle command %s", ba)
+		helper.Fatalf("don't know how to handle command %s", ba)
 	}
 
 	if pErr != nil {
-		helper.Logger.Printf(5, "replica.Send got error: %s", pErr)
+		helper.Printf(5, "replica.Send got error: %s", pErr)
 	}
 
 	return br, pErr
@@ -1136,7 +1136,7 @@ func (r *Replica) insertProposalLocked(
 	proposal.command.ProposerReplica = proposerReplica
 
 	if _, ok := r.mu.proposals[proposal.idKey]; ok {
-		helper.Logger.Fatal(5, "pending command already exists for %s", proposal.idKey)
+		helper.Fatal("pending command already exists for %s", proposal.idKey)
 	}
 	r.mu.proposals[proposal.idKey] = proposal
 }
@@ -1169,7 +1169,7 @@ func defaultSubmitProposalLocked(r *Replica, p *ProposalData) error {
 func (r *Replica) submitProposalLocked(p *ProposalData) error {
 	p.proposedAtTicks = r.mu.ticks
 
-	helper.Logger.Println(5, "enter submitProposalLocked()")
+	helper.Println(5, "enter submitProposalLocked()")
 	return defaultSubmitProposalLocked(r, p)
 }
 
@@ -1197,10 +1197,10 @@ func (r *Replica) requestToProposal(
 		putReq := req.(*multiraftbase.PutRequest)
 		data, err = putReq.Marshal()
 		if err != nil {
-			helper.Logger.Printf(5, "Error marshal put request.")
+			helper.Printf(5, "Error marshal put request.")
 		}
 	} else {
-		helper.Logger.Panicln(0, "Unsupported req type.")
+		helper.Panicln(0, "Unsupported req type.")
 	}
 	proposal.command = multiraftbase.RaftCommand{
 		Method:     req.Method(),
@@ -1286,11 +1286,11 @@ func (r *Replica) tryExecuteWriteBatch(
 	for {
 		select {
 		case propResult := <-ch:
-			helper.Logger.Printf(5, "successfully to propose data. ")
+			helper.Printf(5, "successfully to propose data. ")
 			return propResult.Reply, propResult.Err
 		case <-slowTimer.C:
 			slowTimer.Read = true
-			helper.Logger.Printf(5, "have been waiting %s for proposing command %s",
+			helper.Printf(5, "have been waiting %s for proposing command %s",
 				SlowRequestThreshold, ba)
 
 		case <-ctxDone:

@@ -1,7 +1,6 @@
 package log
 
 import (
-	"fmt"
 	"io"
 	"log"
 	"os"
@@ -45,75 +44,72 @@ func (l *Logger) GetLevel() int {
 
 // Printf calls l.Output to print to the logger.
 // Arguments are handled in the manner of fmt.Printf.
-func (l *Logger) Printf(level int, format string, v ...interface{}) {
+func (l *Logger) Printf(level int, str string) {
 	if l.LogLevel >= level {
-		l.Logger.Output(2, fmt.Sprintf(format, v...))
+		l.Logger.Output(2, str)
 	}
 }
 
 // Print calls l.Output to print to the logger.
 // Arguments are handled in the manner of fmt.Print.
-func (l *Logger) Print(level int, v ...interface{}) {
+func (l *Logger) Print(level int, str string) {
 	if l.LogLevel >= level {
-		l.Logger.Output(2, fmt.Sprint(v...))
+		l.Logger.Output(2, str)
 	}
 }
 
 // Println calls l.Output to print to the logger.
 // Arguments are handled in the manner of fmt.Println.
-func (l *Logger) Println(level int, v ...interface{}) {
+func (l *Logger) Println(level int, str string) {
 	if l.LogLevel >= level {
-		l.Logger.Output(2, fmt.Sprintln(v...))
+		l.Logger.Output(2, str)
 	}
 }
 
 // Fatal is equivalent to l.Print() followed by a call to os.Exit(1).
-func (l *Logger) Fatal(level int, v ...interface{}) {
+func (l *Logger) Fatal(level int, str string) {
 	if l.LogLevel >= level {
-		l.Logger.Output(2, fmt.Sprint(v...))
+		l.Logger.Output(2, str)
 	}
 	os.Exit(1)
 }
 
 // Fatalf is equivalent to l.Printf() followed by a call to os.Exit(1).
-func (l *Logger) Fatalf(level int, format string, v ...interface{}) {
+func (l *Logger) Fatalf(level int, str string) {
 	if l.LogLevel >= level {
-		l.Logger.Output(2, fmt.Sprintf(format, v...))
+		l.Logger.Output(2, str)
 	}
 	os.Exit(1)
 }
 
 // Fatalln is equivalent to l.Println() followed by a call to os.Exit(1).
-func (l *Logger) Fatalln(level int, v ...interface{}) {
+func (l *Logger) Fatalln(level int, str string) {
 	if l.LogLevel >= level {
-		l.Logger.Output(2, fmt.Sprintln(v...))
+		l.Logger.Output(2, str)
 	}
 	os.Exit(1)
 }
 
 // Panic is equivalent to l.Print() followed by a call to panic().
-func (l *Logger) Panic(level int, v ...interface{}) {
-	s := fmt.Sprint(v...)
+func (l *Logger) Panic(level int, str string) {
 	if l.LogLevel >= level {
-		l.Logger.Output(2, s)
+		l.Logger.Output(2, str)
 	}
-	panic(s)
+	panic(str)
 }
 
 // Panicf is equivalent to l.Printf() followed by a call to panic().
-func (l *Logger) Panicf(level int, format string, v ...interface{}) {
-	s := fmt.Sprintf(format, v...)
+func (l *Logger) Panicf(level int, str string) {
 	if l.LogLevel >= level {
-		l.Logger.Output(2, s)
+		l.Logger.Output(2, str)
 	}
-	panic(s)
+	panic(str)
 }
 
 // Panicln is equivalent to l.Println() followed by a call to panic().
-func (l *Logger) Panicln(level int, v ...interface{}) {
-	s := fmt.Sprintln(v...)
+func (l *Logger) Panicln(level int, str string) {
 	if l.LogLevel >= level {
-		l.Logger.Output(2, s)
+		l.Logger.Output(2, str)
 	}
-	panic(s)
+	panic(str)
 }

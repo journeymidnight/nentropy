@@ -27,7 +27,6 @@ var (
 	weight             = flag.Int("weight", 1, "set osd weight 1 per T")
 	host               = flag.String("host", "localhost", "set osd host name, default: localhost")
 	zone               = flag.String("zone", "default", "set osd zone name, default: default")
-	key                = flag.String("key", "", "key")
 	val                = flag.String("val", "", "val")
 	client             pb.MonitorClient
 )
@@ -200,7 +199,8 @@ func getObjectLayout(poolName string, objectName string) (*pb.LayoutReply, error
 	return reply, nil
 }
 
-func putObject(osd string, key []byte, val []byte) error {
+func putObject(pgname string, osd string, key []byte, val []byte) error {
+	fmt.Println("put object to server ", osd)
 	conn, err := grpc.Dial(osd, grpc.WithInsecure())
 	if err != nil {
 		log.Fatalf("fail to dial: %v", err)
@@ -209,7 +209,7 @@ func putObject(osd string, key []byte, val []byte) error {
 	client := multiraftbase.NewInternalClient(conn)
 
 	dumy := multiraftbase.BatchRequest{}
-	dumy.GroupID = "1"
+	dumy.GroupID = multiraftbase.GroupID(pgname)
 
 	data := multiraftbase.Value{RawBytes: val}
 	putReq := multiraftbase.NewPut(key, data)
@@ -226,7 +226,7 @@ func putObject(osd string, key []byte, val []byte) error {
 	return nil
 }
 
-func getObject(osd string, key []byte) ([]byte, error) {
+func getObject(pgname string, osd string, key []byte) ([]byte, error) {
 	conn, err := grpc.Dial(osd, grpc.WithInsecure())
 	if err != nil {
 		log.Fatalf("Fail to dial: %v", err)
@@ -235,7 +235,7 @@ func getObject(osd string, key []byte) ([]byte, error) {
 	client := multiraftbase.NewInternalClient(conn)
 
 	dumy := multiraftbase.BatchRequest{}
-	dumy.GroupID = "1"
+	dumy.GroupID = multiraftbase.GroupID(pgname)
 
 	getReq := multiraftbase.NewGet(key)
 	dumy.Request.MustSetInner(getReq)
@@ -248,7 +248,7 @@ func getObject(osd string, key []byte) ([]byte, error) {
 	}
 
 	getRes := res.Responses.GetValue().(*multiraftbase.GetResponse)
-	fmt.Printf("getObject()! res=%s", string(getRes.Value.RawBytes))
+	fmt.Printf("getObject()! res=%s\n", string(getRes.Value.RawBytes))
 	return getRes.Value.RawBytes, nil
 }
 
@@ -275,7 +275,10 @@ func objectHandle() {
 		fmt.Println("Layout Info:")
 		fmt.Println("PG name:", result.PgName)
 		fmt.Println("OSDS:")
-		err = putObject(result.Osds[0].Addr, []byte(*key), []byte(*val))
+		for _, osd := range result.Osds {
+			fmt.Println(fmt.Sprintf("id:%d addr:%s weight:%d host:%s zone:%s up:%v in:%v", osd.Id, osd.Addr, osd.Weight, osd.Host, osd.Zone, osd.Up, osd.In))
+		}
+		err = putObject(result.PgName, result.Osds[0].Addr, []byte(*object), []byte(*val))
 		if err != nil {
 			fmt.Println("Error getting object from osd, err:", err)
 		}
@@ -288,7 +291,10 @@ func objectHandle() {
 		fmt.Println("Layout Info:")
 		fmt.Println("PG name:", result.PgName)
 		fmt.Println("OSDS:")
-		_, err = getObject(result.Osds[0].Addr, []byte(*key))
+		for _, osd := range result.Osds {
+			fmt.Println(fmt.Sprintf("id:%d addr:%s weight:%d host:%s zone:%s up:%v in:%v", osd.Id, osd.Addr, osd.Weight, osd.Host, osd.Zone, osd.Up, osd.In))
+		}
+		_, err = getObject(result.PgName, result.Osds[0].Addr, []byte(*object))
 		if err != nil {
 			fmt.Println("Error putting object from osd, err:", err)
 		}

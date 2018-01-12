@@ -96,7 +96,7 @@ func syncPgMapsToEachOsd(addr string) {
 	pgmaps := clus.pgMaps
 	conn, err := grpc.Dial(addr, grpc.WithInsecure())
 	if err != nil {
-		helper.Logger.Println(5, "fail to dial: %v", err)
+		helper.Println(5, "fail to dial: %v", err)
 	}
 	defer conn.Close()
 	client := protos.NewOsdRpcClient(conn)
@@ -105,17 +105,17 @@ func syncPgMapsToEachOsd(addr string) {
 	req.UnionMap.Reset()
 	setSuccess := req.UnionMap.SetValue(&pgmaps)
 	if setSuccess != true {
-		helper.Logger.Println(5, "Error send SyncMap rpc request, internal error")
+		helper.Println(5, "Error send SyncMap rpc request, internal error")
 		return
 	}
 
 	ctx := context.Background()
 	res, err := client.SyncMap(ctx, &req)
 	if err != nil {
-		helper.Logger.Println(5, "Error send SyncMap rpc request", err)
+		helper.Println(5, "Error send SyncMap rpc request", err)
 		return
 	}
-	helper.Logger.Println(5, "Finished! The syncPgMaps response is %s!", res)
+	helper.Println(5, "Finished! The syncPgMaps response is %s!", res)
 
 }
 
@@ -125,7 +125,7 @@ func syncPgMaps() {
 		if v.Up == false || v.In == false {
 			continue
 		}
-		helper.Logger.Println(5, "call syncPgMaps to :", v.Addr)
+		helper.Println(5, "call syncPgMaps to :", v.Addr)
 		go syncPgMapsToEachOsd(v.Addr)
 	}
 }
@@ -146,10 +146,10 @@ func handleCommittedMsg(data []byte) error {
 					helper.Check(err)
 				}
 				clus.osdMap = osdMap
-				helper.Logger.Println(5, "New osdmap committed, member in osdmap :")
+				helper.Println(5, "New osdmap committed, member in osdmap :")
 				if clus.osdMap.MemberList != nil {
 					for id, _ := range clus.osdMap.MemberList {
-						helper.Logger.Println(5, "OSD Member Id:", id)
+						helper.Println(5, "OSD Member Id:", id)
 					}
 				}
 
@@ -315,7 +315,7 @@ func GetCurrPgMaps() (protos.PgMaps, error) {
 }
 
 func NotifyMemberEvent(eventType memberlist.MemberEventType, member memberlist.Member) error {
-	helper.Logger.Println(5, "Call NotifyMemberEvent()")
+	helper.Println(5, "Call NotifyMemberEvent()")
 	if !clus.node.AmLeader() {
 		return nil
 	}
@@ -330,10 +330,10 @@ func NotifyMemberEvent(eventType memberlist.MemberEventType, member memberlist.M
 	if clus.osdMap.MemberList == nil {
 		clus.osdMap.MemberList = make(map[int32]*protos.Osd)
 	}
-	helper.Logger.Println(5, "Before update osdmap, member in osdmap :")
+	helper.Println(5, "Before update osdmap, member in osdmap :")
 	if clus.osdMap.MemberList != nil {
 		for k, _ := range clus.osdMap.MemberList {
-			helper.Logger.Println(5, "OSD Member Id:", k)
+			helper.Println(5, "OSD Member Id:", k)
 		}
 	}
 
@@ -341,35 +341,35 @@ func NotifyMemberEvent(eventType memberlist.MemberEventType, member memberlist.M
 		osdMap := protos.OsdMap{}
 		data, err := clus.osdMap.Marshal()
 		if err != nil {
-			helper.Logger.Println(5, "Eorror marshal osdmap!")
+			helper.Println(5, "Eorror marshal osdmap!")
 			return err
 		}
 		err = osdMap.Unmarshal(data)
 		if err != nil {
-			helper.Logger.Println(5, "Eorror unmarshal osdmap!")
+			helper.Println(5, "Eorror unmarshal osdmap!")
 			return err
 		}
 		osdMap.Epoch++
 		osdMap.MemberList[int32(member.ID)].Up = true
 		osdMap.MemberList[int32(member.ID)].Addr = member.Addr
-		helper.Logger.Println(5, "Osd info updated! id:", member.ID)
+		helper.Println(5, "Osd info updated! id:", member.ID)
 		ProposeOsdMap(&osdMap)
 
 	} else if eventType == memberlist.MemberLeave {
 		osdMap := protos.OsdMap{}
 		data, err := clus.osdMap.Marshal()
 		if err != nil {
-			helper.Logger.Println(5, "Eorror marshal osdmap!")
+			helper.Println(5, "Eorror marshal osdmap!")
 			return err
 		}
 		err = osdMap.Unmarshal(data)
 		if err != nil {
-			helper.Logger.Println(5, "Eorror unmarshal osdmap!")
+			helper.Println(5, "Eorror unmarshal osdmap!")
 			return err
 		}
 		osdMap.Epoch++
 		osdMap.MemberList[int32(member.ID)].Up = false
-		helper.Logger.Println(0, "Osd info updated! id:", member.ID)
+		helper.Println(0, "Osd info updated! id:", member.ID)
 		ProposeOsdMap(&osdMap)
 
 	} else {

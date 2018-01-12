@@ -251,7 +251,7 @@ func NewRaftTransport(
 						lastStats[s.nodeID] = cur
 					}
 					lastTime = now
-					//helper.Logger.Printf(5, "stats:\n%s", buf.String())
+					//helper.Printf(5, "stats:\n%s", buf.String())
 				case <-ctx.Done():
 					return
 				}
@@ -290,7 +290,7 @@ func (t *RaftTransport) handleRaftRequest(
 ) *multiraftbase.Error {
 	handler, ok := t.getHandler()
 	if !ok {
-		helper.Logger.Printf(5, "unable to accept Raft message from %+v: no handler registered for %+v",
+		helper.Printf(5, "unable to accept Raft message from %+v: no handler registered for %+v",
 			req.FromReplica, req.ToReplica)
 		return multiraftbase.NewError(multiraftbase.NewNodeNotReadyError(req.ToReplica.NodeID))
 	}
@@ -341,7 +341,7 @@ func (t *RaftTransport) RaftMessageBatch(stream multiraftbase.MultiRaft_RaftMess
 					for {
 						batch, err := stream.Recv()
 						if err != nil {
-							helper.Logger.Println(5, "Grpc Server stream received a error.", err)
+							helper.Println(5, "Grpc Server stream received a error.", err)
 							return err
 						}
 
@@ -373,7 +373,7 @@ func (t *RaftTransport) RaftMessageBatch(stream multiraftbase.MultiRaft_RaftMess
 
 	select {
 	case err := <-errCh:
-		helper.Logger.Println(5, "RaftMessageBatch return, err:", err)
+		helper.Println(5, "RaftMessageBatch return, err:", err)
 		return err
 	}
 }
@@ -402,12 +402,12 @@ func (t *RaftTransport) connectAndProcess(
 	if err := func() error {
 		addr, err := t.resolver(string(nodeID))
 		if err != nil {
-			helper.Logger.Printf(5, "Cannot get nodeID %s address: %s", nodeID, addr)
+			helper.Printf(5, "Cannot get nodeID %s address: %s", nodeID, addr)
 			return err
 		}
 		conn, err := t.rpcContext.GRPCDial(addr, grpc.WithBlock())
 		if err != nil {
-			helper.Logger.Printf(5, "Error dialing to host %s!", addr)
+			helper.Printf(5, "Error dialing to host %s!", addr)
 			return err
 		}
 		client := multiraftbase.NewMultiRaftClient(conn)
@@ -415,12 +415,12 @@ func (t *RaftTransport) connectAndProcess(
 		defer cancel()
 		stream, err := client.RaftMessageBatch(batchCtx)
 		if err != nil {
-			helper.Logger.Println(5, "Error calling RaftMessageBatch! err:", err)
+			helper.Println(5, "Error calling RaftMessageBatch! err:", err)
 			return err
 		}
 		return t.processQueue(nodeID, ch, stats, stream)
 	}(); err != nil {
-		helper.Logger.Printf(5, "Grpc stream to node %d failed, %s", nodeID, err)
+		helper.Printf(5, "Grpc stream to node %d failed, %s", nodeID, err)
 	}
 }
 
@@ -435,7 +435,7 @@ func (t *RaftTransport) processQueue(
 	stats *raftTransportStats,
 	stream multiraftbase.MultiRaft_RaftMessageBatchClient,
 ) error {
-	helper.Logger.Printf(5, "Enter processQueue in RaftTransport")
+	helper.Printf(5, "Enter processQueue in RaftTransport")
 	errCh := make(chan error, 1)
 	// Starting workers in a task prevents data races during shutdown.
 	if err := t.rpcContext.Stopper.RunTask(
@@ -446,7 +446,7 @@ func (t *RaftTransport) processQueue(
 					for {
 						resp, err := stream.Recv()
 						if err != nil {
-							helper.Logger.Println(5, "Client stream receiver err :", err)
+							helper.Println(5, "Client stream receiver err :", err)
 							return err
 						}
 						atomic.AddInt64(&stats.clientRecv, 1)
@@ -455,7 +455,7 @@ func (t *RaftTransport) processQueue(
 							continue
 						}
 						if err := handler.HandleRaftResponse(ctx, resp); err != nil {
-							helper.Logger.Printf(5, "Error handling raft response. err:", err)
+							helper.Printf(5, "Error handling raft response. err:", err)
 							return err
 						}
 					}
@@ -510,7 +510,7 @@ func (t *RaftTransport) getQueue(nodeID multiraftbase.NodeID) (chan *multiraftba
 	var ok bool
 	if !exist {
 		ch := make(chan *multiraftbase.RaftMessageRequest, raftSendBufferSize)
-		helper.Logger.Println(20, "New a channel for raft req, ch:", ch)
+		helper.Println(20, "New a channel for raft req, ch:", ch)
 		value, ok = t.queues.LoadOrStore(nodeID, ch)
 	}
 	ch, ok := value.(chan *multiraftbase.RaftMessageRequest)
@@ -535,7 +535,7 @@ func (t *RaftTransport) SendAsync(req *multiraftbase.RaftMessageRequest) bool {
 	toNodeID := req.ToReplica.NodeID
 
 	stats := t.getStats(toNodeID)
-	helper.Logger.Println(20, "Enter SendAsync(). toNodeID:", toNodeID)
+	helper.Println(20, "Enter SendAsync(). toNodeID:", toNodeID)
 	ch, existingQueue := t.getQueue(toNodeID)
 	if !existingQueue {
 		// Starting workers in a task prevents data races during shutdown.
@@ -548,7 +548,7 @@ func (t *RaftTransport) SendAsync(req *multiraftbase.RaftMessageRequest) bool {
 					t.queues.Delete(toNodeID)
 				})
 			}); err != nil {
-			helper.Logger.Printf(20, "Error running rpc client.")
+			helper.Printf(20, "Error running rpc client.")
 			t.queues.Delete(toNodeID)
 			return false
 		}

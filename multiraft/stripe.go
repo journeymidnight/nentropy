@@ -29,7 +29,7 @@ var ErrFailedRemovingKey = errors.New("failed removing key to badger")
 var ErrNoValueForKey = errors.New("no value for this key")
 
 // DefaultStripeSize default size for each stripe
-var DefaultStripeSize uint64 = 64 << 10
+var DefaultStripeSize uint64 = 8
 
 // onode holds the metadata of each object in osd store
 // use Capital because bson can only serialize Capital fileds
@@ -113,7 +113,7 @@ func stripeWrite(eng engine.Engine, oid, value []byte, offset, length uint64) er
 
 		// situation 1: aligned write, if there is a whole stripe of data, no matter rewrite or write a new one, we can safely write it
 		if offsetRem == 0 && remainStripeNumber > 0 {
-			helper.Logger.Printf(20, "full stripe at offset: %d\r\n", offset)
+			helper.Printf(20, "full stripe at offset: %d\r\n", offset)
 			put(batch, offset, n, value[valueLocator:valueLocator+stripeSize])
 			offset += stripeSize
 			length -= stripeSize
@@ -127,7 +127,7 @@ func stripeWrite(eng engine.Engine, oid, value []byte, offset, length uint64) er
 		// read the original data from store
 		prev, _ := get(eng, stripeOff, n)
 		prevLen := uint64(len(prev))
-		helper.Logger.Printf(20, "read previous stripe at offset %d, got %d \r\n", stripeOff, prevLen)
+		helper.Printf(5, "read previous stripe at offset %d, got %d \r\n", stripeOff, prevLen)
 
 		var buf []byte
 
@@ -142,13 +142,13 @@ func stripeWrite(eng engine.Engine, oid, value []byte, offset, length uint64) er
 
 			// situation 2: resuing leading p bytes from the original data
 			if p > 0 {
-				helper.Logger.Printf(20, "reusing leading %d bytes \r\n", p)
+				helper.Printf(20, "reusing leading %d bytes \r\n", p)
 				buf = append(buf, prev[:p]...)
 			}
 			// situation 3: original data(aka prevLen) shorter than our new offset, so we append zeros to the space for area (prevLen, offsetRem)
 			// notice that, if previous data is totally empty, we also need to add leading zeros
 			if p < offsetRem {
-				helper.Logger.Printf(20, "add leading %d zeros for (prevLen, offsetRem) aka (%d, %d)\r\n", offsetRem-p, prevLen, offsetRem)
+				helper.Printf(20, "add leading %d zeros for (prevLen, offsetRem) aka (%d, %d)\r\n", offsetRem-p, prevLen, offsetRem)
 				//(fixme) this is ugly
 				for i := uint64(0); i < offsetRem-p; i++ {
 					buf = append(buf, 0)
@@ -163,7 +163,7 @@ func stripeWrite(eng engine.Engine, oid, value []byte, offset, length uint64) er
 			use = endRem - offsetRem
 		}
 
-		helper.Logger.Printf(20, "using %d bytes for this stripe \r\n", use)
+		helper.Printf(5, "using %d bytes for this stripe \r\n", use)
 		buf = append(buf, value[valueLocator:use+valueLocator]...)
 
 		if endRem > 0 && remainStripeNumber == 0 {
@@ -171,7 +171,7 @@ func stripeWrite(eng engine.Engine, oid, value []byte, offset, length uint64) er
 			if endRem < prevLen {
 				l := prevLen - endRem
 				buf = append(buf, prev[endRem:prevLen]...)
-				helper.Logger.Printf(20, "resue trailing %d bytes \r\n", l)
+				helper.Printf(20, "resue trailing %d bytes \r\n", l)
 			}
 		}
 		put(batch, stripeOff, n, buf)
@@ -182,14 +182,14 @@ func stripeWrite(eng engine.Engine, oid, value []byte, offset, length uint64) er
 
 	if offset > n.Size {
 		n.Size = offset
-		helper.Logger.Printf(20, "extending size to %d \r\n", offset+length)
+		helper.Printf(5, "extending size to %d \r\n", offset+length)
 	}
 
 	//put onode to store
 	newbuf, _ := bson.Marshal(n)
 	batch.Put(oid, newbuf)
 
-	helper.Logger.Printf(20, "finished processing stripes\r\n")
+	helper.Printf(20, "finished processing stripes\r\n")
 	return batch.Commit()
 }
 
@@ -228,29 +228,29 @@ func stripeRead(eng engine.Engine, oid []byte, offset, length uint64) ([]byte, e
 	for length > 0 {
 		stripebuf, _ := get(eng, offset-stripeOff, &n)
 		buflen := uint64(len(stripebuf))
-		helper.Logger.Printf(20, "got %d bytes for offset %d\r\n", buflen, offset-stripeOff)
+		helper.Printf(20, "got %d bytes for offset %d\r\n", buflen, offset-stripeOff)
 
 		swant := min(stripeSize-stripeOff, length)
 		if buflen > 0 {
 			if swant == buflen {
 				buf = append(buf, stripebuf...)
-				helper.Logger.Printf(20, "taking full stripe at offset %d \r\n", stripeOff)
+				helper.Printf(20, "taking full stripe at offset %d \r\n", stripeOff)
 			} else {
 				l := min(stripeSize-stripeOff, swant)
 
 				//maybe wrong
 				buf = append(buf, stripebuf[stripeOff:l+stripeOff]...)
-				helper.Logger.Printf(20, "taking at offset %d ~ %d\r\n", stripeOff, l)
+				helper.Printf(20, "taking at offset %d ~ %d\r\n", stripeOff, l)
 
 				if l < swant {
-					helper.Logger.Printf(20, "adding %d zeros\r\n", swant-l)
+					helper.Printf(20, "adding %d zeros\r\n", swant-l)
 					for i := uint64(0); i < swant-l; i++ {
 						buf = append(buf, 0)
 					}
 				}
 			}
 		} else {
-			helper.Logger.Printf(20, "adding %d zeros\r\n", swant)
+			helper.Printf(20, "adding %d zeros\r\n", swant)
 			for i := uint64(0); i < swant; i++ {
 				buf = append(buf, 0)
 			}

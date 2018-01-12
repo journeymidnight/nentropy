@@ -98,12 +98,12 @@ func (s *Store) processReady(ctx context.Context, id multiraftbase.GroupID) {
 	stats, expl, err := r.handleRaftReady(IncomingSnapshot{})
 
 	if err != nil {
-		helper.Logger.Fatalf(5, "%v, %s", expl, err) // TODO(bdarnell)
+		helper.Fatalf("%v, %s", expl, err) // TODO(bdarnell)
 	}
 
 	elapsed := timeutil.Since(start)
 	if elapsed >= defaultReplicaRaftMuWarnThreshold {
-		helper.Logger.Printf(5, "handle raft ready: %.1fs [processed=%d]",
+		helper.Printf(5, "handle raft ready: %.1fs [processed=%d]",
 			elapsed.Seconds(), stats.processed)
 	}
 	if !r.IsInitialized() {
@@ -117,15 +117,15 @@ func (s *Store) enqueueRaftUpdateCheck(groupID multiraftbase.GroupID) {
 }
 
 func (s *Store) processRequestQueue(ctx context.Context, id multiraftbase.GroupID) {
-	helper.Logger.Println(20, "Enter processRequestQueue(). id:", id)
+	helper.Println(20, "Enter processRequestQueue(). id:", id)
 	value, ok := s.replicaQueues.Load(id)
 	if !ok {
-		helper.Logger.Println(5, "Cannot load replicaQueues. id:", id)
+		helper.Println(5, "Cannot load replicaQueues. id:", id)
 		return
 	}
 	q, ok := value.(*raftRequestQueue)
 	if !ok {
-		helper.Logger.Println(5, "Cannot convert to raftRequestQueue type")
+		helper.Println(5, "Cannot convert to raftRequestQueue type")
 		return
 	}
 	q.Lock()
@@ -140,7 +140,7 @@ func (s *Store) processRequestQueue(ctx context.Context, id multiraftbase.GroupI
 			// targeted to a removed range. This is also racy and could cause us to
 			// drop messages to the deleted range occasionally (#18355), but raft
 			// will just retry.
-			helper.Logger.Printf(5, "Failed to call processRaftRequest")
+			helper.Printf(5, "Failed to call processRaftRequest")
 			q.Lock()
 			if len(q.infos) == 0 {
 				s.replicaQueues.Delete(id)
@@ -149,7 +149,7 @@ func (s *Store) processRequestQueue(ctx context.Context, id multiraftbase.GroupI
 			if err := info.respStream.Send(newRaftMessageResponse(info.req, pErr)); err != nil {
 				// Seems excessive to log this on every occurrence as the other side
 				// might have closed.
-				helper.Logger.Printf(5, "error sending error: %s", err)
+				helper.Printf(5, "error sending error: %s", err)
 			}
 		}
 	}
@@ -222,7 +222,7 @@ func (s *Store) processTick(ctx context.Context, id multiraftbase.GroupID) bool 
 	}
 	exists, err := r.tick()
 	if err != nil {
-		helper.Logger.Println(5, err)
+		helper.Println(5, err)
 	}
 	return exists // ready
 }
@@ -341,7 +341,7 @@ func (s *Store) sendQueuedHeartbeatsToNode(
 	} else if len(beats) == 0 {
 		msgType = raftpb.MsgHeartbeatResp
 	} else {
-		helper.Logger.Fatalf(5, "cannot coalesce both heartbeats and responses")
+		helper.Fatalf("cannot coalesce both heartbeats and responses")
 	}
 
 	chReq := &multiraftbase.RaftMessageRequest{
@@ -393,10 +393,10 @@ func (s *Store) sendQueuedHeartbeatsToNode(
 func (s *Store) HandleRaftRequest(
 	ctx context.Context, req *multiraftbase.RaftMessageRequest, respStream RaftMessageResponseStream,
 ) *multiraftbase.Error {
-	helper.Logger.Printf(20, "HandleRaftRequest handle %d req", len(req.Heartbeats)+len(req.HeartbeatResps))
+	helper.Printf(20, "HandleRaftRequest handle %d req", len(req.Heartbeats)+len(req.HeartbeatResps))
 	if len(req.Heartbeats)+len(req.HeartbeatResps) > 0 {
 		if req.GroupID != "" {
-			helper.Logger.Fatalf(5, "coalesced heartbeats must have groupID == 0")
+			helper.Fatalf("coalesced heartbeats must have groupID == 0")
 		}
 		s.uncoalesceBeats(ctx, req.Heartbeats, req.FromReplica, req.ToReplica, raftpb.MsgHeartbeat, respStream)
 		s.uncoalesceBeats(ctx, req.HeartbeatResps, req.FromReplica, req.ToReplica, raftpb.MsgHeartbeatResp, respStream)
@@ -416,7 +416,7 @@ func (s *Store) uncoalesceBeats(
 		return
 	}
 
-	helper.Logger.Printf(20, "uncoalescing %d beats of type %v: %+v", len(beats), msgT, beats)
+	helper.Printf(20, "uncoalescing %d beats of type %v: %+v", len(beats), msgT, beats)
 
 	beatReqs := make([]multiraftbase.RaftMessageRequest, len(beats))
 	for i, beat := range beats {
@@ -444,10 +444,10 @@ func (s *Store) uncoalesceBeats(
 			Quiesce: beat.Quiesce,
 		}
 
-		helper.Logger.Printf(20, "uncoalesced beat: %+v", beatReqs[i])
+		helper.Printf(20, "uncoalesced beat: %+v", beatReqs[i])
 
 		if err := s.HandleRaftUncoalescedRequest(ctx, &beatReqs[i], respStream); err != nil {
-			helper.Logger.Printf(5, "could not handle uncoalesced heartbeat %s", err)
+			helper.Printf(5, "could not handle uncoalesced heartbeat %s", err)
 		}
 	}
 }
@@ -504,7 +504,7 @@ func (s *Store) tryGetOrCreateReplica(
 ) (_ *Replica, created bool, _ error) {
 	// The common case: look up an existing (initialized) replica.
 	if value, ok := s.mu.replicas.Load(groupID); ok {
-		helper.Logger.Printf(20, "Load an exist replica.")
+		helper.Printf(20, "Load an exist replica.")
 		repl, ok := value.(*Replica)
 		if !ok {
 			return nil, false, multiraftbase.NewReplicaTooOldError(creatingReplica.ReplicaID)
@@ -529,7 +529,7 @@ func (s *Store) tryGetOrCreateReplica(
 		repl.mu.Unlock()
 		return repl, false, nil
 	}
-	helper.Logger.Printf(10, "Create a replica.")
+	helper.Printf(10, "Create a replica.")
 	// Create a new replica and lock it for raft processing.
 	repl := newReplica(groupID, s)
 	repl.creatingReplica = creatingReplica
@@ -572,7 +572,7 @@ func (s *Store) tryGetOrCreateReplica(
 		s.replicaQueues.Delete(groupID)
 		s.mu.Unlock()
 		repl.raftMu.Unlock()
-		helper.Logger.Printf(0, "Error initRaftMuLockedReplicaMuLocked(), err:", err)
+		helper.Printf(0, "Error initRaftMuLockedReplicaMuLocked(), err:", err)
 		return nil, false, err
 	}
 	repl.mu.Unlock()
@@ -583,7 +583,7 @@ func (s *Store) processRaftRequest(
 	ctx context.Context, req *multiraftbase.RaftMessageRequest, inSnap IncomingSnapshot,
 ) (pErr *multiraftbase.Error) {
 	// Lazily create the replica.
-	helper.Logger.Printf(20, "Enter processRaftRequest() ")
+	helper.Printf(20, "Enter processRaftRequest() ")
 	r, _, err := s.getOrCreateReplica(
 		ctx,
 		req.GroupID,
@@ -599,7 +599,7 @@ func (s *Store) processRaftRequest(
 
 	if req.Quiesce {
 		if req.Message.Type != raftpb.MsgHeartbeat {
-			helper.Logger.Fatalf(5, "unexpected quiesce: %+v", req)
+			helper.Fatalf("unexpected quiesce: %+v", req)
 		}
 		status := r.RaftStatus()
 		if status != nil && status.Term == req.Message.Term && status.Commit == req.Message.Commit {
@@ -608,7 +608,7 @@ func (s *Store) processRaftRequest(
 			}
 		}
 
-		helper.Logger.Printf(5, "not quiescing: local raft status is %+v, incoming quiesce message is %+v", status, req.Message)
+		helper.Printf(5, "not quiescing: local raft status is %+v, incoming quiesce message is %+v", status, req.Message)
 	}
 
 	if err := r.withRaftGroup(func(raftGroup *raft.RawNode) (bool, error) {
@@ -618,7 +618,7 @@ func (s *Store) processRaftRequest(
 		if req.Message.Type == raftpb.MsgApp {
 			r.setEstimatedCommitIndexLocked(req.Message.Commit)
 		}
-		helper.Logger.Println(20, "received message:", "To:", req.Message.To,
+		helper.Println(20, "received message:", "To:", req.Message.To,
 			"From:", req.Message.From,
 			"Type:", req.Message.Type,
 			"Term:", req.Message.Term,
@@ -634,7 +634,7 @@ func (s *Store) processRaftRequest(
 
 	if _, expl, err := r.handleRaftReadyRaftMuLocked(inSnap); err != nil {
 		// Mimic the behavior in processRaft.
-		helper.Logger.Fatalf(5, "%v: %s", expl, err) // TODO(bdarnell)
+		helper.Fatalf("%v: %s", expl, err) // TODO(bdarnell)
 	}
 	return nil
 }
@@ -646,17 +646,17 @@ func (s *Store) HandleRaftUncoalescedRequest(
 ) *multiraftbase.Error {
 
 	if len(req.Heartbeats)+len(req.HeartbeatResps) > 0 {
-		helper.Logger.Fatalf(5, "HandleRaftUncoalescedRequest cannot be given coalesced heartbeats or heartbeat responses, received %s", req)
+		helper.Fatalf("HandleRaftUncoalescedRequest cannot be given coalesced heartbeats or heartbeat responses, received %s", req)
 	}
 	// HandleRaftRequest is called on locally uncoalesced heartbeats (which are
 	// not sent over the network if the environment variable is set) so do not
 	// count them.
 
 	if respStream == nil {
-		helper.Logger.Printf(5, " call processRaftRequest")
+		helper.Printf(5, " call processRaftRequest")
 		return s.processRaftRequest(ctx, req, IncomingSnapshot{})
 	}
-	helper.Logger.Printf(20, "HandleRaftUncoalescedRequest() groupID:", req.GroupID)
+	helper.Printf(20, "HandleRaftUncoalescedRequest() groupID:", req.GroupID)
 	value, ok := s.replicaQueues.Load(req.GroupID)
 	if !ok {
 		value, _ = s.replicaQueues.LoadOrStore(req.GroupID, &raftRequestQueue{})
@@ -710,7 +710,7 @@ func (s *Store) HandleRaftResponse(ctx context.Context, resp *multiraftbase.Raft
 			if err != nil {
 				// RangeNotFoundErrors are expected here; nothing else is.
 				if _, ok := err.(*multiraftbase.GroupNotFoundError); !ok {
-					helper.Logger.Println(5, err)
+					helper.Println(5, err)
 				}
 				return nil
 			}
@@ -726,12 +726,12 @@ func (s *Store) HandleRaftResponse(ctx context.Context, resp *multiraftbase.Raft
 			}
 			repl.mu.Unlock()
 		default:
-			helper.Logger.Printf(5, "got error from r%d, replica %s: %s",
+			helper.Printf(5, "got error from r%d, replica %s: %s",
 				resp.GroupID, resp.FromReplica, val)
 		}
 
 	default:
-		helper.Logger.Printf(5, "got unknown raft response type %T from replica %s: %s", val, resp.FromReplica, val)
+		helper.Printf(5, "got unknown raft response type %T from replica %s: %s", val, resp.FromReplica, val)
 	}
 	return nil
 }
@@ -839,7 +839,7 @@ func (s *Store) addReplicaInternalLocked(repl *Replica) error {
 func (s *Store) BootstrapGroup(initialValues []multiraftbase.KeyValue, group *multiraftbase.GroupDescriptor) error {
 	desc := *group
 	if err := desc.Validate(); err != nil {
-		helper.Logger.Println(5, "BootstrapGroup quit 0 ", err.Error())
+		helper.Println(5, "BootstrapGroup quit 0 ", err.Error())
 		return err
 	}
 	/*
@@ -861,19 +861,19 @@ func (s *Store) BootstrapGroup(initialValues []multiraftbase.KeyValue, group *mu
 	*/
 	_, found := group.GetReplicaDescriptor(s.nodeDesc.NodeID)
 	if !found {
-		helper.Logger.Println(5, "BootstrapGroup quit 1 ")
+		helper.Println(5, "BootstrapGroup quit 1 ")
 		return errors.New(fmt.Sprintf("send to wrong node %s", s.nodeDesc.NodeID))
 	}
 	r, err := NewReplica(&desc, s, 0)
 	if err != nil {
-		helper.Logger.Println(5, "BootstrapGroup quit 2 ", err.Error())
+		helper.Println(5, "BootstrapGroup quit 2 ", err.Error())
 		return err
 	}
 	s.mu.Lock()
 	err = s.addReplicaInternalLocked(r)
 	s.mu.Unlock()
 	if err != nil {
-		helper.Logger.Println(5, "BootstrapGroup quit 3 ", err.Error())
+		helper.Println(5, "BootstrapGroup quit 3 ", err.Error())
 		return err
 	}
 	if _, ok := desc.GetReplicaDescriptor(s.NodeID()); !ok {
@@ -899,14 +899,14 @@ func (s *Store) BootstrapGroup(initialValues []multiraftbase.KeyValue, group *mu
 		if err != nil {
 			r.mu.Unlock()
 			r.raftMu.Unlock()
-			helper.Logger.Println(5, "BootstrapGroup quit 4 ", err.Error())
+			helper.Println(5, "BootstrapGroup quit 4 ", err.Error())
 			return err
 		}
 		r.mu.internalRaftGroup = raftGroup
 	}
 	r.mu.Unlock()
 	r.raftMu.Unlock()
-	helper.Logger.Println(5, "BootstrapGroup quit 5 ")
+	helper.Println(5, "BootstrapGroup quit 5 ")
 	return nil
 }
 
@@ -916,10 +916,10 @@ func (s *Store) GetGroupIdsByLeader() ([]string, error) {
 	vector := make([]string, 0)
 	s.mu.replicas.Range(func(key, value interface{}) bool {
 		replica, _ := value.(*Replica)
-		helper.Logger.Println(5, "check one replica*******************:", replica)
+		helper.Println(5, "check one replica*******************:", replica)
 		if replica.amLeader() {
 			vector = append(vector, string(replica.GroupID))
-			helper.Logger.Println(5, "find one leader*******************:", string(replica.GroupID))
+			helper.Println(5, "find one leader*******************:", string(replica.GroupID))
 		}
 		return true
 	})

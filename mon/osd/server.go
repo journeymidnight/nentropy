@@ -36,11 +36,15 @@ type OsdServer struct {
 
 const OSD_STATUS_REPORT_PERIOD = 2 * time.Second
 
+func getOSDDataDir(rootDir string, id int) string {
+	return fmt.Sprintf("%s/osd.%d", rootDir, id)
+}
+
 func getOsdMap() (*protos.OsdMap, error) {
 	mon := memberlist.GetLeaderMon()
 	conn, err := grpc.Dial(mon.Addr, grpc.WithInsecure())
 	if err != nil {
-		helper.Logger.Printf(5, "fail to dial: %v", err)
+		helper.Printf(5, "fail to dial: %v", err)
 		return nil, err
 	}
 	defer conn.Close()
@@ -58,7 +62,7 @@ func getPgMaps() (*protos.PgMaps, error) {
 	mon := memberlist.GetLeaderMon()
 	conn, err := grpc.Dial(mon.Addr, grpc.WithInsecure())
 	if err != nil {
-		helper.Logger.Printf(5, "fail to dial: %v", err)
+		helper.Printf(5, "fail to dial: %v", err)
 		return nil, err
 	}
 	defer conn.Close()
@@ -138,7 +142,7 @@ func NewOsdServer(ctx context.Context, cfg Config, stopper *stop.Stopper) (*OsdS
 	//for i <= 100 {
 	//	mon := memberlist.GetPrimaryMon()
 	//	if mon != nil {
-	//		helper.Logger.Println(5, "got primary mon", mon)
+	//		helper.Println(5, "got primary mon", mon)
 	//	}
 	//	time.Sleep(1 * time.Second)
 	//	i = i + 1
@@ -154,7 +158,11 @@ func NewOsdServer(ctx context.Context, cfg Config, stopper *stop.Stopper) (*OsdS
 
 	multiraftbase.RegisterInternalServer(s.grpc, s)
 
-	opt := engine.KVOpt{WALDir: config.WALDir}
+	dir, err := helper.GetDataDir(config.RootDir, uint64(config.NodeID), false)
+	if err != nil {
+		helper.Fatal("Error creating data dir! err:", err)
+	}
+	opt := engine.KVOpt{Dir: dir}
 	eng, err := engine.NewBadgerDB(&opt)
 	if err != nil {
 		return nil, errors.New("Error to create db.")
@@ -169,15 +177,8 @@ func NewOsdServer(ctx context.Context, cfg Config, stopper *stop.Stopper) (*OsdS
 		RaftHeartbeatIntervalTicks:  1,
 	}
 	desc := multiraftbase.NodeDescriptor{}
-	//if s.cfg.NodeID == 1 {
-	//	desc.NodeID = "1"
-	//} else if s.cfg.NodeID == 2 {
-	//	desc.NodeID = "2"
-	//} else if s.cfg.NodeID == 3 {
-	//	desc.NodeID = "3"
-	//}
 	desc.NodeID = multiraftbase.NodeID(fmt.Sprintf("%s.%d", s.cfg.NodeType, s.cfg.NodeID))
-	helper.Logger.Println(0, "New osd server nodeid: ", s.cfg.NodeID)
+	helper.Println(0, "New osd server nodeid: ", s.cfg.NodeID)
 	s.store = multiraft.NewStore(storeCfg, eng, &desc)
 
 	if err := s.store.Start(ctx, stopper); err != nil {
@@ -204,10 +205,10 @@ func (s *OsdServer) batchInternal(
 		br, pErr = s.store.Send(ctx, *args)
 		if pErr != nil {
 			br = &multiraftbase.BatchResponse{}
-			helper.Logger.Printf(5, "%T", pErr.GetDetail())
+			helper.Printf(5, "%T", pErr.GetDetail())
 		}
 		if br.Error != nil {
-			helper.Logger.Panicln(0, "unexpectedly error. error:", br.Error)
+			helper.Panicln(0, "unexpectedly error. error:", br.Error)
 		}
 		br.Error = pErr
 		return nil
@@ -221,7 +222,7 @@ func (s *OsdServer) Batch(
 	ctx context.Context, args *multiraftbase.BatchRequest,
 ) (*multiraftbase.BatchResponse, error) {
 
-	helper.Logger.Println(0, "Get a batch request! GroupID:", args.GroupID)
+	helper.Println(0, "Get a batch request! GroupID:", args.GroupID)
 
 	// NB: Node.Batch is called directly for "local" calls. We don't want to
 	// carry the associated log tags forward as doing so makes adding additional
@@ -238,8 +239,7 @@ func (s *OsdServer) Batch(
 			br = &multiraftbase.BatchResponse{}
 		}
 		if br.Error != nil {
-			helper.Logger.Fatalf(
-				5, "attempting to return both a plain error (%s) and roachpb.Error (%s)", err, br.Error,
+			helper.Fatalf("attempting to return both a plain error (%s) and roachpb.Error (%s)", err, br.Error,
 			)
 		}
 		br.Error = multiraftbase.NewError(err)
@@ -251,7 +251,7 @@ func (s *OsdServer) Batch(
 func (s *OsdServer) sendOsdStatusToMon(addr string) {
 	conn, err := grpc.Dial(addr, grpc.WithInsecure())
 	if err != nil {
-		helper.Logger.Println(5, "fail to dial: %v", err)
+		helper.Println(5, "fail to dial: %v", err)
 		return
 	}
 	defer conn.Close()
@@ -263,12 +263,12 @@ func (s *OsdServer) sendOsdStatusToMon(addr string) {
 	ctx := context.Background()
 	res, err := client.OsdStatusReport(ctx, &req)
 	if err != nil {
-		helper.Logger.Println(5, "Error send rpc request!")
+		helper.Println(5, "Error send rpc request!")
 		return
 	}
 
 	getRes := res.GetRetCode()
-	helper.Logger.Println(5, "Finished! sendOsdStatusToMon retcode=%d", getRes, len(groups))
+	helper.Println(5, "Finished! sendOsdStatusToMon retcode=%d", getRes, len(groups))
 
 }
 
@@ -300,7 +300,7 @@ func (s *OsdServer) Start(ctx context.Context) error {
 			case <-reportTicker.C:
 				mon := memberlist.GetLeaderMon()
 				if mon == nil {
-					helper.Logger.Println(5, "can not get primary mon addr yet!")
+					helper.Println(5, "can not get primary mon addr yet!")
 					continue
 				}
 				s.sendOsdStatusToMon(mon.Addr)
@@ -310,25 +310,9 @@ func (s *OsdServer) Start(ctx context.Context) error {
 		}
 
 	})
-	//replicas :=
-	//	[]multiraftbase.ReplicaDescriptor{
-	//		{
-	//			NodeID:    "1",
-	//			StoreID:   1,
-	//			ReplicaID: 1,
-	//		},
-	//		{
-	//			NodeID:    "2",
-	//			StoreID:   2,
-	//			ReplicaID: 2,
-	//		},
-	//	}
-	//groupDesc := multiraftbase.GroupDescriptor{
-	//	GroupID:       "1",
-	//	PoolId:        1,
-	//	Replicas:      replicas,
-	//	NextReplicaID: 4}
-	//s.store.BootstrapGroup(nil, &groupDesc)
+	//s.pgMaps
+
+	s.createOrRemoveReplica()
 
 	return nil
 }

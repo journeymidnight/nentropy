@@ -153,7 +153,7 @@ func (n *node) ConfState() *raftpb.ConfState {
 }
 
 func newNode(id uint64, myAddr string) *node {
-	helper.Logger.Printf(10, "Node with ID: %v\n", id)
+	helper.Printf(10, "Node with ID: %v\n", id)
 
 	props := proposals{
 		ids: make(map[uint32]*proposalCtx),
@@ -273,7 +273,7 @@ func (n *node) processApplyCh() {
 				helper.Check(rc.Unmarshal(cc.Context))
 				//n.Connect(rc.Id, rc.Addr)
 				//n.peersAddr = append(n.peersAddr, rc.Addr)
-				helper.Logger.Println(10, "ConfChange rc.ID:", rc.Id, "rc.Addr", rc.Addr)
+				helper.Println(10, "ConfChange rc.ID:", rc.Id, "rc.Addr", rc.Addr)
 			}
 			switch cc.Type {
 			case raftpb.ConfChangeAddNode:
@@ -287,17 +287,17 @@ func (n *node) processApplyCh() {
 			}
 
 			cs := n.Raft().ApplyConfChange(cc)
-			helper.Logger.Println(10, "ConfChange cc.ID:", cc.ID, "cc.NodeID", cc.NodeID)
+			helper.Println(10, "ConfChange cc.ID:", cc.ID, "cc.NodeID", cc.NodeID)
 			n.SetConfState(cs)
 			continue
 		}
 
 		helper.AssertTrue(e.Type == raftpb.EntryNormal)
-		helper.Logger.Println(5, "Process EntryNormal for raft!")
+		helper.Println(5, "Process EntryNormal for raft!")
 
 		proposal := &protos.Proposal{}
 		if err := proposal.Unmarshal(e.Data); err != nil {
-			helper.Logger.Fatalf(0, "Unable to unmarshal proposal: %v %q\n", err, e.Data)
+			helper.Fatalf("Unable to unmarshal proposal: %v %q\n", err, e.Data)
 		}
 		var err error
 		if handleCommittedMsg != nil {
@@ -312,14 +312,14 @@ func (n *node) saveToStorage(s raftpb.Snapshot, h raftpb.HardState,
 	if !raft.IsEmptySnap(s) {
 		le, err := n.store.LastIndex()
 		if err != nil {
-			helper.Logger.Fatalf(0, "While retrieving last index: %v\n", err)
+			helper.Fatalf("While retrieving last index: %v\n", err)
 		}
 		if s.Metadata.Index <= le {
 			return
 		}
 
 		if err := n.store.ApplySnapshot(s); err != nil {
-			helper.Logger.Fatalf(0, "Applying snapshot: %v", err)
+			helper.Fatalf("Applying snapshot: %v", err)
 		}
 	}
 
@@ -347,7 +347,7 @@ func (n *node) Run() {
 
 		case rd := <-n.Raft().Ready():
 			if rd.SoftState != nil {
-				helper.Logger.Println(5, "enter raft ready change SoftState:", rd.RaftState, n.leader)
+				helper.Println(5, "enter raft ready change SoftState:", rd.RaftState, n.leader)
 				if rd.RaftState == raft.StateFollower && n.leader {
 					// stepped down as leader do a sync membership immediately
 					//cluster().syncMemberships()
@@ -387,15 +387,15 @@ func (n *node) Run() {
 				var rc protos.RaftContext
 				helper.Check(rc.Unmarshal(rd.Snapshot.Data))
 				if rc.Id != n.id {
-					helper.Logger.Printf(10, "-------> SNAPSHOT [%d] from %d\n", n.gid, rc.Id)
+					helper.Printf(10, "-------> SNAPSHOT [%d] from %d\n", n.gid, rc.Id)
 					n.retrieveSnapshot(rc.Id)
-					helper.Logger.Printf(10, "-------> SNAPSHOT [%d]. DONE.\n", n.gid)
+					helper.Printf(10, "-------> SNAPSHOT [%d]. DONE.\n", n.gid)
 				} else {
-					helper.Logger.Printf(10, "-------> SNAPSHOT [%d] from %d [SELF]. Ignoring.\n", n.gid, rc.Id)
+					helper.Printf(10, "-------> SNAPSHOT [%d] from %d [SELF]. Ignoring.\n", n.gid, rc.Id)
 				}
 			}
 			if len(rd.CommittedEntries) > 0 {
-				helper.Logger.Println(10, "Ready(): message count: ", len(rd.CommittedEntries))
+				helper.Println(10, "Ready(): message count: ", len(rd.CommittedEntries))
 				if tr, ok := trace.FromContext(n.ctx); ok {
 					tr.LazyPrintf("Found %d committed entries", len(rd.CommittedEntries))
 				}
@@ -508,7 +508,7 @@ func (n *node) joinPeers() {
 		}
 		id = id + 1
 		n.Connect(uint64(id), addr)
-		helper.Logger.Printf(10, "joinPeers connected with: %q with peer id: %d\n", addr, id)
+		helper.Printf(10, "joinPeers connected with: %q with peer id: %d\n", addr, id)
 
 		pool, err := pools().get(addr)
 		if err != nil {
@@ -525,10 +525,10 @@ func (n *node) joinPeers() {
 		conn := pool.Get()
 
 		c := protos.NewRaftNodeClient(conn)
-		helper.Logger.Printf(10, "Calling JoinCluster")
+		helper.Printf(10, "Calling JoinCluster")
 		_, err = c.JoinCluster(n.ctx, n.raftContext)
 		helper.Checkf(err, "Error while joining cluster")
-		helper.Logger.Printf(10, "Done with JoinCluster call\n")
+		helper.Printf(10, "Done with JoinCluster call\n")
 	*/
 }
 
@@ -542,7 +542,7 @@ func (n *node) initFromWal(wal *raftwal.Wal) (restart bool, rerr error) {
 	}
 	var term, idx uint64
 	if !raft.IsEmptySnap(sp) {
-		helper.Logger.Printf(10, "Found Snapshot: %+v\n", sp)
+		helper.Printf(10, "Found Snapshot: %+v\n", sp)
 		restart = true
 		if rerr = n.store.ApplySnapshot(sp); rerr != nil {
 			return
@@ -557,7 +557,7 @@ func (n *node) initFromWal(wal *raftwal.Wal) (restart bool, rerr error) {
 		return
 	}
 	if !raft.IsEmptyHardState(hd) {
-		helper.Logger.Printf(10, "Found hardstate: %+v\n", sp)
+		helper.Printf(10, "Found hardstate: %+v\n", sp)
 		restart = true
 		if rerr = n.store.SetHardState(hd); rerr != nil {
 			return
@@ -569,7 +569,7 @@ func (n *node) initFromWal(wal *raftwal.Wal) (restart bool, rerr error) {
 	if rerr != nil {
 		return
 	}
-	helper.Logger.Printf(10, "Group %d found %d entries\n", n.gid, len(es))
+	helper.Printf(10, "Group %d found %d entries\n", n.gid, len(es))
 	if len(es) > 0 {
 		restart = true
 	}
@@ -591,11 +591,11 @@ func (n *node) InitAndStartNode(wal *raftwal.Wal, grpcSrv *grpc.Server) {
 	}
 
 	if restart {
-		helper.Logger.Printf(10, "Restarting node for cluster")
+		helper.Printf(10, "Restarting node for cluster")
 		n.SetRaft(raft.RestartNode(n.cfg))
 
 	} else {
-		helper.Logger.Printf(10, "New Node for cluster")
+		helper.Printf(10, "New Node for cluster")
 		if config.JoinMon {
 			n.joinPeers()
 			rpeers = nil

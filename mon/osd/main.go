@@ -36,7 +36,7 @@ func main() {
 	if err != nil {
 		panic("take up a random port failed")
 	}
-	logger.Println(5, "Listen at :", Listener.Addr())
+	helper.Println(5, "Listen at :", Listener.Addr())
 	var s *OsdServer
 	go func() {
 		defer func() {
@@ -65,14 +65,14 @@ func main() {
 
 	}()
 
-	defer helper.Logger.Printf(0, "exit...")
+	defer helper.Printf(0, "exit...")
 
 	// Block until one of the signals above is received or the stopper
 	// is stopped externally (for example, via the quit endpoint).
 	select {
 	case err := <-errChan:
 		// SetSync both flushes and ensures that subsequent log writes are flushed too.
-		logger.Printf(5, "osd quit %v", err)
+		helper.Printf(5, "osd quit %v", err)
 		return
 	case <-stopper.ShouldStop():
 		// Server is being stopped externally and our job is finished
@@ -85,7 +85,7 @@ func main() {
 		// signal was received there is a non-zero chance the sender of
 		// this signal will follow up with SIGKILL if the shutdown is not
 		// timely, and we don't want logs to be lost.
-		logger.Printf(5, "received signal '%s'", sig)
+		helper.Printf(5, "received signal '%s'", sig)
 		if sig == os.Interrupt {
 			// Graceful shutdown after an interrupt should cause the process
 			// to terminate with a non-zero exit code; however SIGTERM is

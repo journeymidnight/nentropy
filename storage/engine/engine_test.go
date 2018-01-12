@@ -6,7 +6,7 @@ import (
 )
 
 func Test_PutDataNoTxn(t *testing.T) {
-	opt := KVOpt{WALDir: "./testDir"}
+	opt := KVOpt{Dir: "./testDir"}
 	eng, err := NewBadgerDB(&opt)
 	if err != nil {
 		t.Error(err)
@@ -23,7 +23,7 @@ func Test_PutDataNoTxn(t *testing.T) {
 }
 
 func Test_GetData(t *testing.T) {
-	opt := KVOpt{WALDir: "./testDir"}
+	opt := KVOpt{Dir: "./testDir"}
 	eng, err := NewBadgerDB(&opt)
 	if err != nil {
 		t.Error(err)
@@ -40,7 +40,7 @@ func Test_GetData(t *testing.T) {
 }
 
 func Test_PutDataByTxn(t *testing.T) {
-	opt := KVOpt{WALDir: "./testDir"}
+	opt := KVOpt{Dir: "./testDir"}
 	var eng Engine
 	badger, err := NewBadgerDB(&opt)
 	if err != nil {

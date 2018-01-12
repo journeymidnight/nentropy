@@ -92,23 +92,23 @@ func recvChanEvent(myName string) {
 				}
 				member := Member{}
 				if err := json.Unmarshal(e.Node.Meta, &member); err != nil {
-					helper.Logger.Fatal(0, "Failed to unmarshal meta data. err:", err)
+					helper.Fatal("Failed to unmarshal meta data. err:", err)
 				}
 				if notifyMemberEvent != nil {
 					notifyMemberEvent(MemberJoin, member)
 				}
-				helper.Logger.Println(5, "Node:", e.Node.Name, " Join!")
+				helper.Println(5, "Node:", e.Node.Name, " Join!")
 			} else if e.Event == memberlist.NodeLeave {
 				member := Member{}
 				if err := json.Unmarshal(e.Node.Meta, &member); err != nil {
-					helper.Logger.Fatal(0, "Failed to unmarshal meta data. err:", err)
+					helper.Fatal("Failed to unmarshal meta data. err:", err)
 				}
 				if notifyMemberEvent != nil {
 					notifyMemberEvent(MemberLeave, member)
 				}
-				helper.Logger.Println(5, "Node:", e.Node.Name, " Leave!")
+				helper.Println(5, "Node:", e.Node.Name, " Leave!")
 			} else {
-				helper.Logger.Println(0, "The member event is not handled! event:", e.Event)
+				helper.Println(0, "The member event is not handled! event:", e.Event)
 			}
 		}
 	}
@@ -156,7 +156,7 @@ func Init(isMon bool, isLeader bool, id uint64, advertiseAddr string, memberBind
 	if err != nil {
 		panic("Failed to json member. : " + err.Error())
 	}
-	helper.Logger.Println(5, "Init member:", member)
+	helper.Println(5, "Init member:", member)
 	mock := &MemberDelegate{meta: meta}
 	c.Delegate = mock
 	if isMon {
@@ -169,7 +169,7 @@ func Init(isMon bool, isLeader bool, id uint64, advertiseAddr string, memberBind
 		panic("Failed to create memberlist: " + err.Error())
 	}
 
-	helper.Logger.Printf(5, "Join member addr is %s.", join)
+	helper.Printf(5, "Join member addr is %s.", join)
 	if join != "" {
 		//strs := strings.Split(helper.CONFIG.JoinMemberAddr, ",")
 		strs := []string{join}
@@ -181,7 +181,7 @@ func Init(isMon bool, isLeader bool, id uint64, advertiseAddr string, memberBind
 
 	// Ask for members of the cluster
 	for _, member := range List.Members() {
-		helper.Logger.Printf(0, "Member: %s %s\n", member.Name, member.Addr)
+		helper.Printf(0, "Member: %s %s\n", member.Name, member.Addr)
 	}
 
 	if isMon {
@@ -196,7 +196,7 @@ func Init(isMon bool, isLeader bool, id uint64, advertiseAddr string, memberBind
 		}
 		mock.meta = meta
 		List.UpdateNode(0)
-		helper.Logger.Println(5, "SetMonPrimary member:", member)
+		helper.Println(5, "SetMonPrimary member:", member)
 	}
 
 	SetMonFollower = func() {
@@ -207,7 +207,7 @@ func Init(isMon bool, isLeader bool, id uint64, advertiseAddr string, memberBind
 		}
 		mock.meta = meta
 		List.UpdateNode(0)
-		helper.Logger.Println(5, "SetMonFollower member:", member)
+		helper.Println(5, "SetMonFollower member:", member)
 	}
 
 }
@@ -217,7 +217,7 @@ func GetMembers() (members []Member) {
 	for _, node := range nodes {
 		member := Member{}
 		if err := json.Unmarshal(node.Meta, &member); err != nil {
-			helper.Logger.Fatal(0, "Failed to unmarshal meta data. err:", err)
+			helper.Fatal("Failed to unmarshal meta data. err:", err)
 		}
 		members = append(members, member)
 	}
@@ -235,7 +235,7 @@ func GetMemberByName(name string) *Member {
 
 func GetLeaderMon() *Member {
 	for _, v := range GetMembers() {
-		helper.Logger.Println(5, "member", v)
+		helper.Println(5, "member", v)
 		if v.IsLeader == true {
 			return &v
 		}

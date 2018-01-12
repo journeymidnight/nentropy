@@ -48,13 +48,16 @@ type ServerState struct {
 }
 
 func initStorage() {
+	dir, err := helper.GetDataDir(config.RootDir, config.RaftId, true)
+	if err != nil {
+		helper.Fatal("Error creating data dir! err:", err)
+	}
 	dbOpts := badger.DefaultOptions
 	dbOpts.SyncWrites = true
-	dbOpts.Dir = config.WALDir
-	dbOpts.ValueDir = config.WALDir
+	dbOpts.Dir = dir
+	dbOpts.ValueDir = dir
 	dbOpts.TableLoadingMode = options.MemoryMap
 
-	var err error
 	WALstore, err = badger.Open(dbOpts)
 	helper.Checkf(err, "Error while creating badger KV WAL store")
 }
@@ -95,7 +98,7 @@ func main() {
 	logger = helper.Logger
 
 	ip, port, peers := getIpAndPort(cfg.Monitors, int(cfg.RaftId))
-	helper.Logger.Println(5, "ip:", ip, " port:", port, " peers:", peers)
+	helper.Println(5, "ip:", ip, " port:", port, " peers:", peers)
 	initStorage()
 	defer disposeStorage()
 
@@ -103,7 +106,7 @@ func main() {
 
 	go StartRaftNodes(WALstore, grpcSrv, peers, ip+":"+port)
 
-	helper.Logger.Println(5, "raftid, advertiseaddr", cfg.RaftId, cfg.AdvertiseAddr)
+	helper.Println(5, "raftid, advertiseaddr", cfg.RaftId, cfg.AdvertiseAddr)
 	memberlist.Init(true, false, cfg.RaftId, cfg.AdvertiseAddr, cfg.MemberBindPort, logger.Logger, cfg.JoinMemberAddr)
 	memberlist.SetNotifyFunc(NotifyMemberEvent)
 
@@ -112,7 +115,7 @@ func main() {
 	laddr := "0.0.0.0"
 	ln, err := net.Listen("tcp", fmt.Sprintf("%s:%s", laddr, port))
 	if err != nil {
-		helper.Logger.Fatalf(0, "While running server: %v", err)
+		helper.Fatalf("While running server: %v", err)
 		return
 	}
 	go grpcSrv.Serve(ln)

@@ -90,7 +90,7 @@ func (ctx *Context) removeConn(key string, meta *connMeta) {
 	ctx.conns.Delete(key)
 	if conn := meta.conn; conn != nil {
 		if err := conn.Close(); err != nil {
-			helper.Logger.Printf(5, "failed to close client connection: %s", err)
+			helper.Printf(5, "failed to close client connection: %s", err)
 		}
 	}
 }

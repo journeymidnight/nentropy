@@ -15,14 +15,14 @@ type badgerDBBatch struct {
 }
 
 type KVOpt struct {
-	WALDir string
+	Dir string
 }
 
 func NewBadgerDB(opt *KVOpt) (*BadgerDB, error) {
 	dbOpts := badger.DefaultOptions
 	dbOpts.SyncWrites = true
-	dbOpts.Dir = opt.WALDir
-	dbOpts.ValueDir = opt.WALDir
+	dbOpts.Dir = opt.Dir
+	dbOpts.ValueDir = opt.Dir
 	dbOpts.TableLoadingMode = options.MemoryMap
 
 	r := &BadgerDB{}

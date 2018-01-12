@@ -47,7 +47,7 @@ func (s *OsdServer) createOrRemoveReplica() {
 				}
 				groupDes.NextReplicaID = multiraftbase.ReplicaID(pg.NextReplicaId)
 				go s.store.BootstrapGroup(nil, &groupDes)
-				helper.Logger.Println(5, fmt.Sprintf("try start a new replica :%d.%d", poolId, pgId))
+				helper.Println(5, fmt.Sprintf("try start a new replica :%d.%d", poolId, pgId))
 				break
 			}
 		}
@@ -64,16 +64,16 @@ func (s *OsdServer) SyncMap(ctx context.Context, in *protos.SyncMapRequest) (*pr
 	switch in.MapType {
 	case protos.PGMAP:
 		newPgMaps := in.UnionMap.GetPgmap()
-		helper.Logger.Println(5, "unionmap0", in.UnionMap)
-		helper.Logger.Println(5, "unionmap1", newPgMaps)
-		helper.Logger.Println(5, "wich one will panic 0", newPgMaps.Epoch)
+		helper.Println(5, "unionmap0", in.UnionMap)
+		helper.Println(5, "unionmap1", newPgMaps)
+		helper.Println(5, "wich one will panic 0", newPgMaps.Epoch)
 
 		if newPgMaps.Epoch > s.pgMaps.Epoch {
 			s.pgMaps = newPgMaps
 			go s.createOrRemoveReplica()
-			helper.Logger.Println(5, "recevie sync map request, epoch:", newPgMaps.Epoch)
+			helper.Println(5, "recevie sync map request, epoch:", newPgMaps.Epoch)
 		} else {
-			helper.Logger.Println(5, "recevie expire sync map request, epoch:", newPgMaps.Epoch)
+			helper.Println(5, "recevie expire sync map request, epoch:", newPgMaps.Epoch)
 			return &protos.SyncMapReply{}, errors.New(fmt.Sprintf("recevie expire sync map request, new epoch: %v, current epoch: %v", newPgMaps.Epoch, s.pgMaps.Epoch))
 		}
 
@@ -96,7 +96,7 @@ func (s *OsdServer) SyncMap(ctx context.Context, in *protos.SyncMapRequest) (*pr
 //	if err != nil {
 //		logger.Fatalf(5, "failed to listen: %v", err)
 //	}
-//	helper.Logger.Println(5, "Using osd rpc port:", lis.Addr().(*net.TCPAddr).Port)
+//	helper.Println(5, "Using osd rpc port:", lis.Addr().(*net.TCPAddr).Port)
 //	var opts []grpc.ServerOption
 //	osdServer = grpc.NewServer(opts...)
 //	protos.RegisterOsdRpcServer(osdServer, newServer())
