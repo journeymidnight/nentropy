@@ -16,6 +16,7 @@ import (
 	"github.com/pkg/errors"
 	"golang.org/x/net/context"
 
+	"math"
 	"sync"
 	"time"
 )
@@ -768,7 +769,7 @@ func newRaftConfig(
 
 		// MaxSizePerMsg controls how many Raft log entries the leader will send to
 		// followers in a single MsgApp.
-		MaxSizePerMsg: uint64(16 * 1024),
+		MaxSizePerMsg: math.MaxUint64,
 		// MaxInflightMsgs controls how many "inflight" messages Raft will send to
 		// a follower without hearing a response. The total number of Raft log
 		// entries is a combination of this setting and MaxSizePerMsg. The current

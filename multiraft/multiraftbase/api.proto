@@ -37,8 +37,9 @@ message ResponseHeader {
 // A GetRequest is the argument for the Get() method.
 message GetRequest {
     option (gogoproto.equal) = true;
-    int64 num_keys = 1;
-    bytes key = 2 [(gogoproto.casttype) = "Key"];
+    bytes key = 1 [(gogoproto.casttype) = "Key"];
+    Value value = 2 [(gogoproto.nullable) = false];
+
 }
 
 // A GetResponse is the return value from the Get() method.

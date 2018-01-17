@@ -3,6 +3,10 @@ package multiraft
 import (
 	"fmt"
 	"github.com/journeymidnight/nentropy/storage/engine"
+	"io/ioutil"
+	//"math"
+	"math"
+	"os"
 	"testing"
 )
 
@@ -14,10 +18,16 @@ func Test_StripPutData(t *testing.T) {
 		t.Error(err)
 	}
 
-	key := "key1"
-	val := "val1"
+	key := "key"
+	filename := "./testfile"
 
-	err = stripeWrite(eng, []byte(key), []byte(val), 0, uint64(len(val)))
+	data, err := ioutil.ReadFile(filename)
+	if err != nil {
+		fmt.Println("Error reading local file, err:", err)
+		t.Error(err)
+	}
+
+	err = stripeWrite(eng, []byte(key), data, 0, uint64(len(data)))
 	if err != nil {
 		fmt.Println("Error putting data to db.")
 		t.Error(err)
@@ -36,14 +46,20 @@ func Test_StripGetData(t *testing.T) {
 		t.Error(err)
 	}
 
-	key := "key1"
-	data, err := stripeRead(eng, []byte(key), 0, uint64(0xffffffff))
+	key := "key"
+	data, err := stripeRead(eng, []byte(key), 0, math.MaxUint64)
 	if err != nil {
-		fmt.Println("Error putting data to db.")
+		fmt.Println("Error getting data to db. err", err)
+		t.Error(err)
+	}
+	fmt.Println("stripRead ret lengh:", len(data))
+	err = ioutil.WriteFile("testfile.res", data, os.ModePerm)
+	if err != nil {
+		fmt.Println("Error writing local file, err:", err)
 		t.Error(err)
 	}
 
 	eng.Close()
 
-	fmt.Println("Finished! data:", data)
+	//fmt.Println("Finished! data:", data)
 }

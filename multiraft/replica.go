@@ -573,13 +573,10 @@ func (r *Replica) applyRaftCommand(
 			helper.Printf(5, "Cannot unmarshal data to kv")
 		}
 		eng := r.store.loadGroupEngine(r.Desc().GroupID)
-		err = stripeWrite(eng, []byte(putReq.Key), []byte(putReq.Value.RawBytes), 0, uint64(len(putReq.Value.RawBytes)))
+		err = stripeWrite(eng, []byte(putReq.Key), []byte(putReq.Value.RawBytes), uint64(putReq.Value.Offset), putReq.Value.Len)
 		if err != nil {
-			helper.Println(5, "Error putting data to db")
+			helper.Println(5, "Error putting data to db, err:", err)
 		}
-
-		helper.Println(5, "applyRaftCommand: key:", string(putReq.Key))
-		helper.Println(5, "applyRaftCommand: value:", string(putReq.Value.RawBytes))
 	} else {
 		helper.Printf(5, "Unexpected raft command method.")
 	}
@@ -1086,17 +1083,14 @@ func (r *Replica) executeReadOnlyBatch(
 		r.linearizableReadNotify(ctx)
 
 		eng := r.store.loadGroupEngine(r.Desc().GroupID)
-		data, err := stripeRead(eng, []byte(getReq.Key), 0, 0xffffffff)
+		data, err := stripeRead(eng, []byte(getReq.Key), uint64(getReq.Value.Offset), getReq.Value.Len)
 		if err != nil {
-			helper.Println(5, "Error getting data from db.")
+			helper.Println(5, "Error getting data from db. err ", err)
 		}
 
 		getRes := multiraftbase.GetResponse{}
 		getRes.Value = &multiraftbase.Value{RawBytes: data}
 		res.Responses = multiraftbase.ResponseUnion{Get: &getRes}
-
-		helper.Println(5, "read data, key:", string(getReq.Key))
-		helper.Println(5, "read data, val:", string(data))
 	} else {
 		helper.Panicln(0, "Unsupported req type.")
 	}

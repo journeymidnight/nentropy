@@ -42,6 +42,7 @@ func getOSDDataDir(baseDir string, id int) string {
 
 func getOsdMap() (*protos.OsdMap, error) {
 	mon := memberlist.GetLeaderMon()
+	helper.Println(5, "Connect to mon ", mon.Addr)
 	conn, err := grpc.Dial(mon.Addr, grpc.WithInsecure())
 	if err != nil {
 		helper.Printf(5, "fail to dial: %v", err)

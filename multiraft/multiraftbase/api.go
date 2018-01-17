@@ -47,9 +47,10 @@ func (pr *PutRequest) ShallowCopy() Request {
 }
 
 // NewGet returns a Request initialized to get the value at key.
-func NewGet(key Key) Request {
+func NewGet(key Key, offset int64, len uint64) Request {
 	return &GetRequest{
-		Key: key,
+		Key:   key,
+		Value: Value{Offset: offset, Len: len},
 	}
 }
 

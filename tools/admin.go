@@ -5,9 +5,10 @@ import (
 	"fmt"
 	"github.com/journeymidnight/nentropy/multiraft/multiraftbase"
 	pb "github.com/journeymidnight/nentropy/protos"
+	"github.com/pkg/errors"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
-	"io/ioutil"
+	"io"
 	"log"
 	"os"
 	"sort"
@@ -21,15 +22,18 @@ var (
 	cmd                = flag.String("c", "", "The command sent to monitor")
 	target             = flag.String("t", "", "The command target sent to monitor")
 	pool               = flag.String("p", "", "The pool name sent to monitor")
-	object             = flag.String("o", "", "The object name sent to monitor")
+	oid                = flag.String("oid", "", "The object name sent to monitor")
 	pgNumber           = flag.Int("pg_number", 64, "set pg numbers for pool, default: 64")
 	policy             = flag.String("policy", "osd", "set pg policy [zone/host/osd] default: osd")
 	size               = flag.Int("size", 3, "set pg replicate numbers, default: 3")
 	id                 = flag.Int("id", 0, "id for target")
+	offset             = flag.Int64("offset", 0, "the offset of object to read or write, default: 0")
+	length             = flag.Uint64("len", 0, "the length of object to read or write, default: 0")
 	weight             = flag.Int("weight", 1, "set osd weight 1 per T")
 	host               = flag.String("host", "localhost", "set osd host name, default: localhost")
 	zone               = flag.String("zone", "default", "set osd zone name, default: default")
 	val                = flag.String("val", "", "val")
+	filename           = flag.String("f", "", "the filename to read or write")
 	client             pb.MonitorClient
 )
 
@@ -201,8 +205,37 @@ func getObjectLayout(poolName string, objectName string) (*pb.LayoutReply, error
 	return reply, nil
 }
 
-func putObject(pgname string, osd string, key []byte, val []byte) error {
+const MAX_SIZE = 1024 * 2048
+
+func putObject(pgname string, osd string, oid []byte, filename string) error {
 	fmt.Println("put object to server ", osd)
+	if *length > MAX_SIZE {
+		return errors.New(fmt.Sprintf("the write length should not be 0 or more than %s", MAX_SIZE))
+	}
+	if *length == 0 {
+		info, err := os.Stat(filename)
+		if err != nil {
+			return errors.New(fmt.Sprintf("Error stat file, err %s", err))
+		}
+		if info.Size() > MAX_SIZE {
+			return errors.New(fmt.Sprintf("Error stat file, err %s", err))
+		} else {
+			*length = uint64(info.Size())
+		}
+	}
+	file, err := os.Open(filename)
+	if err != nil {
+		fmt.Println("Cannot open file. err:", err)
+		return err
+	}
+	defer file.Close()
+	data := make([]byte, *length)
+	n, err := file.ReadAt(data, 0)
+	if err != nil && err != io.EOF {
+		fmt.Println("Cannot read file. err:", err)
+		return err
+	}
+
 	conn, err := grpc.Dial(osd, grpc.WithInsecure())
 	if err != nil {
 		log.Fatalf("fail to dial: %v", err)
@@ -213,8 +246,8 @@ func putObject(pgname string, osd string, key []byte, val []byte) error {
 	dumy := multiraftbase.BatchRequest{}
 	dumy.GroupID = multiraftbase.GroupID(pgname)
 
-	data := multiraftbase.Value{RawBytes: val}
-	putReq := multiraftbase.NewPut(key, data)
+	value := multiraftbase.Value{RawBytes: data, Offset: *offset, Len: uint64(n)}
+	putReq := multiraftbase.NewPut(oid, value)
 	dumy.Request.MustSetInner(putReq)
 
 	ctx := context.Background()
@@ -228,7 +261,13 @@ func putObject(pgname string, osd string, key []byte, val []byte) error {
 	return nil
 }
 
-func getObject(pgname string, osd string, key []byte) ([]byte, error) {
+func getObject(pgname string, osd string, oid []byte, filename string) error {
+	if *length > MAX_SIZE {
+		return errors.New(fmt.Sprintf("the read length should not be 0 or more than %s", MAX_SIZE))
+	}
+	if *length == 0 {
+		*length = MAX_SIZE
+	}
 	conn, err := grpc.Dial(osd, grpc.WithInsecure())
 	if err != nil {
 		log.Fatalf("Fail to dial: %v", err)
@@ -239,25 +278,36 @@ func getObject(pgname string, osd string, key []byte) ([]byte, error) {
 	dumy := multiraftbase.BatchRequest{}
 	dumy.GroupID = multiraftbase.GroupID(pgname)
 
-	getReq := multiraftbase.NewGet(key)
+	getReq := multiraftbase.NewGet(oid, *offset, uint64(*length))
 	dumy.Request.MustSetInner(getReq)
 
 	ctx := context.Background()
 	res, err := client.Batch(ctx, &dumy)
 	if err != nil {
 		fmt.Printf("Error send rpc request!")
-		return nil, err
+		return err
+	}
+	getRes := res.Responses.GetValue().(*multiraftbase.GetResponse)
+
+	file, err := os.Create(filename)
+	if err != nil {
+		fmt.Println("Cannot open file. err:", err)
+		return err
+	}
+	defer file.Close()
+	_, err = file.WriteAt(getRes.Value.RawBytes, 0)
+	if err != nil {
+		fmt.Println("Cannot write data to file. err:", err)
+		return err
 	}
 
-	getRes := res.Responses.GetValue().(*multiraftbase.GetResponse)
-	fmt.Printf("getObject()! res=%s\n", string(getRes.Value.RawBytes))
-	return getRes.Value.RawBytes, nil
+	return nil
 }
 
 func objectHandle() {
 	switch *cmd {
 	case "search":
-		result, err := getObjectLayout(*pool, *object)
+		result, err := getObjectLayout(*pool, *oid)
 		if err != nil {
 			fmt.Println("get object layout error: ", err)
 			return
@@ -269,7 +319,7 @@ func objectHandle() {
 			fmt.Println(fmt.Sprintf("id:%d addr:%s weight:%d host:%s zone:%s up:%v in:%v", osd.Id, osd.Addr, osd.Weight, osd.Host, osd.Zone, osd.Up, osd.In))
 		}
 	case "put":
-		result, err := getObjectLayout(*pool, *object)
+		result, err := getObjectLayout(*pool, *oid)
 		if err != nil {
 			fmt.Println("get object layout error: ", err)
 			return
@@ -280,17 +330,13 @@ func objectHandle() {
 		for _, osd := range result.Osds {
 			fmt.Println(fmt.Sprintf("id:%d addr:%s weight:%d host:%s zone:%s up:%v in:%v", osd.Id, osd.Addr, osd.Weight, osd.Host, osd.Zone, osd.Up, osd.In))
 		}
-		data, err := ioutil.ReadFile(*val)
-		if err != nil {
-			fmt.Println("Error reading local file, err:", err)
-			return
-		}
-		err = putObject(result.PgName, result.Osds[0].Addr, []byte(*object), data)
+		err = putObject(result.PgName, result.Osds[0].Addr, []byte(*oid), *filename)
 		if err != nil {
 			fmt.Println("Error getting object from osd, err:", err)
+			return
 		}
 	case "get":
-		result, err := getObjectLayout(*pool, *object)
+		result, err := getObjectLayout(*pool, *oid)
 		if err != nil {
 			fmt.Println("get object layout error: ", err)
 			return
@@ -301,15 +347,12 @@ func objectHandle() {
 		for _, osd := range result.Osds {
 			fmt.Println(fmt.Sprintf("id:%d addr:%s weight:%d host:%s zone:%s up:%v in:%v", osd.Id, osd.Addr, osd.Weight, osd.Host, osd.Zone, osd.Up, osd.In))
 		}
-		data, err := getObject(result.PgName, result.Osds[0].Addr, []byte(*object))
+		err = getObject(result.PgName, result.Osds[0].Addr, []byte(*oid), *filename)
 		if err != nil {
 			fmt.Println("Error putting object from osd, err:", err)
-		}
-		err = ioutil.WriteFile(*val, data, os.ModePerm)
-		if err != nil {
-			fmt.Println("Error writing local file, err:", err)
 			return
 		}
+
 	default:
 		fmt.Println("unsupport cmd, should be put/get/delete/search")
 		return

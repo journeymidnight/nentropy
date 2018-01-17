@@ -97,7 +97,9 @@ message Value {
     option (gogoproto.equal) = true;
 
     // raw_bytes contains the encoded value and checksum.
-    bytes raw_bytes = 1;
+    int64 offset = 1;
+    uint64 len = 2;
+    bytes raw_bytes = 3;
 }
 
 message KeyValue {

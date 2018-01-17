@@ -29,7 +29,7 @@ var ErrFailedRemovingKey = errors.New("failed removing key to badger")
 var ErrNoValueForKey = errors.New("no value for this key")
 
 // DefaultStripeSize default size for each stripe
-var DefaultStripeSize uint64 = 8
+var DefaultStripeSize uint64 = 64 << 10
 
 // onode holds the metadata of each object in osd store
 // use Capital because bson can only serialize Capital fileds
@@ -45,12 +45,12 @@ func newOnode(oid []byte) *onode {
 }
 
 func getDataKey(oid []byte, offset uint64) []byte {
-    buf := make([]byte, binary.MaxVarintLen64)
-    binary.PutUvarint(buf[:], offset)
-    newbuf := make([]byte, binary.MaxVarintLen64+len(oid))
-    copy(newbuf, oid)
-    newbuf = append(newbuf, buf...)
-    return newbuf
+	buf := make([]byte, binary.MaxVarintLen64)
+	binary.PutUvarint(buf[:], offset)
+	newbuf := make([]byte, binary.MaxVarintLen64+len(oid))
+	copy(newbuf, oid)
+	newbuf = append(newbuf, buf...)
+	return newbuf
 }
 
 func getOffset(oid, s []byte) uint64 {
