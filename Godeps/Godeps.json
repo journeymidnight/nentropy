@@ -1,6 +1,6 @@
 {
 	"ImportPath": "github.com/journeymidnight/nentropy",
-	"GoVersion": "go1.8",
+	"GoVersion": "go1.9",
 	"GodepVersion": "v79",
 	"Packages": [
 		"./..."
@@ -13,6 +13,10 @@
 		{
 			"ImportPath": "github.com/armon/go-metrics",
 			"Rev": "023a4bbe4bb9bfb23ee7e1afc8d0abad217641f3"
+		},
+		{
+			"ImportPath": "github.com/biogo/store/llrb",
+			"Rev": "913427a1d5e89604e50ea1db0f28f34966d61602"
 		},
 		{
 			"ImportPath": "github.com/coreos/etcd/raft",
@@ -60,8 +64,17 @@
 			"Rev": "9e707c0f2074afbd43bcd11d058fed6ca7609105"
 		},
 		{
+			"ImportPath": "github.com/dgryski/go-farm",
+			"Rev": "ac7624ea8da311f2fbbd94401d8c1cf66089f9fb"
+		},
+		{
 			"ImportPath": "github.com/dustin/go-humanize",
 			"Rev": "79e699ccd02f240a1f1fbbdcee7e64c1c12e41aa"
+		},
+		{
+			"ImportPath": "github.com/gogo/protobuf/proto",
+			"Comment": "v0.4-44-gfcdc5011",
+			"Rev": "fcdc5011193ff531a548e9b0301828d5a5b97fd8"
 		},
 		{
 			"ImportPath": "github.com/golang/protobuf/proto",
@@ -86,6 +99,10 @@
 		{
 			"ImportPath": "github.com/golang/protobuf/ptypes/timestamp",
 			"Rev": "1e59b77b52bf8e4b449a57e6f79f21226d571845"
+		},
+		{
+			"ImportPath": "github.com/hashicorp/errwrap",
+			"Rev": "7554cd9344cec97297fa6649b055a8c98c2a1e55"
 		},
 		{
 			"ImportPath": "github.com/hashicorp/go-immutable-radix",
@@ -117,9 +134,23 @@
 			"Rev": "e4205768578dc90c2669e75a2f8a8bf77e3083a4"
 		},
 		{
+			"ImportPath": "github.com/opentracing/opentracing-go",
+			"Comment": "v1.0.2-4-g8ebe5d4",
+			"Rev": "8ebe5d4e236eed9fd88e593c288bfb804d630b8c"
+		},
+		{
+			"ImportPath": "github.com/opentracing/opentracing-go/log",
+			"Comment": "v1.0.2-4-g8ebe5d4",
+			"Rev": "8ebe5d4e236eed9fd88e593c288bfb804d630b8c"
+		},
+		{
 			"ImportPath": "github.com/pborman/uuid",
 			"Comment": "v1.1",
 			"Rev": "e790cca94e6cc75c7064b1332e63811d4aae1a53"
+		},
+		{
+			"ImportPath": "github.com/petermattis/goid",
+			"Rev": "3db12ebb2a599ba4a96bea1c17b61c2f78a40e02"
 		},
 		{
 			"ImportPath": "github.com/pkg/errors",
@@ -127,8 +158,33 @@
 			"Rev": "e881fd58d78e04cf6d0de1217f8707c8cc2249bc"
 		},
 		{
+			"ImportPath": "github.com/pmezard/go-difflib/difflib",
+			"Comment": "v1.0.0",
+			"Rev": "792786c7400a136282c1664665ae0a8db921c6c2"
+		},
+		{
+			"ImportPath": "github.com/sasha-s/go-deadlock",
+			"Comment": "v0.1.0-12-g03d40e5",
+			"Rev": "03d40e5dbd5488667a13b3c2600b2f7c2886f02f"
+		},
+		{
+			"ImportPath": "github.com/satori/go.uuid",
+			"Comment": "v1.1.0-8-g5bf94b6",
+			"Rev": "5bf94b69c6b68ee1b541973bb8e1144db23a194b"
+		},
+		{
 			"ImportPath": "github.com/sean-/seed",
 			"Rev": "e2103e2c35297fb7e17febb81e49b312087a2372"
+		},
+		{
+			"ImportPath": "github.com/stretchr/testify/assert",
+			"Comment": "v1.2.0-4-g87b1dfb",
+			"Rev": "87b1dfb5b2fa649f52695dd9eae19abe404a4308"
+		},
+		{
+			"ImportPath": "github.com/stretchr/testify/require",
+			"Comment": "v1.2.0-4-g87b1dfb",
+			"Rev": "87b1dfb5b2fa649f52695dd9eae19abe404a4308"
 		},
 		{
 			"ImportPath": "golang.org/x/net/context",
@@ -160,6 +216,10 @@
 		},
 		{
 			"ImportPath": "golang.org/x/sys/unix",
+			"Rev": "d818ba11af4465e00c1998bd3f8a55603b422290"
+		},
+		{
+			"ImportPath": "golang.org/x/sys/windows",
 			"Rev": "d818ba11af4465e00c1998bd3f8a55603b422290"
 		},
 		{
@@ -278,12 +338,14 @@
 			"Rev": "c443156028b9fa563e063e9fa8ba7881d467833b"
 		},
 		{
-			"ImportPath": "github.com/dgryski/go-farm",
-			"Rev": "ac7624ea8da311f2fbbd94401d8c1cf66089f9fb"
+			"ImportPath": "gopkg.in/mgo.v2/bson",
+			"Comment": "r2016.08.01-5-g3f83fa5",
+			"Rev": "3f83fa5005286a7fe593b055f0d7771a7dce4655"
 		},
 		{
-			"ImportPath": "github.com/hashicorp/go-multierror/vendor/github.com/hashicorp/errwrap",
-			"Rev": "83588e72410abfbe4df460eeb6f30841ae47d4c4"
+			"ImportPath": "gopkg.in/mgo.v2/internal/json",
+			"Comment": "r2016.08.01-5-g3f83fa5",
+			"Rev": "3f83fa5005286a7fe593b055f0d7771a7dce4655"
 		}
 	]
 }
