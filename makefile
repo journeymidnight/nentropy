@@ -12,7 +12,7 @@ all:
 	@ln -nsf $(PWD) $(URLPATH)/$(REPO)
 	go build -o nentropy_monitor $(URLPATH)/$(REPO)/mon/*.go
 	go build -o nentropy_admin $(URLPATH)/$(REPO)/tools/admin.go
-	go build -o nentropy_osd $(URLPATH)/$(REPO)/osd/cmd/osd_daemon.go
+	go build -o nentropy_osd $(URLPATH)/$(REPO)/osd/*.go
 	mv nentropy_monitor $(PWD)/build/bin
 	mv nentropy_admin $(PWD)/build/bin
 	mv nentropy_osd $(PWD)/build/bin
