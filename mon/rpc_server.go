@@ -38,7 +38,9 @@ func (s *monitorRpcServer) GetLayout(ctx context.Context, in *protos.LayoutReque
 		return &protos.LayoutReply{}, err
 	}
 	pgNumbers := clus.poolMap.Pools[poolId].PgNumbers
-	hashPgId := helper.HashKey(in.ObjectName)%uint32(pgNumbers) + 1
+	hash := Nentropy_str_hash(in.ObjectName)
+	mask := Calc_pg_masks(int(pgNumbers))
+	hashPgId := Nentropy_stable_mod(int(hash), int(pgNumbers), mask) + 1
 	pgName := fmt.Sprintf("%d.%d", poolId, hashPgId)
 	if v, ok := clus.leaderPgLocationMap[pgName]; ok {
 		clus.pgMaps.Pgmaps[poolId].Pgmap[int32(hashPgId)].PrimaryId = v
