@@ -8,6 +8,7 @@ import (
 	"github.com/journeymidnight/nentropy/protos"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
+	"math/bits"
 	"strconv"
 	"strings"
 )
@@ -40,10 +41,10 @@ func (s *monitorRpcServer) GetLayout(ctx context.Context, in *protos.LayoutReque
 	pgNumbers := clus.poolMap.Pools[poolId].PgNumbers
 	hash := Nentropy_str_hash(in.ObjectName)
 	mask := Calc_pg_masks(int(pgNumbers))
-	hashPgId := Nentropy_stable_mod(int(hash), int(pgNumbers), mask) + 1
+	hashPgId := Nentropy_stable_mod(int(hash), int(pgNumbers), mask)
 	pgName := fmt.Sprintf("%d.%d", poolId, hashPgId)
-	if v, ok := clus.leaderPgLocationMap[pgName]; ok {
-		clus.pgMaps.Pgmaps[poolId].Pgmap[int32(hashPgId)].PrimaryId = v
+	if v, ok := clus.PgStatusMap[pgName]; ok {
+		clus.pgMaps.Pgmaps[poolId].Pgmap[int32(hashPgId)].PrimaryId = v.LeaderNodeId
 	} else {
 		helper.Println(5, "No primary osd for pg ", pgName)
 	}
@@ -104,8 +105,10 @@ func (s *monitorRpcServer) PoolConfig(ctx context.Context, in *protos.PoolConfig
 		reply, err = HandlePoolCreate(in)
 	case protos.PoolConfigRequest_DEL:
 		reply, err = HandlePoolDelete(in)
-	case protos.PoolConfigRequest_EDT:
-		reply, err = HandlePoolEdit(in)
+	case protos.PoolConfigRequest_SET_PGS:
+		reply, err = HandlePoolSetPgs(in)
+	case protos.PoolConfigRequest_SET_SIZE:
+		reply, err = HandlePoolSetSize(in)
 	case protos.PoolConfigRequest_LIST:
 		reply, err = HandlePoolList(in)
 
@@ -287,7 +290,9 @@ func HandlePoolCreate(req *protos.PoolConfigRequest) (*protos.PoolConfigReply, e
 		newPoolMap.Pools[k] = v
 	}
 	newId := maxIndex + 1
-	newPoolMap.Pools[newId] = &protos.Pool{newId, req.Name, req.Size_, req.PgNumbers, req.Policy}
+	rounded := numberRoundToPowerOfTwo(uint32(req.PgNumbers))
+	newPoolMap.Pools[newId] = &protos.Pool{newId, req.Name, req.Size_, int32(rounded), req.Policy}
+	newPoolMap.Epoch++
 	trans := protos.Transaction{}
 	err := PreparePoolMap(&trans, &newPoolMap)
 	if err != nil {
@@ -295,7 +300,7 @@ func HandlePoolCreate(req *protos.PoolConfigRequest) (*protos.PoolConfigReply, e
 		return &protos.PoolConfigReply{}, err
 	}
 
-	newPgMaps, err := allocateNewPgs(&newPoolMap, &clus.pgMaps, &clus.osdMap, newId, req.PgNumbers)
+	newPgMaps, err := allocateNewPgs(&newPoolMap, &clus.pgMaps, &clus.osdMap, newId, int32(rounded))
 	if err != nil {
 		helper.Print(5, "prepare allocate new pgs failed", err)
 		return &protos.PoolConfigReply{}, err
@@ -319,33 +324,27 @@ func HandlePoolCreate(req *protos.PoolConfigRequest) (*protos.PoolConfigReply, e
 func HandlePoolDelete(req *protos.PoolConfigRequest) (*protos.PoolConfigReply, error) {
 	clus.mapLock.Lock()
 	defer clus.mapLock.Unlock()
-	found := false
-	key := int32(0)
-	for index, pool := range clus.poolMap.Pools {
-		if pool.Name == req.Name {
-			found = true
-			key = index
-		}
-	}
-	if found == false {
-		return &protos.PoolConfigReply{}, errors.New(fmt.Sprintf("pool %v not exist", req.Name))
+	poolId, err := GetPoolIdByName(req.Name)
+	if err != nil {
+		return &protos.PoolConfigReply{}, err
 	}
 	newPoolMap := clus.poolMap
 	newPoolMap.Pools = make(map[int32]*protos.Pool)
 	for k, v := range clus.poolMap.Pools {
 		newPoolMap.Pools[k] = v
 	}
-	delete(newPoolMap.Pools, key)
+	delete(newPoolMap.Pools, poolId)
+	newPoolMap.Epoch++
 
 	newPgMaps := clus.pgMaps
 	newPgMaps.Pgmaps = make(map[int32]*protos.PgMap)
 	for k, v := range clus.pgMaps.Pgmaps {
 		newPgMaps.Pgmaps[k] = v
 	}
-	delete(newPgMaps.Pgmaps, key)
+	delete(newPgMaps.Pgmaps, poolId)
 
 	trans := protos.Transaction{}
-	err := PreparePoolMap(&trans, &newPoolMap)
+	err = PreparePoolMap(&trans, &newPoolMap)
 	if err != nil {
 		helper.Print(5, "prepare pool map failed", err)
 		return &protos.PoolConfigReply{}, err
@@ -366,7 +365,75 @@ func HandlePoolDelete(req *protos.PoolConfigRequest) (*protos.PoolConfigReply, e
 	return &protos.PoolConfigReply{}, nil
 }
 
-func HandlePoolEdit(req *protos.PoolConfigRequest) (*protos.PoolConfigReply, error) {
+//1 1
+//2 2
+//3 4
+//4 4
+//5 8
+func numberRoundToPowerOfTwo(n uint32) int {
+	count := bits.Len32(n)
+	if bits.OnesCount32(n) == 1 {
+		return int(n)
+	} else {
+		return 1 << uint(count)
+	}
+}
+
+func HandlePoolSetPgs(req *protos.PoolConfigRequest) (*protos.PoolConfigReply, error) {
+	//clus.mapLock.Lock()
+	//defer clus.mapLock.Unlock()
+	poolId, err := GetPoolIdByName(req.Name)
+	if err != nil {
+		return &protos.PoolConfigReply{}, err
+	}
+	currentPgs := clus.poolMap.Pools[poolId].PgNumbers
+	if req.PgNumbers <= currentPgs {
+		return &protos.PoolConfigReply{}, errors.New(fmt.Sprintf("specify pg numbers must bigger than current value :%d", currentPgs))
+	}
+	rounded := numberRoundToPowerOfTwo(uint32(req.PgNumbers))
+
+	newPoolMap := protos.PoolMap{}
+	data, err := clus.poolMap.Marshal()
+	if err != nil {
+		helper.Println(5, "Eorror marshal PoolMap!")
+		return &protos.PoolConfigReply{}, err
+	}
+	err = newPoolMap.Unmarshal(data)
+	if err != nil {
+		helper.Println(5, "Eorror unmarshal PoolMap!")
+		return &protos.PoolConfigReply{}, err
+	}
+
+	newPoolMap.Pools[poolId].PgNumbers = int32(rounded)
+	newPoolMap.Epoch++
+	trans := protos.Transaction{}
+	err = PreparePoolMap(&trans, &newPoolMap)
+	if err != nil {
+		helper.Print(5, "prepare pool map failed", err)
+		return &protos.PoolConfigReply{}, err
+	}
+
+	newPgMaps, err := allocateNewPgs(&newPoolMap, &clus.pgMaps, &clus.osdMap, poolId, int32(rounded))
+	if err != nil {
+		helper.Print(5, "prepare allocate new pgs failed", err)
+		return &protos.PoolConfigReply{}, err
+	}
+
+	err = PreparePgMap(&trans, newPgMaps)
+	if err != nil {
+		helper.Print(5, "prepare pg maps failed", err)
+		return &protos.PoolConfigReply{}, err
+	}
+
+	err = proposeData(&trans)
+	if err != nil {
+		helper.Print(5, "propose data failed", err)
+		return &protos.PoolConfigReply{}, err
+	}
+	return &protos.PoolConfigReply{}, nil
+}
+
+func HandlePoolSetSize(req *protos.PoolConfigRequest) (*protos.PoolConfigReply, error) {
 	clus.mapLock.Lock()
 	defer clus.mapLock.Unlock()
 	return &protos.PoolConfigReply{}, nil
@@ -393,7 +460,7 @@ func HandlePgList(req *protos.PgConfigRequest) (*protos.PgConfigReply, error) {
 		if err != nil {
 			return &protos.PgConfigReply{}, err
 		}
-		for pgName, nodeId := range clus.leaderPgLocationMap {
+		for pgName, status := range clus.PgStatusMap {
 			res := strings.Split(pgName, ".")
 			pool_id, err := strconv.Atoi(res[0])
 			if err != nil {
@@ -404,7 +471,7 @@ func HandlePgList(req *protos.PgConfigRequest) (*protos.PgConfigReply, error) {
 				continue
 			}
 			if int32(pool_id) == poolId {
-				leaderMap[int32(pg_id)] = nodeId
+				leaderMap[int32(pg_id)] = status.LeaderNodeId
 			}
 		}
 		return &protos.PgConfigReply{0, pgmaps.Epoch, pgmaps.Pgmaps[poolId], nil, leaderMap}, nil
@@ -454,6 +521,24 @@ func updatePgmaps(poolMap *protos.PoolMap, pgMaps *protos.PgMaps, osdMap *protos
 	return &newPgMaps, nil
 }
 
+func setParentAndChildren(pgMap *protos.PgMap, currentPgs, newPgs int32) {
+	if currentPgs == 0 { //mean these new pgs are created when creating pool, so their parent are themselves, and children are left empty
+		for pgId, pg := range pgMap.Pgmap {
+			pg.ParentId = pgId
+		}
+	} else {
+		chilerenCnt := newPgs/currentPgs - 1
+		for pIndex := int32(0); pIndex < currentPgs; pIndex++ {
+			pgMap.Pgmap[pIndex].Clildren = pgMap.Pgmap[pIndex].Clildren[:0] //clear relationship of pgs when last time to enlarge pgs
+			for i := int32(1); i <= chilerenCnt; i++ {
+				cIndex := pIndex + currentPgs*i
+				pgMap.Pgmap[pIndex].Clildren = append(pgMap.Pgmap[pIndex].Clildren, cIndex)
+				pgMap.Pgmap[cIndex].ParentId = pIndex
+			}
+		}
+	}
+}
+
 func allocateNewPgs(poolMap *protos.PoolMap, pgMaps *protos.PgMaps, osdMap *protos.OsdMap, poolId int32, n int32) (*protos.PgMaps, error) {
 	newPgMaps := protos.PgMaps{}
 	data, err := pgMaps.Marshal()
@@ -467,22 +552,25 @@ func allocateNewPgs(poolMap *protos.PoolMap, pgMaps *protos.PgMaps, osdMap *prot
 		return &newPgMaps, err
 	}
 
+	if newPgMaps.Pgmaps == nil {
+		helper.Println(5, "enter allocateNewPgs and make new pgmaps ****************")
+		newPgMaps.Pgmaps = make(map[int32]*protos.PgMap)
+	}
+
 	helper.Println(5, "debug allocateNewPgs")
 	helper.Println(5, "debug allocateNewPgs", newPgMaps.Pgmaps)
 	helper.Println(5, "debug allocateNewPgs", poolId)
+
 	if _, ok := newPgMaps.Pgmaps[poolId]; !ok {
-		if newPgMaps.Pgmaps == nil {
-			newPgMaps.Pgmaps = make(map[int32]*protos.PgMap)
-		}
 		newPgMaps.Pgmaps[poolId] = &protos.PgMap{}
 		newPgMaps.Pgmaps[poolId].PoolId = poolId
 		newPgMaps.Pgmaps[poolId].Pgmap = make(map[int32]*protos.Pg)
 	}
 	targetMap := newPgMaps.Pgmaps[poolId]
-	startIndex := len(targetMap.Pgmap) + 1
+	startIndex := len(targetMap.Pgmap)
 	for i := 0; i < int(n); i++ {
 		id := int32(startIndex + i)
-		targetMap.Pgmap[id] = &protos.Pg{id, 0, make([]protos.PgReplica, 0), 1}
+		targetMap.Pgmap[id] = &protos.Pg{id, 0, make([]protos.PgReplica, 0), 1, 0, make([]int32, 0)}
 	}
 	hashRing := consistent.New(osdMap, poolMap.Pools[poolId].Policy)
 	err = updatePgMap(targetMap, poolMap, hashRing)
@@ -490,6 +578,7 @@ func allocateNewPgs(poolMap *protos.PoolMap, pgMaps *protos.PgMaps, osdMap *prot
 		helper.Print(5, "update pg map failed ", err)
 		return nil, err
 	}
+	setParentAndChildren(targetMap, int32(startIndex), n)
 	newPgMaps.Epoch = newPgMaps.Epoch + 1
 	return &newPgMaps, nil
 }
@@ -526,11 +615,10 @@ func (s *monitorRpcServer) OsdStatusReport(ctx context.Context, in *protos.OsdSt
 	if clus.isPrimaryMon != true {
 		return &protos.OsdStatusReportReply{}, errors.New("not primary monitor, please check!")
 	}
-	nodeId := in.GetNodeId()
-	pgNames := in.GetOwnPrimaryPgs()
+	pgsStatuses := in.GetLeaderPgsStatus()
 	clus.internalMapLock.Lock()
-	for _, v := range pgNames {
-		clus.leaderPgLocationMap[v] = nodeId
+	for k, v := range pgsStatuses {
+		clus.PgStatusMap[k] = v
 	}
 	clus.internalMapLock.Unlock()
 	return &protos.OsdStatusReportReply{}, nil

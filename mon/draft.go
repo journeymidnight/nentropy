@@ -353,7 +353,7 @@ func (n *node) Run() {
 					//cluster().syncMemberships()
 					clus.internalMapLock.Lock()
 					clus.isPrimaryMon = false
-					clus.leaderPgLocationMap = nil
+					clus.PgStatusMap = nil
 					memberlist.SetMonFollower()
 					clus.internalMapLock.Unlock()
 
@@ -362,7 +362,7 @@ func (n *node) Run() {
 					//cluster().syncMemberships()
 					clus.internalMapLock.Lock()
 					clus.isPrimaryMon = true
-					clus.leaderPgLocationMap = make(map[string]int32)
+					clus.PgStatusMap = make(map[string]protos.PgStatus)
 					memberlist.SetMonLeader()
 					clus.internalMapLock.Unlock()
 				}

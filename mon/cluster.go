@@ -41,19 +41,19 @@ const (
 )
 
 type cluster struct {
-	ctx                 context.Context
-	cancel              context.CancelFunc
-	wal                 *raftwal.Wal
-	node                *node
-	myAddr              string
-	isPrimaryMon        bool
-	leaderPgLocationMap map[string]int32
-	internalMapLock     *sync.Mutex
-	osdMap              protos.OsdMap
-	poolMap             protos.PoolMap
-	pgMaps              protos.PgMaps
-	monMap              protos.MonMap
-	mapLock             *sync.Mutex
+	ctx             context.Context
+	cancel          context.CancelFunc
+	wal             *raftwal.Wal
+	node            *node
+	myAddr          string
+	isPrimaryMon    bool
+	PgStatusMap     map[string]protos.PgStatus
+	internalMapLock *sync.Mutex //for PgStatusMap
+	osdMap          protos.OsdMap
+	poolMap         protos.PoolMap
+	pgMaps          protos.PgMaps
+	monMap          protos.MonMap
+	mapLock         *sync.Mutex
 }
 
 var clus *cluster
@@ -191,6 +191,7 @@ func StartRaftNodes(walStore *badger.DB, grpcSrv *grpc.Server, peers []string, m
 	clus.wal = raftwal.Init(walStore, config.RaftId)
 	clus.mapLock = &sync.Mutex{}
 	clus.internalMapLock = &sync.Mutex{}
+	clus.PgStatusMap = make(map[string]protos.PgStatus)
 	var wg sync.WaitGroup
 
 	clus.myAddr = myAddr

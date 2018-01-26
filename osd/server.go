@@ -19,19 +19,20 @@ import (
 )
 
 type OsdServer struct {
-	nodeID          string
-	cfg             Config
-	grpc            *grpc.Server
-	rpcContext      *rpc.Context
-	raftTransport   *multiraft.RaftTransport
-	stopper         *stop.Stopper
-	store           *multiraft.Store
-	engine          engine.Engine
-	pgMaps          *protos.PgMaps
-	mapLock         *sync.Mutex
-	confChangeLock  *sync.Mutex
-	lastPgMapsEpoch uint64
-	storeCfg        multiraft.StoreConfig // Config to use and pass to stores
+	nodeID            string
+	cfg               Config
+	grpc              *grpc.Server
+	rpcContext        *rpc.Context
+	raftTransport     *multiraft.RaftTransport
+	stopper           *stop.Stopper
+	store             *multiraft.Store
+	engine            engine.Engine
+	pgMaps            *protos.PgMaps
+	leaderPgStatusMap sync.Map //map[string]protos.PgStatus
+	mapLock           *sync.Mutex
+	confChangeLock    *sync.Mutex
+	lastPgMapsEpoch   uint64
+	storeCfg          multiraft.StoreConfig // Config to use and pass to stores
 }
 
 const OSD_STATUS_REPORT_PERIOD = 2 * time.Second
@@ -194,7 +195,7 @@ func NewOsdServer(ctx context.Context, cfg Config, stopper *stop.Stopper) (*OsdS
 	desc := multiraftbase.NodeDescriptor{}
 	desc.NodeID = multiraftbase.NodeID(fmt.Sprintf("%s.%d", s.cfg.NodeType, s.cfg.NodeID))
 	helper.Println(0, "New osd server nodeid: ", s.cfg.NodeID)
-	s.store = multiraft.NewStore(storeCfg, eng, &desc)
+	s.store = multiraft.NewStore(storeCfg, eng, &desc, UpdatePgStatusMap)
 
 	if err := s.store.Start(ctx, stopper); err != nil {
 		return nil, err
@@ -272,8 +273,15 @@ func (s *OsdServer) sendOsdStatusToMon(addr string) {
 	client := protos.NewMonitorClient(conn)
 	groups, _ := s.store.GetGroupIdsByLeader()
 	req := protos.OsdStatusReportRequest{}
-	req.NodeId = int32(s.cfg.NodeID)
-	req.OwnPrimaryPgs = groups
+	req.LeaderPgsStatus = make(map[string]protos.PgStatus)
+	for _, v := range groups {
+		value, ok := s.leaderPgStatusMap.Load(v)
+		if ok {
+			req.LeaderPgsStatus[v] = value.(protos.PgStatus)
+		} else {
+			req.LeaderPgsStatus[v] = protos.PgStatus{int32(s.cfg.NodeID), protos.PG_STATE_UNINITIAL}
+		}
+	}
 	ctx := context.Background()
 	res, err := client.OsdStatusReport(ctx, &req)
 	if err != nil {
@@ -329,4 +337,10 @@ func (s *OsdServer) Start(ctx context.Context) error {
 	s.createOrRemoveReplica()
 
 	return nil
+}
+
+func UpdatePgStatusMap(pgId string, status int32) {
+	Server.mapLock.Lock()
+	defer Server.mapLock.Unlock()
+	Server.leaderPgStatusMap.Store(&pgId, &protos.PgStatus{int32(Server.cfg.NodeID), status})
 }

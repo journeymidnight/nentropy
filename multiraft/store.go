@@ -68,6 +68,8 @@ type raftRequestQueue struct {
 	infos []raftRequestInfo
 }
 
+type UpdatePgStatusCallBack func(pgId string, status int32)
+
 // A Store maintains a map of ranges by start key. A Store corresponds
 // to one physical device.
 type Store struct {
@@ -94,8 +96,8 @@ type Store struct {
 	raftLogQueue      *raftLogQueue      // Raft log truncation queue
 	raftSnapshotQueue *raftSnapshotQueue // Raft repair queue
 	scanner           *replicaScanner    // Replica scanner
-
-	coalescedMu struct {
+	updatePgStatusCb  UpdatePgStatusCallBack
+	coalescedMu       struct {
 		syncutil.Mutex
 		heartbeats         map[multiraftbase.StoreIdent][]multiraftbase.RaftHeartbeat
 		heartbeatResponses map[multiraftbase.StoreIdent][]multiraftbase.RaftHeartbeat
@@ -903,7 +905,7 @@ func (rs *storeReplicaVisitor) EstimatedCount() int {
 }
 
 // NewStore returns a new instance of a store.
-func NewStore(cfg StoreConfig, eng engine.Engine, nodeDesc *multiraftbase.NodeDescriptor) *Store {
+func NewStore(cfg StoreConfig, eng engine.Engine, nodeDesc *multiraftbase.NodeDescriptor, cb UpdatePgStatusCallBack) *Store {
 	cfg.SetDefaults()
 
 	s := &Store{
@@ -928,6 +930,7 @@ func NewStore(cfg StoreConfig, eng engine.Engine, nodeDesc *multiraftbase.NodeDe
 	s.raftLogQueue = newRaftLogQueue(s, s.db)
 	s.raftSnapshotQueue = newRaftSnapshotQueue(s)
 	s.scanner.AddQueues(s.raftSnapshotQueue, s.raftLogQueue)
+	s.updatePgStatusCb = cb
 	//}
 
 	s.mu.Lock()

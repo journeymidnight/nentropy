@@ -75,6 +75,20 @@ func listPools() {
 	return
 }
 
+func setPgNumber(poolName string, pgNumber int32) {
+	if poolName == "" {
+		fmt.Println("pool name can not be empty")
+		return
+	}
+
+	req := pb.PoolConfigRequest{"", pb.PoolConfigRequest_SET_PGS, poolName, 0, pgNumber, 0}
+	_, err := client.PoolConfig(context.Background(), &req)
+	if err != nil {
+		fmt.Println("set pg numbers error: ", err)
+	}
+	return
+}
+
 func poolHandle() {
 	switch *cmd {
 	case "create":
@@ -91,6 +105,8 @@ func poolHandle() {
 		deletePool(*pool)
 	case "list":
 		listPools()
+	case "setpgs":
+		setPgNumber(*pool, int32(*pgNumber))
 	default:
 		fmt.Println("unsupport cmd, should be create/delete")
 		return

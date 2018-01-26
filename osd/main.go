@@ -19,6 +19,7 @@ var (
 	raftPort int
 	cfg      *Config
 	stopper  *stop.Stopper
+	Server   *OsdServer
 )
 
 func main() {
@@ -37,24 +38,24 @@ func main() {
 		panic("take up a random port failed")
 	}
 	helper.Println(5, "Listen at :", Listener.Addr())
-	var s *OsdServer
 	go func() {
 		defer func() {
-			if s != nil {
+			if Server != nil {
 				if r := recover(); r != nil {
 					panic(r)
 				}
 			}
 		}()
+		var err error
 		ctx := context.Background()
 		cfg.AmbientCtx = helper.NewAmbientContext()
-		if err := func() error {
-			s, err := NewOsdServer(ctx, *cfg, stopper)
+		if err = func() error {
+			Server, err = NewOsdServer(ctx, *cfg, stopper)
 			if err != nil {
 				return errors.New("failed to create server : " + err.Error())
 			}
 
-			if err := s.Start(ctx); err != nil {
+			if err = Server.Start(ctx); err != nil {
 				return errors.New("failed to start server : " + err.Error())
 			}
 
