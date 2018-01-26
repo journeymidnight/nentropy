@@ -14,6 +14,11 @@ func Calc_pg_masks(pg_num int) int {
 	return pg_num_mask
 }
 
+func Calc_origin_pg(pg_id, old_pg_num int) int {
+	old_pg_mask := Calc_pg_masks(old_pg_num)
+	return pg_id & old_pg_mask
+}
+
 func Nentropy_str_hash(s string) uint32 {
 	h := fnv.New32a()
 	h.Write([]byte(s))

@@ -40,8 +40,7 @@ message MonConfigReply {
 }
 
 message OsdStatusReportRequest {
-    int32 node_id = 1;
-    repeated string own_primary_pgs = 2;
+    map<string, PgStatus> leader_pgs_status = 1 [(gogoproto.nullable) = false];
 }
 
 message OsdStatusReportReply {
@@ -118,8 +117,9 @@ message PoolConfigRequest {
     enum OpType {
         ADD = 0;
         DEL = 1;
-        EDT = 2;
-        LIST = 3;
+        LIST = 2;
+        SET_SIZE = 3;
+        SET_PGS = 4;
     }
     OpType op_type = 2;
     string name = 3;
@@ -154,6 +154,13 @@ message Pg {
     int32 primary_id = 2;
     repeated PgReplica replicas = 3 [(gogoproto.nullable) = false];
     int32 next_replica_id = 4;
+    int32 parent_id = 5;
+    repeated int32 clildren = 6;
+}
+
+message PgStatus {
+    int32 leader_node_id = 1;
+    int32 status = 2;
 }
 
 message Op {

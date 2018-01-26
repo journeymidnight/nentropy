@@ -52,6 +52,8 @@ type raftRequestQueue struct {
 	infos []raftRequestInfo
 }
 
+type UpdatePgStatusCallBack func(pgId string, status int32)
+
 // A Store maintains a map of ranges by start key. A Store corresponds
 // to one physical device.
 type Store struct {
@@ -72,9 +74,9 @@ type Store struct {
 	//	replicaGCQueue     *replicaGCQueue
 	replicaQueues sync.Map // map[multiraftbase.GroupID]*raftRequestQueue
 	//	raftRequestQueues map[multiraftbase.GroupID]*raftRequestQueue
-	scheduler *raftScheduler
-
-	coalescedMu struct {
+	scheduler        *raftScheduler
+	updatePgStatusCb UpdatePgStatusCallBack
+	coalescedMu      struct {
 		syncutil.Mutex
 		heartbeats         map[multiraftbase.StoreIdent][]multiraftbase.RaftHeartbeat
 		heartbeatResponses map[multiraftbase.StoreIdent][]multiraftbase.RaftHeartbeat
@@ -795,7 +797,7 @@ func (s *Store) StoreID() multiraftbase.StoreID { return s.Ident.StoreID }
 func (s *Store) NodeID() multiraftbase.NodeID { return s.nodeDesc.NodeID }
 
 // NewStore returns a new instance of a store.
-func NewStore(cfg StoreConfig, eng engine.Engine, nodeDesc *multiraftbase.NodeDescriptor) *Store {
+func NewStore(cfg StoreConfig, eng engine.Engine, nodeDesc *multiraftbase.NodeDescriptor, cb UpdatePgStatusCallBack) *Store {
 	cfg.SetDefaults()
 
 	s := &Store{
@@ -810,6 +812,7 @@ func NewStore(cfg StoreConfig, eng engine.Engine, nodeDesc *multiraftbase.NodeDe
 	s.coalescedMu.heartbeats = map[multiraftbase.StoreIdent][]multiraftbase.RaftHeartbeat{}
 	s.coalescedMu.heartbeatResponses = map[multiraftbase.StoreIdent][]multiraftbase.RaftHeartbeat{}
 	s.coalescedMu.Unlock()
+	s.updatePgStatusCb = cb
 	/*
 		if s.cfg.Gossip != nil {
 			// Add range scanner and configure with queues.
