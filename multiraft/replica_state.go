@@ -4,6 +4,7 @@ import (
 	"golang.org/x/net/context"
 
 	"github.com/coreos/etcd/raft/raftpb"
+	"github.com/dgraph-io/badger"
 	"github.com/journeymidnight/nentropy/helper"
 	"github.com/journeymidnight/nentropy/multiraft/keys"
 	"github.com/journeymidnight/nentropy/multiraft/multiraftbase"
@@ -26,7 +27,7 @@ func (rsl replicaStateLoader) loadHardState(
 ) (raftpb.HardState, error) {
 	var data []byte
 	data, err := reader.Get(rsl.RaftHardStateKey())
-	if err != nil {
+	if err != nil && err != badger.ErrKeyNotFound {
 		return raftpb.HardState{}, err
 	}
 	var hs raftpb.HardState
@@ -43,7 +44,7 @@ func (rsl replicaStateLoader) loadTruncatedState(
 	var truncState multiraftbase.RaftTruncatedState
 	var data []byte
 	data, err := reader.Get(rsl.RaftTruncatedStateKey())
-	if err != nil {
+	if err != nil && err != badger.ErrKeyNotFound {
 		return multiraftbase.RaftTruncatedState{}, err
 	}
 	err = truncState.Unmarshal(data)
@@ -91,7 +92,7 @@ func (rsl replicaStateLoader) loadAppliedIndex(
 ) (uint64, error) {
 	var appliedIndex uint64
 	v, err := reader.Get(rsl.RaftAppliedIndexKey())
-	if err != nil {
+	if err != nil && err != badger.ErrKeyNotFound {
 		return 0, err
 	}
 	if v != nil {
@@ -190,7 +191,7 @@ func (rsl replicaStateLoader) loadLastIndex(
 ) (uint64, error) {
 	var lastIndex uint64
 	v, err := reader.Get(rsl.RaftLastIndexKey())
-	if err != nil {
+	if err != nil && err != badger.ErrKeyNotFound {
 		return 0, err
 	}
 	if v != nil {
@@ -235,7 +236,7 @@ func (rsl replicaStateLoader) loadReplicaDestroyedError(
 ) (*multiraftbase.Error, error) {
 	var v multiraftbase.Error
 	value, err := reader.Get(rsl.GroupReplicaDestroyedErrorKey())
-	if err != nil {
+	if err != nil && err != badger.ErrKeyNotFound {
 		return nil, err
 	}
 	found := value != nil

@@ -28,6 +28,7 @@ service Monitor {
     rpc PoolConfig(PoolConfigRequest) returns (PoolConfigReply) {}
     rpc PgConfig(PgConfigRequest) returns (PgConfigReply) {}
     rpc OsdStatusReport(OsdStatusReportRequest) returns (OsdStatusReportReply) {}
+    rpc GetPgStatus(GetPgStatusRequest) returns (GetPgStatusReply) {}
 }
 
 message MonConfigRequest {
@@ -41,6 +42,14 @@ message MonConfigReply {
 
 message OsdStatusReportRequest {
     map<string, PgStatus> leader_pgs_status = 1 [(gogoproto.nullable) = false];
+}
+
+message GetPgStatusRequest {
+    string pg_id = 1;
+}
+
+message GetPgStatusReply {
+    PgStatus status = 1;
 }
 
 message OsdStatusReportReply {
@@ -161,6 +170,7 @@ message Pg {
 message PgStatus {
     int32 leader_node_id = 1;
     int32 status = 2;
+    int64 migrated_cnt = 3;
 }
 
 message Op {
@@ -199,7 +209,7 @@ message PgConfigReply {
     uint64 epoch  = 2;
     PgMap map = 3;
     PgMaps maps = 4;
-    map<int32, int32>  leader_map = 5;
+    map<int32, PgStatus>  status_map = 5 [(gogoproto.nullable) = false];
 }
 
 message Mon {

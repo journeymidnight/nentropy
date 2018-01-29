@@ -7,7 +7,7 @@ const (
 	PG_STATE_DOWN     = (1 << 4) // a needed replica is down, PG offline
 	PG_STATE_REPLAY   = (1 << 5) // crashed, waiting for replay
 	//e PG_STATE_STRAY      (1<<6)  // i must notify the primary i exist.
-	PG_STATE_SPLITTING        = (1 << 7)  // i am splitting
+	PG_STATE_MIGRATING        = (1 << 7)  // i am splitting
 	PG_STATE_SCRUBBING        = (1 << 8)  // scrubbing
 	PG_STATE_SCRUBQ           = (1 << 9)  // queued for scrub
 	PG_STATE_DEGRADED         = (1 << 10) // pg contains objects with reduced redundancy
@@ -29,7 +29,7 @@ const (
 	PG_STATE_UNINITIAL        = (1 << 26) // unstable stable, maybe change at next term
 )
 
-func Pg_state_string(state int) string {
+func Pg_state_string(state int32) string {
 	combine_string := ""
 	if state&PG_STATE_STALE > 0 {
 		combine_string += "stale+"
@@ -58,8 +58,8 @@ func Pg_state_string(state int) string {
 	if state&PG_STATE_REPLAY > 0 {
 		combine_string += "replay+"
 	}
-	if state&PG_STATE_SPLITTING > 0 {
-		combine_string += "splitting+"
+	if state&PG_STATE_MIGRATING > 0 {
+		combine_string += "migrating+"
 	}
 	if state&PG_STATE_UNDERSIZED > 0 {
 		combine_string += "undersized+"

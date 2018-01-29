@@ -68,14 +68,14 @@ type raftRequestQueue struct {
 	infos []raftRequestInfo
 }
 
-type UpdatePgStatusCallBack func(pgId string, status int32)
+type ReplicaStateChangeCallback func(pgId string, state string)
 
 // A Store maintains a map of ranges by start key. A Store corresponds
 // to one physical device.
 type Store struct {
 	Ident multiraftbase.StoreIdent
 	cfg   StoreConfig
-	db    *client.DB
+	Db    *client.DB
 	mu    struct {
 		sync.Mutex
 		replicas       sync.Map //map[multiraftbase.GroupID]*Replica
@@ -96,7 +96,7 @@ type Store struct {
 	raftLogQueue      *raftLogQueue      // Raft log truncation queue
 	raftSnapshotQueue *raftSnapshotQueue // Raft repair queue
 	scanner           *replicaScanner    // Replica scanner
-	updatePgStatusCb  UpdatePgStatusCallBack
+	rsChangeCallback  ReplicaStateChangeCallback
 	coalescedMu       struct {
 		syncutil.Mutex
 		heartbeats         map[multiraftbase.StoreIdent][]multiraftbase.RaftHeartbeat
@@ -116,7 +116,7 @@ func (sc *StoreConfig) SetDefaults() {
 	sc.RaftConfig.SetDefaults()
 }
 
-func (s *Store) loadGroupEngine(groupID multiraftbase.GroupID) engine.Engine {
+func (s *Store) LoadGroupEngine(groupID multiraftbase.GroupID) engine.Engine {
 	value, ok := s.engines.Load(groupID)
 	if !ok {
 		helper.Fatal("Cannot find db handle when write data. Group:", string(groupID))
@@ -905,7 +905,7 @@ func (rs *storeReplicaVisitor) EstimatedCount() int {
 }
 
 // NewStore returns a new instance of a store.
-func NewStore(cfg StoreConfig, eng engine.Engine, nodeDesc *multiraftbase.NodeDescriptor, cb UpdatePgStatusCallBack) *Store {
+func NewStore(cfg StoreConfig, eng engine.Engine, nodeDesc *multiraftbase.NodeDescriptor, cb ReplicaStateChangeCallback) *Store {
 	cfg.SetDefaults()
 
 	s := &Store{
@@ -920,17 +920,18 @@ func NewStore(cfg StoreConfig, eng engine.Engine, nodeDesc *multiraftbase.NodeDe
 	s.coalescedMu.heartbeats = map[multiraftbase.StoreIdent][]multiraftbase.RaftHeartbeat{}
 	s.coalescedMu.heartbeatResponses = map[multiraftbase.StoreIdent][]multiraftbase.RaftHeartbeat{}
 	s.coalescedMu.Unlock()
-	s.db = client.NewDB(s)
+	s.Db = client.NewDB(s)
+	s.rsChangeCallback = cb
 
 	//if s.cfg.Gossip != nil {
 	// Add range scanner and configure with queues.
 	s.scanner = newReplicaScanner(
 		s.cfg.AmbientCtx, cfg.ScanInterval, cfg.ScanMaxIdleTime, newStoreReplicaVisitor(s),
 	)
-	s.raftLogQueue = newRaftLogQueue(s, s.db)
+	s.raftLogQueue = newRaftLogQueue(s, s.Db)
 	s.raftSnapshotQueue = newRaftSnapshotQueue(s)
 	s.scanner.AddQueues(s.raftSnapshotQueue, s.raftLogQueue)
-	s.updatePgStatusCb = cb
+	s.rsChangeCallback = cb
 	//}
 
 	s.mu.Lock()
@@ -1058,10 +1059,10 @@ func (s *Store) GetGroupIdsByLeader() ([]string, error) {
 	vector := make([]string, 0)
 	s.mu.replicas.Range(func(key, value interface{}) bool {
 		replica, _ := value.(*Replica)
-		helper.Println(5, "check one replica*******************:", replica)
+		//		helper.Println(5, "check one replica*******************:", replica)
 		if replica.amLeader() {
 			vector = append(vector, string(replica.GroupID))
-			helper.Println(5, "find one leader*******************:", string(replica.GroupID))
+			//			helper.Println(5, "find one leader*******************:", string(replica.GroupID))
 		}
 		return true
 	})
@@ -1120,7 +1121,7 @@ func (s *Store) HandleSnapshot(
 			}
 			helper.Println(5, "Handle snapshot key:", key)
 			helper.Println(5, "Handle snapshot val:", val)
-			eng := s.loadGroupEngine(header.RaftMessageRequest.GroupID)
+			eng := s.LoadGroupEngine(header.RaftMessageRequest.GroupID)
 			err = stripeWrite(eng, key, val, 0, uint64(len(val)))
 			if err != nil {
 				helper.Println(5, "Error putting data to db, err:", err)

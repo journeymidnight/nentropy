@@ -106,6 +106,16 @@ func (ru ResponseUnion) GetInner() Response {
 // MustSetInner sets the Request contained in the union. It panics if the
 // request is not recognized by the union type. The RequestUnion is reset
 // before being repopulated.
+func (ru *ResponseUnion) MustSetInner(args Response) {
+	ru.Reset()
+	if !ru.SetValue(args) {
+		panic(fmt.Sprintf("%T excludes %T", ru, args))
+	}
+}
+
+// MustSetInner sets the Request contained in the union. It panics if the
+// request is not recognized by the union type. The RequestUnion is reset
+// before being repopulated.
 func (ru *RequestUnion) MustSetInner(args Request) {
 	ru.Reset()
 	if !ru.SetValue(args) {

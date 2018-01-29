@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"github.com/coreos/etcd/raft"
 	"github.com/coreos/etcd/raft/raftpb"
+	"github.com/dgraph-io/badger"
 	"github.com/journeymidnight/nentropy/helper"
 	"github.com/journeymidnight/nentropy/log"
 	"github.com/journeymidnight/nentropy/multiraft/multiraftbase"
@@ -242,9 +243,19 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 
 	helper.Printf(20, "get ready from raft group")
 
+	if rd.SoftState != nil {
+		leader := r.mu.leaderID == r.mu.replicaID
+		if rd.RaftState == raft.StateFollower && leader {
+			r.store.rsChangeCallback(string(r.GroupID), rd.SoftState.RaftState.String())
+		} else if rd.RaftState == raft.StateLeader && !leader {
+			r.store.rsChangeCallback(string(r.GroupID), rd.SoftState.RaftState.String())
+		}
+	}
+
 	//refreshReason := noReason
 	if rd.SoftState != nil && leaderID != multiraftbase.ReplicaID(rd.SoftState.Lead) {
 		leaderID = multiraftbase.ReplicaID(rd.SoftState.Lead)
+
 	}
 
 	if !raft.IsEmptySnap(rd.Snapshot) {
@@ -280,7 +291,7 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 	// Use a more efficient write-only batch because we don't need to do any
 	// reads from the batch. Any reads are performed via the "distinct" batch
 	// which passes the reads through to the underlying DB.
-	eng := r.store.loadGroupEngine(r.mu.state.Desc.GroupID)
+	eng := r.store.LoadGroupEngine(r.mu.state.Desc.GroupID)
 	batch := eng.NewBatch()
 	defer batch.Close()
 
@@ -513,6 +524,8 @@ func (r *Replica) processRaftCommand(
 		}
 		response.Reply = &multiraftbase.BatchResponse{}
 		r.applyRaftCommand(ctx, idKey, raftCmd.Method, writeBatch)
+		resp := &multiraftbase.PutResponse{}
+		response.Reply.Responses.MustSetInner(resp)
 	}
 
 	helper.Println(5, "processRaftCommand(): RaftAppliedIndex:", index)
@@ -605,8 +618,9 @@ func (r *Replica) applyRaftCommand(
 		if err != nil {
 			helper.Printf(5, "Cannot unmarshal data to kv")
 		}
-		eng := r.store.loadGroupEngine(r.Desc().GroupID)
+		eng := r.store.LoadGroupEngine(r.Desc().GroupID)
 		err = stripeWrite(eng, []byte(putReq.Key), []byte(putReq.Value.RawBytes), uint64(putReq.Value.Offset), putReq.Value.Len)
+		helper.Println(5, "write kv ***************", r.GroupID, putReq.Key)
 		if err != nil {
 			helper.Println(5, "Error putting data to db, err:", err)
 		}
@@ -968,7 +982,7 @@ func (r *Replica) initRaftMuLockedReplicaMuLocked(
 
 	var err error
 
-	eng := r.store.loadGroupEngine(desc.GroupID)
+	eng := r.store.LoadGroupEngine(desc.GroupID)
 	if r.mu.state, err = r.mu.stateLoader.load(ctx, eng, desc); err != nil {
 		return err
 	}
@@ -1123,10 +1137,13 @@ func (r *Replica) executeReadOnlyBatch(
 		r.store.enqueueRaftUpdateCheck(r.GroupID)
 		r.linearizableReadNotify(ctx)
 
-		eng := r.store.loadGroupEngine(r.Desc().GroupID)
+		eng := r.store.LoadGroupEngine(r.Desc().GroupID)
 		data, err := stripeRead(eng, []byte(getReq.Key), uint64(getReq.Value.Offset), getReq.Value.Len)
 		if err != nil {
 			helper.Println(5, "Error getting data from db. err ", err)
+			if err == badger.ErrKeyNotFound {
+				pErr = multiraftbase.NewError(multiraftbase.NewKeyNonExistent(getReq.Key))
+			}
 		}
 
 		getRes := multiraftbase.GetResponse{}

@@ -201,6 +201,7 @@ func (db *DB) send(
 	m := ba.Request.GetValue().(multiraftbase.Request)
 	switch m.Method() {
 	case multiraftbase.Get:
+	case multiraftbase.Put:
 	default:
 		return nil, multiraftbase.NewErrorf("method %s not allowed with INCONSISTENT batch", m)
 	}

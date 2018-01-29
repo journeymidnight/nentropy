@@ -1,12 +1,15 @@
 package main
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"github.com/journeymidnight/nentropy/helper"
 	"github.com/journeymidnight/nentropy/multiraft/multiraftbase"
 	"github.com/journeymidnight/nentropy/protos"
 	"golang.org/x/net/context"
+	"strconv"
+	"strings"
 )
 
 func (s *OsdServer) CreatePg(ctx context.Context, in *protos.CreatePgRequest) (*protos.CreatePgReply, error) {
@@ -84,6 +87,36 @@ func (s *OsdServer) SyncMap(ctx context.Context, in *protos.SyncMapRequest) (*pr
 	}
 
 	return &protos.SyncMapReply{}, nil
+}
+
+func (s *OsdServer) MigrateGet(ctx context.Context, in *protos.MigrateGetRequest) (*protos.MigrateGetReply, error) {
+	engine := s.store.LoadGroupEngine(multiraftbase.GroupID(in.ParentPgId))
+	it := engine.NewIterator()
+	poolId, _ := strconv.Atoi(strings.Split(in.ChildPgId, ".")[0])
+	childPgId, _ := strconv.Atoi(strings.Split(in.ChildPgId, ".")[1])
+	pgNumbers := len(s.pgMaps.Pgmaps[int32(poolId)].Pgmap)
+	mask := protos.Calc_pg_masks(int(pgNumbers))
+	for it.Seek(in.Marker); it.Valid(); it.Next() {
+		item := it.Item()
+		key := item.Key()
+		if bytes.Equal(key, in.Marker) {
+			continue
+		} else {
+			hash := protos.Nentropy_str_hash(string(key))
+			hashPgId := protos.Nentropy_stable_mod(int(hash), int(pgNumbers), mask)
+			if hashPgId == childPgId {
+				value, err := item.Value()
+				if err != nil {
+					return &protos.MigrateGetReply{}, err
+				} else {
+					return &protos.MigrateGetReply{key, value}, nil
+				}
+			} else {
+				continue
+			}
+		}
+	}
+	return &protos.MigrateGetReply{}, nil
 }
 
 //func newServer() *osdRpcServer {

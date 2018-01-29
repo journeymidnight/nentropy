@@ -25,6 +25,7 @@ service OsdRpc {
     rpc CreatePg (CreatePgRequest) returns (CreatePgReply) {}
     rpc DeletePg (DeletePgRequest) returns (DeletePgReply) {}
     rpc SyncMap (SyncMapRequest) returns (SyncMapReply) {}
+    rpc MigrateGet (MigrateGetRequest) returns (MigrateGetReply) {}
 }
 
 enum SyncMapType {
@@ -57,6 +58,17 @@ message SyncMapRequest {
 
 message SyncMapReply {
     int32 ret_code = 1;
+}
+
+message MigrateGetRequest {
+    string parent_pg_id = 1;
+    string child_pg_id = 2;
+    bytes marker = 3;
+}
+
+message MigrateGetReply {
+    bytes key = 1;
+    bytes value = 2;
 }
 
 message CreatePgRequest {

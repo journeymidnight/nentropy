@@ -39,9 +39,9 @@ func (s *monitorRpcServer) GetLayout(ctx context.Context, in *protos.LayoutReque
 		return &protos.LayoutReply{}, err
 	}
 	pgNumbers := clus.poolMap.Pools[poolId].PgNumbers
-	hash := Nentropy_str_hash(in.ObjectName)
-	mask := Calc_pg_masks(int(pgNumbers))
-	hashPgId := Nentropy_stable_mod(int(hash), int(pgNumbers), mask)
+	hash := protos.Nentropy_str_hash(in.ObjectName)
+	mask := protos.Calc_pg_masks(int(pgNumbers))
+	hashPgId := protos.Nentropy_stable_mod(int(hash), int(pgNumbers), mask)
 	pgName := fmt.Sprintf("%d.%d", poolId, hashPgId)
 	if v, ok := clus.PgStatusMap[pgName]; ok {
 		clus.pgMaps.Pgmaps[poolId].Pgmap[int32(hashPgId)].PrimaryId = v.LeaderNodeId
@@ -66,6 +66,15 @@ func (s *monitorRpcServer) GetLayout(ctx context.Context, in *protos.LayoutReque
 	osds = append(osds, nonPrimayOsds...)
 
 	return &protos.LayoutReply{0, pgName, osds}, nil
+}
+
+func (s *monitorRpcServer) GetPgStatus(ctx context.Context, in *protos.GetPgStatusRequest) (*protos.GetPgStatusReply, error) {
+	status, ok := clus.PgStatusMap[in.PgId]
+	if ok {
+		return &protos.GetPgStatusReply{&status}, nil
+	} else {
+		return &protos.GetPgStatusReply{}, errors.New("can not find specified pg")
+	}
 }
 
 func (s *monitorRpcServer) OsdConfig(ctx context.Context, in *protos.OsdConfigRequest) (*protos.OsdConfigReply, error) {
@@ -391,7 +400,7 @@ func HandlePoolSetPgs(req *protos.PoolConfigRequest) (*protos.PoolConfigReply, e
 		return &protos.PoolConfigReply{}, errors.New(fmt.Sprintf("specify pg numbers must bigger than current value :%d", currentPgs))
 	}
 	rounded := numberRoundToPowerOfTwo(uint32(req.PgNumbers))
-
+	helper.Println(5, "got rounded pg nubers:", req.PgNumbers, rounded)
 	newPoolMap := protos.PoolMap{}
 	data, err := clus.poolMap.Marshal()
 	if err != nil {
@@ -454,7 +463,7 @@ func GetPoolIdByName(name string) (int32, error) {
 
 func HandlePgList(req *protos.PgConfigRequest) (*protos.PgConfigReply, error) {
 	pgmaps, _ := GetCurrPgMaps()
-	leaderMap := make(map[int32]int32)
+	statusMap := make(map[int32]protos.PgStatus)
 	if req.Pool != "" {
 		poolId, err := GetPoolIdByName(req.Pool)
 		if err != nil {
@@ -471,10 +480,10 @@ func HandlePgList(req *protos.PgConfigRequest) (*protos.PgConfigReply, error) {
 				continue
 			}
 			if int32(pool_id) == poolId {
-				leaderMap[int32(pg_id)] = status.LeaderNodeId
+				statusMap[int32(pg_id)] = status
 			}
 		}
-		return &protos.PgConfigReply{0, pgmaps.Epoch, pgmaps.Pgmaps[poolId], nil, leaderMap}, nil
+		return &protos.PgConfigReply{0, pgmaps.Epoch, pgmaps.Pgmaps[poolId], nil, statusMap}, nil
 	} else {
 		return &protos.PgConfigReply{0, pgmaps.Epoch, nil, &pgmaps, nil}, nil
 	}
@@ -568,7 +577,7 @@ func allocateNewPgs(poolMap *protos.PoolMap, pgMaps *protos.PgMaps, osdMap *prot
 	}
 	targetMap := newPgMaps.Pgmaps[poolId]
 	startIndex := len(targetMap.Pgmap)
-	for i := 0; i < int(n); i++ {
+	for i := 0; i < int(n)-startIndex; i++ {
 		id := int32(startIndex + i)
 		targetMap.Pgmap[id] = &protos.Pg{id, 0, make([]protos.PgReplica, 0), 1, 0, make([]int32, 0)}
 	}

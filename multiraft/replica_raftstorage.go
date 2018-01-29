@@ -8,6 +8,7 @@ import (
 	"github.com/pkg/errors"
 	"golang.org/x/net/context"
 
+	"github.com/dgraph-io/badger"
 	"github.com/journeymidnight/nentropy/helper"
 	"github.com/journeymidnight/nentropy/multiraft/keys"
 	"github.com/journeymidnight/nentropy/multiraft/multiraftbase"
@@ -39,7 +40,7 @@ var _ raft.Storage = (*replicaRaftStorage)(nil)
 // InitialState requires that r.mu is held.
 func (r *replicaRaftStorage) InitialState() (raftpb.HardState, raftpb.ConfState, error) {
 	ctx := r.AnnotateCtx(context.TODO())
-	eng := r.store.loadGroupEngine(r.mu.state.Desc.GroupID)
+	eng := r.store.LoadGroupEngine(r.mu.state.Desc.GroupID)
 	hs, err := r.mu.stateLoader.loadHardState(ctx, eng)
 	// For uninitialized ranges, membership is unknown at this point.
 	if raft.IsEmptyHardState(hs) || err != nil {
@@ -59,7 +60,7 @@ func (r *replicaRaftStorage) InitialState() (raftpb.HardState, raftpb.ConfState,
 // proposals count towards maxBytes with their payloads inlined.
 func (r *replicaRaftStorage) Entries(lo, hi, maxBytes uint64) ([]raftpb.Entry, error) {
 	ctx := r.AnnotateCtx(context.TODO())
-	eng := r.store.loadGroupEngine(r.mu.state.Desc.GroupID)
+	eng := r.store.LoadGroupEngine(r.mu.state.Desc.GroupID)
 	return entries(ctx, eng, r.GroupID, r.store.raftEntryCache,
 		lo, hi, maxBytes)
 }
@@ -104,7 +105,7 @@ func entries(
 
 	for i := expectedIndex; i < hi; i++ {
 		v, err := e.Get(keys.RaftLogKey(groupID, i))
-		if err != nil {
+		if err != nil && err != badger.ErrKeyNotFound {
 			return nil, err
 		}
 		var ent raftpb.Entry
@@ -186,7 +187,7 @@ func (r *replicaRaftStorage) Term(i uint64) (uint64, error) {
 		return term, nil
 	}
 	ctx := r.AnnotateCtx(context.TODO())
-	eng := r.store.loadGroupEngine(r.mu.state.Desc.GroupID)
+	eng := r.store.LoadGroupEngine(r.mu.state.Desc.GroupID)
 	return term(ctx, eng, r.GroupID, r.store.raftEntryCache, i)
 }
 
@@ -239,7 +240,7 @@ func (r *Replica) raftTruncatedStateLocked(
 	if r.mu.state.TruncatedState != nil {
 		return *r.mu.state.TruncatedState, nil
 	}
-	eng := r.store.loadGroupEngine(r.mu.state.Desc.GroupID)
+	eng := r.store.LoadGroupEngine(r.mu.state.Desc.GroupID)
 	ts, err := r.mu.stateLoader.loadTruncatedState(ctx, eng)
 	if err != nil {
 		return ts, err
@@ -359,7 +360,7 @@ func (r *Replica) GetSnapshot(
 	// an AddSSTable" (i.e. a state in which an SSTable has been linked in, but
 	// the corresponding Raft command not applied yet).
 	r.raftMu.Lock()
-	eng := r.store.loadGroupEngine(r.Desc().GroupID)
+	eng := r.store.LoadGroupEngine(r.Desc().GroupID)
 	snap := eng.NewSnapshot()
 	r.raftMu.Unlock()
 

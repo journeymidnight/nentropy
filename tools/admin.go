@@ -190,11 +190,13 @@ func listPgs() {
 		fmt.Println("================================")
 		fmt.Println("id:", reply.Map.Pgmap[int32(k)].Id)
 		fmt.Println("osds:", reply.Map.Pgmap[int32(k)].Replicas)
-		if val, ok := reply.LeaderMap[int32(k)]; ok {
+		if val, ok := reply.StatusMap[int32(k)]; ok {
 			//do something here
-			fmt.Println("leader:", val)
+			fmt.Println("leader:", val.LeaderNodeId)
+			fmt.Println("status:", pb.Pg_state_string(val.Status))
+			fmt.Println("migrate count:", val.MigratedCnt)
 		} else {
-			fmt.Println("leader:", 0)
+			fmt.Println("status:", "")
 		}
 	}
 

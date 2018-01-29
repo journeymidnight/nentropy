@@ -44,7 +44,7 @@ func (b *BadgerDB) Get(key []byte) ([]byte, error) {
 			return err
 		}
 		return nil
-	}); err != nil && err != badger.ErrKeyNotFound {
+	}); err != nil {
 		return nil, err
 	}
 	return val, nil

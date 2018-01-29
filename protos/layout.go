@@ -1,4 +1,4 @@
-package main
+package protos
 
 import (
 	"hash/fnv"
