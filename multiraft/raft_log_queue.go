@@ -23,7 +23,7 @@ import (
 	"golang.org/x/net/context"
 
 	"github.com/journeymidnight/nentropy/helper"
-	"github.com/journeymidnight/nentropy/multiraft/internal/client"
+	"github.com/journeymidnight/nentropy/multiraft/client"
 	"github.com/journeymidnight/nentropy/multiraft/multiraftbase"
 	"github.com/journeymidnight/nentropy/util/envutil"
 )

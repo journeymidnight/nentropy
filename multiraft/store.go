@@ -16,7 +16,7 @@ import (
 	"github.com/pkg/errors"
 	"golang.org/x/net/context"
 
-	"github.com/journeymidnight/nentropy/multiraft/internal/client"
+	"github.com/journeymidnight/nentropy/multiraft/client"
 	"math"
 	"sync"
 	"time"
