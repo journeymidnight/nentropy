@@ -73,6 +73,43 @@ func (b *BadgerDB) Put(key []byte, value []byte) error {
 	return nil
 }
 
+func (b *BadgerDB) NewIterator(prefix bool) Iterator {
+	return nil
+}
+
+type badgerDBSnapshot struct {
+	parent *badger.DB
+	txn    *badger.Txn
+}
+
+func (b *badgerDBSnapshot) Close() {
+
+}
+
+func (b *badgerDBSnapshot) Get(key []byte) ([]byte, error) {
+	return nil, nil
+}
+
+func (b *badgerDBSnapshot) NewIterator(prefix bool) Iterator {
+	opts := badger.DefaultIteratorOptions
+	opts.PrefetchSize = 10
+	it := b.txn.NewIterator(opts)
+	return it
+}
+
+// NewSnapshot creates a snapshot handle from engine and returns a
+// read-only rocksDBSnapshot engine.
+func (b *BadgerDB) NewSnapshot() Reader {
+	if b.db == nil {
+		panic("BadgerDB is not initialized yet")
+	}
+	txn := b.db.NewTransaction(false)
+	return &badgerDBSnapshot{
+		parent: b.db,
+		txn:    txn,
+	}
+}
+
 func (b *BadgerDB) NewBatch() Batch {
 	return newBadgerDBBatch(b)
 }

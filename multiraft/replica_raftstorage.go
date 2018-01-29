@@ -8,6 +8,7 @@ import (
 	"github.com/pkg/errors"
 	"golang.org/x/net/context"
 
+	"github.com/journeymidnight/nentropy/helper"
 	"github.com/journeymidnight/nentropy/multiraft/keys"
 	"github.com/journeymidnight/nentropy/multiraft/multiraftbase"
 	"github.com/journeymidnight/nentropy/storage/engine"
@@ -285,23 +286,124 @@ func (r *Replica) raftSnapshotLocked() (raftpb.Snapshot, error) {
 	return (*replicaRaftStorage)(r).Snapshot()
 }
 
+// snapshot creates an OutgoingSnapshot containing a rocksdb snapshot for the
+// given range. Note that snapshot() is called without Replica.raftMu held.
+func snapshot(
+	ctx context.Context,
+	snapType string,
+	snap engine.Reader,
+	groupID multiraftbase.GroupID,
+	eCache *raftEntryCache,
+) (OutgoingSnapshot, error) {
+	var desc multiraftbase.GroupDescriptor
+
+	var snapData multiraftbase.RaftSnapshotData
+	// Store RangeDescriptor as metadata, it will be retrieved by ApplySnapshot()
+	snapData.GroupDescriptor = desc
+
+	// Read the range metadata from the snapshot instead of the members
+	// of the Range struct because they might be changed concurrently.
+	appliedIndex, err := loadAppliedIndex(ctx, snap, groupID)
+	if err != nil {
+		return OutgoingSnapshot{}, err
+	}
+
+	// Synthesize our raftpb.ConfState from desc.
+	var cs raftpb.ConfState
+	for _, rep := range desc.Replicas {
+		cs.Nodes = append(cs.Nodes, uint64(rep.ReplicaID))
+	}
+
+	term, err := term(ctx, snap, groupID, eCache, appliedIndex)
+	if err != nil {
+		return OutgoingSnapshot{}, errors.Errorf("failed to fetch term of %d: %s", appliedIndex, err)
+	}
+
+	rsl := makeReplicaStateLoader(groupID)
+	state, err := rsl.load(ctx, snap, &desc)
+	if err != nil {
+		return OutgoingSnapshot{}, err
+	}
+
+	// Intentionally let this iterator and the snapshot escape so that the
+	// streamer can send chunks from it bit by bit.
+	iter := NewReplicaDataIterator(snap, true /* replicatedOnly */)
+	snapUUID := uuid.MakeV4()
+
+	helper.Printf(5, "generated %s snapshot %s at index %d",
+		snapType, snapUUID.Short(), appliedIndex)
+	return OutgoingSnapshot{
+		RaftEntryCache: eCache,
+		EngineSnap:     snap,
+		Iter:           iter,
+		State:          state,
+		SnapUUID:       snapUUID,
+		RaftSnap: raftpb.Snapshot{
+			Data: snapUUID.GetBytes(),
+			Metadata: raftpb.SnapshotMetadata{
+				Index:     appliedIndex,
+				Term:      term,
+				ConfState: cs,
+			},
+		},
+	}, nil
+}
+
 // GetSnapshot returns a snapshot of the replica appropriate for sending to a
 // replica. If this method returns without error, callers must eventually call
 // OutgoingSnapshot.Close.
 func (r *Replica) GetSnapshot(
 	ctx context.Context, snapType string,
 ) (_ *OutgoingSnapshot, err error) {
+	// Get a snapshot while holding raftMu to make sure we're not seeing "half
+	// an AddSSTable" (i.e. a state in which an SSTable has been linked in, but
+	// the corresponding Raft command not applied yet).
 	r.raftMu.Lock()
-
+	snap := r.store.sysEng.NewSnapshot()
 	r.raftMu.Unlock()
 
-	return nil, nil
+	defer func() {
+		if err != nil {
+			snap.Close()
+		}
+	}()
+
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	groupID := r.GroupID
+
+	snapData, err := snapshot(
+		ctx, snapType, snap, groupID, r.store.raftEntryCache,
+	)
+	if err != nil {
+		helper.Printf(5, "error generating snapshot: %s", err)
+		return nil, err
+	}
+	return &snapData, nil
 }
 
 // OutgoingSnapshot contains the data required to stream a snapshot to a
 // recipient. Once one is created, it needs to be closed via Close() to prevent
 // resource leakage.
 type OutgoingSnapshot struct {
+	SnapUUID uuid.UUID
+	// The Raft snapshot message to send. Contains SnapUUID as its data.
+	RaftSnap raftpb.Snapshot
+	// The RocksDB snapshot that will be streamed from.
+	EngineSnap engine.Reader
+	// The complete range iterator for the snapshot to stream.
+	Iter *ReplicaDataIterator
+	// The complete range iterator for the snapshot to stream.
+	//Iter *ReplicaDataIterator
+	// The replica state within the snapshot.
+	State          multiraftbase.ReplicaState
+	RaftEntryCache *raftEntryCache
+}
+
+// Close releases the resources associated with the snapshot.
+func (s *OutgoingSnapshot) Close() {
+	s.Iter.Close()
+	s.EngineSnap.Close()
 }
 
 // IncomingSnapshot contains the data for an incoming streaming snapshot message.
@@ -367,10 +469,6 @@ func (r *Replica) append(
 
 	return lastIndex, lastTerm, 0, nil
 }
-
-const (
-	snapTypeRaft = "Raft"
-)
 
 // applySnapshot updates the replica based on the given snapshot and associated
 // HardState (which may be empty, as Raft may apply some snapshots which don't

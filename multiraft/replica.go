@@ -1,6 +1,7 @@
 package multiraft
 
 import (
+	"fmt"
 	"github.com/coreos/etcd/raft"
 	"github.com/coreos/etcd/raft/raftpb"
 	"github.com/journeymidnight/nentropy/helper"
@@ -110,6 +111,11 @@ type Replica struct {
 		// of the raft log. This will be correct when all log entries predating this
 		// process have been truncated.
 		raftLogSize int64
+
+		// The raft log index of a pending preemptive snapshot. Used to prohibit
+		// raft log truncation while a preemptive snapshot is in flight. A value of
+		// 0 indicates that there is no pending snapshot.
+		pendingSnapshotIndex uint64
 	}
 
 	// raftMu protects Raft processing the replica.
@@ -613,6 +619,14 @@ func (r *Replica) sendRaftMessage(ctx context.Context, msg raftpb.Message) {
 	if toErr != nil {
 		helper.Printf(20, "failed to look up recipient replica %d in r%d while sending %s: %s",
 			msg.To, r.GroupID, msg.Type, toErr)
+		return
+	}
+
+	// Raft-initiated snapshots are handled by the Raft snapshot queue.
+	if msg.Type == raftpb.MsgSnap {
+		if _, err := r.store.raftSnapshotQueue.Add(r, raftSnapshotPriority); err != nil {
+			helper.Printf(5, "unable to add replica to Raft repair queue: %s", err)
+		}
 		return
 	}
 
@@ -1218,6 +1232,13 @@ func (r *Replica) getReplicaDescriptorRLocked() (multiraftbase.ReplicaDescriptor
 	return multiraftbase.ReplicaDescriptor{}, nil
 }
 
+// IsDestroyed returns a non-nil error if the replica has been destroyed.
+func (r *Replica) IsDestroyed() error {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.mu.destroyed
+}
+
 func (r *Replica) propose(
 	ctx context.Context,
 	ba multiraftbase.BatchRequest,
@@ -1295,4 +1316,123 @@ func (r *Replica) tryExecuteWriteBatch(
 			ctxDone = nil
 		}
 	}
+}
+
+func (r *Replica) reportSnapshotStatus(to uint64, snapErr error) {
+	r.raftMu.Lock()
+	defer r.raftMu.Unlock()
+
+	snapStatus := raft.SnapshotFinish
+	if snapErr != nil {
+		snapStatus = raft.SnapshotFailure
+	}
+
+	if err := r.withRaftGroup(func(raftGroup *raft.RawNode) (bool, error) {
+		raftGroup.ReportSnapshot(to, snapStatus)
+		return true, nil
+	}); err != nil {
+		//ctx := r.AnnotateCtx(context.TODO())
+		helper.Fatal(err)
+	}
+}
+
+// GetReplicaDescriptor returns the replica for this range from the range
+// descriptor. Returns a *RangeNotFoundError if the replica is not found.
+// No other errors are returned.
+func (r *Replica) GetReplicaDescriptor() (multiraftbase.ReplicaDescriptor, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.getReplicaDescriptorRLocked()
+}
+
+const (
+	snapTypeRaft       = "Raft"
+	snapTypePreemptive = "preemptive"
+)
+
+func (r *Replica) setPendingSnapshotIndex(index uint64) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	// We allow the pendingSnapshotIndex to change from 0 to 1 and then from 1 to
+	// a value greater than 1. Any other change indicates 2 current preemptive
+	// snapshots on the same replica which is disallowed.
+	if (index == 1 && r.mu.pendingSnapshotIndex != 0) ||
+		(index > 1 && r.mu.pendingSnapshotIndex != 1) {
+		return errors.Errorf(
+			"%s: can't set pending snapshot index to %d; pending snapshot already present: %d",
+			r, index, r.mu.pendingSnapshotIndex)
+	}
+	r.mu.pendingSnapshotIndex = index
+	return nil
+}
+
+type snapshotError struct {
+	cause error
+}
+
+func (s *snapshotError) Error() string {
+	return fmt.Sprintf("snapshot failed: %s", s.cause.Error())
+}
+
+// sendSnapshot sends a snapshot of the replica state to the specified
+// replica. This is used for both preemptive snapshots that are performed
+// before adding a replica to a range, and for Raft-initiated snapshots that
+// are used to bring a replica up to date that has fallen too far
+// behind. Currently only invoked from replicateQueue and raftSnapshotQueue. Be
+// careful about adding additional calls as generating a snapshot is moderately
+// expensive.
+func (r *Replica) sendSnapshot(
+	ctx context.Context,
+	repDesc multiraftbase.ReplicaDescriptor,
+	snapType string,
+	priority multiraftbase.SnapshotRequest_Priority,
+) error {
+	snap, err := r.GetSnapshot(ctx, snapType)
+	if err != nil {
+		return errors.Wrapf(err, "%s: failed to generate %s snapshot", r, snapType)
+	}
+	defer snap.Close()
+
+	fromRepDesc, err := r.GetReplicaDescriptor()
+	if err != nil {
+		return errors.Wrapf(err, "%s: change replicas failed", r)
+	}
+
+	if snapType == snapTypePreemptive {
+		if err := r.setPendingSnapshotIndex(snap.RaftSnap.Metadata.Index); err != nil {
+			return err
+		}
+	}
+
+	status := r.RaftStatus()
+	if status == nil {
+		return errors.New("raft status not initialized")
+	}
+
+	req := multiraftbase.SnapshotRequest_Header{
+		State: snap.State,
+		RaftMessageRequest: multiraftbase.RaftMessageRequest{
+			GroupID:     r.GroupID,
+			FromReplica: fromRepDesc,
+			ToReplica:   repDesc,
+			Message: raftpb.Message{
+				Type:     raftpb.MsgSnap,
+				To:       uint64(repDesc.ReplicaID),
+				From:     uint64(fromRepDesc.ReplicaID),
+				Term:     status.Term,
+				Snapshot: snap.RaftSnap,
+			},
+		},
+		// Recipients can choose to decline preemptive snapshots.
+		CanDecline: snapType == snapTypePreemptive,
+		Priority:   priority,
+	}
+	sent := func() {
+
+	}
+	if err := r.store.cfg.Transport.SendSnapshot(
+		ctx, req, snap, r.store.sysEng.NewBatch, sent); err != nil {
+		return &snapshotError{err}
+	}
+	return nil
 }

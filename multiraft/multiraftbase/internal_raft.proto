@@ -8,20 +8,20 @@ import "gogoproto/gogo.proto";
 
 // RaftTombstone contains information about a replica that has been deleted.
 message RaftTombstone {
-int32 next_replica_id = 1 [(gogoproto.customname) = "NextReplicaID", (gogoproto.casttype) = "ReplicaID"];
+    int32 next_replica_id = 1 [(gogoproto.customname) = "NextReplicaID", (gogoproto.casttype) = "ReplicaID"];
 }
 
 // RaftSnapshotData is the payload of a raftpb.Snapshot. It contains a raw copy of
 // all of the range's data and metadata, including the raft log, sequence cache, etc.
 message RaftSnapshotData {
-message KeyValue {
-bytes key = 1;
-bytes value = 2;
-}
-// The latest RangeDescriptor
-GroupDescriptor pg_descriptor = 1;
-repeated KeyValue KV = 2 [(gogoproto.customname) = "KV"];
-// These are really raftpb.Entry, but we model them as raw bytes to avoid
-// roundtripping through memory.
-repeated bytes log_entries = 3;
+    message KeyValue {
+        bytes key = 1;
+        bytes value = 2;
+    }
+    // The latest RangeDescriptor
+    GroupDescriptor group_descriptor = 1[(gogoproto.nullable) = false];
+    repeated KeyValue KV = 2 [(gogoproto.customname) = "KV", (gogoproto.nullable) = false];
+    // These are really raftpb.Entry, but we model them as raw bytes to avoid
+    // roundtripping through memory.
+    repeated bytes log_entries = 3;
 }

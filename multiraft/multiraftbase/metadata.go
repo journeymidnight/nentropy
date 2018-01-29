@@ -94,6 +94,11 @@ type RKey Key
 // messages which refer to Cockroach keys.
 type Key []byte
 
+// String returns a string-formatted version of the key.
+func (k Key) String() string {
+	return fmt.Sprintf("%q", []byte(k))
+}
+
 func (v *Value) setTag(t ValueType) {
 	v.RawBytes[tagPos] = byte(t)
 }

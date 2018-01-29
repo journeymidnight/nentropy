@@ -16,6 +16,8 @@ const (
 	// Put sets the value for a key at the specified timestamp. If the
 	// timestamp is 0, the value is set with the current time as timestamp.
 	Put
+	// TruncateLog discards a prefix of the raft log.
+	TruncateLog
 )
 
 // Request is an interface for RPC requests.
@@ -46,6 +48,14 @@ func (pr *PutRequest) ShallowCopy() Request {
 	return &shallowCopy
 }
 
+func (*TruncateLogRequest) Method() Method { return TruncateLog }
+
+// ShallowCopy implements the Request interface.
+func (tr *TruncateLogRequest) ShallowCopy() Request {
+	shallowCopy := *tr
+	return &shallowCopy
+}
+
 // NewGet returns a Request initialized to get the value at key.
 func NewGet(key Key, offset int64, len uint64) Request {
 	return &GetRequest{
@@ -62,8 +72,19 @@ func NewPut(key Key, value Value) Request {
 	}
 }
 
-func (*GetRequest) flags() int { return 0 }
-func (*PutRequest) flags() int { return 0 }
+func (*GetRequest) flags() int         { return 0 }
+func (*PutRequest) flags() int         { return 0 }
+func (*TruncateLogRequest) flags() int { return 0 }
+
+// GetInner returns the Request contained in the union.
+func (ru RequestUnion) GetInner() Request {
+	return ru.GetValue().(Request)
+}
+
+// GetInner returns the Response contained in the union.
+func (ru ResponseUnion) GetInner() Response {
+	return ru.GetValue().(Response)
+}
 
 // MustSetInner sets the Request contained in the union. It panics if the
 // request is not recognized by the union type. The RequestUnion is reset
@@ -80,6 +101,10 @@ type Response interface {
 	proto.Message
 	// Method returns the request method.
 	Method() Method
+	// Header returns the response header.
+	Header() ResponseHeader
+	// SetHeader sets the response header.
+	SetHeader(ResponseHeader)
 }
 
 // Method implements the Request interface.
@@ -87,3 +112,13 @@ func (*GetResponse) Method() Method { return Get }
 
 // Method implements the Request interface.
 func (*PutResponse) Method() Method { return Put }
+
+// Header implements the Response interface for ResponseHeader.
+func (rh ResponseHeader) Header() ResponseHeader {
+	return rh
+}
+
+// SetHeader implements the Response interface.
+func (rh *ResponseHeader) SetHeader(other ResponseHeader) {
+	*rh = other
+}

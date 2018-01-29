@@ -1,3 +1,17 @@
+// Copyright 2014 The Cockroach Authors.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+// implied. See the License for the specific language governing
+// permissions and limitations under the License.
+
 package multiraft
 
 import (
@@ -6,11 +20,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/journeymidnight/nentropy/helper"
-	"github.com/journeymidnight/nentropy/multiraft/multiraftbase"
 	"github.com/pkg/errors"
 	"golang.org/x/net/context"
 
+	"github.com/journeymidnight/nentropy/helper"
+	"github.com/journeymidnight/nentropy/multiraft/multiraftbase"
 	"github.com/journeymidnight/nentropy/util/stop"
 	"github.com/journeymidnight/nentropy/util/syncutil"
 	"github.com/journeymidnight/nentropy/util/timeutil"
@@ -93,28 +107,17 @@ func isExpectedQueueError(err error) bool {
 	return err == nil || cause == errQueueDisabled || cause == errReplicaNotAddable
 }
 
-// shouldQueueAgain is a helper function to determine whether the
-// replica should be queued according to the current time, the last
-// time the replica was processed, and the minimum interval between
-// successive processing. Specifying minInterval=0 queues all replicas.
-// Returns a bool for whether to queue as well as a priority based
-// on how long it's been since last processed.
-func shouldQueueAgain(minInterval time.Duration) (bool, float64) {
-	return true, 0
-}
-
 type queueImpl interface {
 	// shouldQueue accepts current time, a replica, and the system config
 	// and returns whether it should be queued and if so, at what priority.
 	// The Replica is guaranteed to be initialized.
-	shouldQueue(
-		context.Context, *Replica, multiraftbase.SystemConfig,
+	shouldQueue(context.Context, *Replica,
 	) (shouldQueue bool, priority float64)
 
 	// process accepts lease status, a replica, and the system config
 	// and executes queue-specific work on it. The Replica is guaranteed
 	// to be initialized.
-	process(context.Context, *Replica, multiraftbase.SystemConfig) error
+	process(context.Context, *Replica) error
 
 	// timer returns a duration to wait between processing the next item
 	// from the queue. The duration of the last processing of a replica
@@ -180,7 +183,7 @@ type baseQueue struct {
 	mu       struct {
 		sync.Locker                                        // Protects all variables in the mu struct
 		priorityQ   priorityQueue                          // The priority queue
-		replicas    map[multiraftbase.GroupID]*replicaItem // Map from GroupID to replicaItem (for updating priority)
+		replicas    map[multiraftbase.GroupID]*replicaItem // Map from RangeID to replicaItem (for updating priority)
 		purgatory   map[multiraftbase.GroupID]error        // Map of replicas to processing errors
 		stopped     bool
 		// Some tests in this package disable queues.
@@ -209,6 +212,10 @@ func newBaseQueue(
 	}
 
 	ambient := store.cfg.AmbientCtx
+
+	if !cfg.acceptsUnsplitRanges && !cfg.needsSystemConfig {
+		helper.Fatalf("misconfigured queue: acceptsUnsplitRanges=false requires needsSystemConfig=true; got %+v", cfg)
+	}
 
 	bq := baseQueue{
 		AmbientContext: ambient,
@@ -281,9 +288,6 @@ func (bq *baseQueue) Add(repl *Replica, priority float64) (bool, error) {
 func (bq *baseQueue) MaybeAdd(repl *Replica) {
 	ctx := repl.AnnotateCtx(bq.AnnotateCtx(context.TODO()))
 
-	// Load the system config if it's needed.
-	var cfg multiraftbase.SystemConfig
-
 	bq.mu.Lock()
 	defer bq.mu.Unlock()
 
@@ -295,7 +299,7 @@ func (bq *baseQueue) MaybeAdd(repl *Replica) {
 		return
 	}
 
-	should, priority := bq.impl.shouldQueue(ctx, repl, cfg)
+	should, priority := bq.impl.shouldQueue(ctx, repl)
 	if _, err := bq.addInternal(ctx, repl.Desc(), should, priority); !isExpectedQueueError(err) {
 		helper.Printf(5, "unable to add: %s", err)
 	}
@@ -340,10 +344,13 @@ func (bq *baseQueue) addInternal(
 		// Don't lower it since the previous queuer may have known more than this
 		// one does.
 		if priority > item.priority {
+			helper.Printf(5, "updating priority: %0.3f -> %0.3f", item.priority, priority)
 			bq.mu.priorityQ.update(item, priority)
 		}
 		return false, nil
 	}
+
+	helper.Printf(5, "adding: priority=%0.3f", priority)
 
 	item = &replicaItem{value: desc.GroupID, priority: priority}
 	bq.add(item)
@@ -372,7 +379,8 @@ func (bq *baseQueue) MaybeRemove(groupID multiraftbase.GroupID) {
 	}
 
 	if item, ok := bq.mu.replicas[groupID]; ok {
-		//_ := bq.AnnotateCtx(context.TODO())
+		//ctx := bq.AnnotateCtx(context.TODO())
+		helper.Printf(5, "%s: removing", item.value)
 		bq.remove(item)
 	}
 }
@@ -401,8 +409,8 @@ func (bq *baseQueue) processLoop(stopper *stop.Stopper) {
 			case <-stopper.ShouldStop():
 				return
 
-				// Incoming signal sets the next time to process if there were previously
-				// no replicas in the queue.
+			// Incoming signal sets the next time to process if there were previously
+			// no replicas in the queue.
 			case <-bq.incoming:
 				if nextTime == nil {
 					// When a replica is added, wake up immediately. This is mainly
@@ -412,7 +420,7 @@ func (bq *baseQueue) processLoop(stopper *stop.Stopper) {
 					// In case we're in a test, still block on the impl.
 					bq.impl.timer(0)
 				}
-				// Process replicas as the timer expires.
+			// Process replicas as the timer expires.
 			case <-nextTime:
 				repl := bq.pop()
 				var duration time.Duration
@@ -427,6 +435,8 @@ func (bq *baseQueue) processLoop(stopper *stop.Stopper) {
 								bq.maybeAddToPurgatory(annotatedCtx, repl, err, stopper)
 							}
 							duration = timeutil.Since(start)
+
+							helper.Printf(5, "done %s", duration)
 						}) != nil {
 						return
 					}
@@ -445,18 +455,19 @@ func (bq *baseQueue) processLoop(stopper *stop.Stopper) {
 // called externally to the queue. bq.mu.Lock must not be held
 // while calling this method.
 func (bq *baseQueue) processReplica(
-	queueCtx context.Context, repl *Replica) error {
-
+	queueCtx context.Context, repl *Replica,
+) error {
 	bq.processMu.Lock()
 	defer bq.processMu.Unlock()
 
-	// Load the system config if it's needed.
-	var cfg multiraftbase.SystemConfig
+	// Putting a span in a context means that events will no longer go to the
+	// event log. Use queueCtx for events that are intended for the event log.
 
 	// Also add the Replica annotations to ctx.
 	ctx := repl.AnnotateCtx(queueCtx)
 	ctx, cancel := context.WithTimeout(ctx, bq.processTimeout)
 	defer cancel()
+	helper.Printf(5, "processing replica")
 
 	if !repl.IsInitialized() {
 		// We checked this when adding the replica, but we need to check it again
@@ -464,14 +475,19 @@ func (bq *baseQueue) processReplica(
 		return errors.New("cannot process uninitialized replica")
 	}
 
-	if err := repl.IsDestroyed(); err != nil {
-		return nil
-	}
+	/*
+		if err := repl.IsDestroyed(); err != nil {
+			helper.Println(5, "replica destroyed (%s); skipping", err)
+			return nil
+		}
+	*/
 
-	if err := bq.impl.process(ctx, repl, cfg); err != nil {
+	helper.Println(5, "processing")
+
+	if err := bq.impl.process(ctx, repl); err != nil {
 		return err
 	}
-
+	helper.Println(5, "done")
 	return nil
 }
 
@@ -486,7 +502,7 @@ func (bq *baseQueue) maybeAddToPurgatory(
 ) {
 	// Check whether the failure is a purgatory error and whether the queue supports it.
 	if _, ok := errors.Cause(triggeringErr).(purgatoryError); !ok || bq.impl.purgatoryChan() == nil {
-		helper.Printf(5, "%s", triggeringErr)
+		helper.Printf(5, "triggeringErr:", triggeringErr)
 		return
 	}
 	bq.mu.Lock()
@@ -496,6 +512,8 @@ func (bq *baseQueue) maybeAddToPurgatory(
 	if _, ok := bq.mu.replicas[repl.GroupID]; ok {
 		return
 	}
+
+	helper.Println(5, errors.Wrap(triggeringErr, "purgatory"))
 
 	item := &replicaItem{value: repl.GroupID}
 	bq.mu.replicas[repl.GroupID] = item
@@ -519,14 +537,14 @@ func (bq *baseQueue) maybeAddToPurgatory(
 			case <-bq.impl.purgatoryChan():
 				// Remove all items from purgatory into a copied slice.
 				bq.mu.Lock()
-				ranges := make([]multiraftbase.GroupID, 0, len(bq.mu.purgatory))
+				groups := make([]multiraftbase.GroupID, 0, len(bq.mu.purgatory))
 				for groupID := range bq.mu.purgatory {
 					item := bq.mu.replicas[groupID]
-					ranges = append(ranges, item.value)
+					groups = append(groups, item.value)
 					bq.remove(item)
 				}
 				bq.mu.Unlock()
-				for _, id := range ranges {
+				for _, id := range groups {
 					repl, err := bq.store.GetReplica(id)
 					if err != nil {
 						helper.Printf(5, "range %s no longer exists on store: %s", id, err)
@@ -605,9 +623,25 @@ func (bq *baseQueue) remove(item *replicaItem) {
 	delete(bq.mu.replicas, item.value)
 }
 
-// IsDestroyed returns a non-nil error if the replica has been destroyed.
-func (r *Replica) IsDestroyed() error {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	return r.mu.destroyed
+// DrainQueue locks the queue and processes the remaining queued replicas. It
+// processes the replicas in the order they're queued in, one at a time.
+// Exposed for testing only.
+//
+// TODO(bdarnell): this method may race with the call to bq.pop() in
+// the main loop, in which case it does not guarantee that all
+// replicas have been processed by the time it returns. This is most
+// noticeable with ForceReplicaGCScanAndProcess, since the replica GC
+// queue has many event-driven triggers. This should synchronize
+// somehow with processLoop so we wait for anything being handled
+// there to finish too. When that's done, the SucceedsSoon at the end
+// of TestRemoveRangeWithoutGC (and perhaps others) can be replaced
+// with a one-time check.
+func (bq *baseQueue) DrainQueue() {
+	ctx := bq.AnnotateCtx(context.TODO())
+	for repl := bq.pop(); repl != nil; repl = bq.pop() {
+		annotatedCtx := repl.AnnotateCtx(ctx)
+		if err := bq.processReplica(annotatedCtx, repl); err != nil {
+			helper.Println(5, err)
+		}
+	}
 }

@@ -33,6 +33,7 @@ import (
 	"github.com/journeymidnight/nentropy/helper"
 	"github.com/journeymidnight/nentropy/memberlist"
 	"github.com/journeymidnight/nentropy/multiraft/multiraftbase"
+	"github.com/journeymidnight/nentropy/storage/engine"
 	"github.com/pkg/errors"
 	"sync"
 )
@@ -569,6 +570,77 @@ func (t *RaftTransport) SendAsync(req *multiraftbase.RaftMessageRequest) bool {
 
 // SendSnapshot streams the given outgoing snapshot. The caller is responsible
 // for closing the OutgoingSnapshot.
-func (t *RaftTransport) SendSnapshot() error {
-	return nil
+func (t *RaftTransport) SendSnapshot(
+	ctx context.Context,
+	header multiraftbase.SnapshotRequest_Header,
+	snap *OutgoingSnapshot,
+	newBatch func() engine.Batch,
+	sent func(),
+) error {
+	var stream multiraftbase.MultiRaft_RaftSnapshotClient
+	nodeID := header.RaftMessageRequest.ToReplica.NodeID
+	if err := func() error {
+		addr, err := t.resolver(string(nodeID))
+		if err != nil {
+			return err
+		}
+		conn, err := t.rpcContext.GRPCDial(addr, grpc.WithBlock())
+		if err != nil {
+			return err
+		}
+		client := multiraftbase.NewMultiRaftClient(conn)
+		stream, err = client.RaftSnapshot(ctx)
+		return err
+	}(); err != nil {
+		return err
+	}
+
+	// Note that we intentionally do not open the breaker if we encounter an
+	// error while sending the snapshot. Snapshots are much less common than
+	// regular Raft messages so if there is a real problem with the remote we'll
+	// probably notice it really soon. Conversely, snapshots are a bit weird
+	// (much larger than regular messages) so if there is an error here we don't
+	// want to disrupt normal messages.
+	defer func() {
+		if err := stream.CloseSend(); err != nil {
+			helper.Printf(5, "failed to close snapshot stream: %s", err)
+		}
+	}()
+	return sendSnapshot(ctx, stream, header, snap, newBatch, sent)
+}
+
+// RaftSnapshot handles incoming streaming snapshot requests.
+func (t *RaftTransport) RaftSnapshot(stream multiraftbase.MultiRaft_RaftSnapshotServer) error {
+	errCh := make(chan error, 1)
+	if err := t.rpcContext.Stopper.RunAsyncTask(
+		stream.Context(), "storage.RaftTransport: processing snapshot",
+		func(ctx context.Context) {
+			errCh <- func() error {
+				req, err := stream.Recv()
+				if err != nil {
+					return err
+				}
+				if req.Header == nil {
+					return stream.Send(&multiraftbase.SnapshotResponse{
+						Status:  multiraftbase.SnapshotResponse_ERROR,
+						Message: "client error: no header in first snapshot request message"})
+				}
+				rmr := req.Header.RaftMessageRequest
+				handler, ok := t.getHandler()
+				if !ok {
+					helper.Printf(5, "unable to accept Raft message from %+v: no handler registered for %+v",
+						rmr.FromReplica, rmr.ToReplica)
+					return multiraftbase.NewStoreNotFoundError(rmr.ToReplica.StoreID)
+				}
+				return handler.HandleSnapshot(req.Header, stream)
+			}()
+		}); err != nil {
+		return err
+	}
+	select {
+	case <-t.rpcContext.Stopper.ShouldStop():
+		return nil
+	case err := <-errCh:
+		return err
+	}
 }

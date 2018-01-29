@@ -245,3 +245,10 @@ func (rsl replicaStateLoader) loadReplicaDestroyedError(
 	err = v.Unmarshal(value)
 	return &v, nil
 }
+
+func loadAppliedIndex(
+	ctx context.Context, reader engine.Reader, groupID multiraftbase.GroupID,
+) (uint64, error) {
+	rsl := makeReplicaStateLoader(groupID)
+	return rsl.loadAppliedIndex(ctx, reader)
+}

@@ -23,6 +23,13 @@ type Reader interface {
 	Close()
 	// Get returns the value for the given key, nil otherwise.
 	Get(key []byte) ([]byte, error)
+	// NewIterator returns a new instance of an Iterator over this engine. When
+	// prefix is true, Seek will use the user-key prefix of the supplied MVCC key
+	// to restrict which sstables are searched, but iteration (using Next) over
+	// keys without the same user-key prefix will not work correctly (keys may be
+	// skipped). The caller must invoke Iterator.Close() when finished with the
+	// iterator to free resources.
+	NewIterator(prefix bool) Iterator
 }
 
 // Writer is the write interface to an engine's data.
@@ -53,6 +60,12 @@ type Engine interface {
 	// this engine. Batched engines accumulate all mutations and apply
 	// them atomically on a call to Commit().
 	NewBatch() Batch
+	// NewSnapshot returns a new instance of a read-only snapshot
+	// engine. Snapshots are instantaneous and, as long as they're
+	// released relatively quickly, inexpensive. Snapshots are released
+	// by invoking Close(). Note that snapshots must not be used after the
+	// original engine has been stopped.
+	NewSnapshot() Reader
 }
 
 // Batch is the interface for batch specific operations.
@@ -63,6 +76,33 @@ type Batch interface {
 	// sync is true, the batch is synchronously committed to disk.
 	Commit() error
 	Close()
+}
+
+// SimpleIterator is an interface for iterating over key/value pairs in an
+// engine. SimpleIterator implementations are thread safe unless otherwise
+// noted. SimpleIterator is a subset of the functionality offered by Iterator.
+type SimpleIterator interface {
+	// Close frees up resources held by the iterator.
+	Close()
+	// Seek advances the iterator to the first key in the engine which
+	// is >= the provided key.
+	Seek(key []byte)
+	// Valid must be called after any call to Seek(), Next(), Prev(), or
+	// similar methods. It returns (true, nil) if the iterator points to
+	// a valid key (it is undefined to call Key(), Value(), or similar
+	// methods unless Valid() has returned (true, nil)). It returns
+	// (false, nil) if the iterator has moved past the end of the valid
+	// range, or (false, err) if an error has occurred. Valid() will
+	// never return true with a non-nil error.
+	Valid() bool
+	// Next advances the iterator to the next key/value in the
+	// iteration. After this call, Valid() will be true if the
+	// iterator was not positioned at the last key.
+	Next()
+}
+
+type Iterator interface {
+	SimpleIterator
 }
 
 // Stats is a set of RocksDB stats. These are all described in RocksDB

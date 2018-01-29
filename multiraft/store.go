@@ -16,6 +16,7 @@ import (
 	"github.com/pkg/errors"
 	"golang.org/x/net/context"
 
+	"github.com/journeymidnight/nentropy/multiraft/internal/client"
 	"math"
 	"sync"
 	"time"
@@ -57,18 +58,20 @@ type raftRequestQueue struct {
 type Store struct {
 	Ident multiraftbase.StoreIdent
 	cfg   StoreConfig
+	db    *client.DB
 	mu    struct {
 		sync.Mutex
 		replicas       sync.Map //map[multiraftbase.GroupID]*Replica
 		uninitReplicas map[multiraftbase.GroupID]*Replica
 	}
 
-	engines        sync.Map //map[multiraftbase.GroupID]engine.Engine
-	sysEng         engine.Engine
-	raftEntryCache *raftEntryCache
-	started        int32
-	stopper        *stop.Stopper
-	nodeDesc       *multiraftbase.NodeDescriptor
+	engines           sync.Map //map[multiraftbase.GroupID]engine.Engine
+	sysEng            engine.Engine
+	raftEntryCache    *raftEntryCache
+	started           int32
+	raftSnapshotQueue *raftSnapshotQueue // Raft repair queue
+	stopper           *stop.Stopper
+	nodeDesc          *multiraftbase.NodeDescriptor
 	//	replicaGCQueue     *replicaGCQueue
 	replicaQueues sync.Map // map[multiraftbase.GroupID]*raftRequestQueue
 	//	raftRequestQueues map[multiraftbase.GroupID]*raftRequestQueue
@@ -781,14 +784,6 @@ func newRaftConfig(
 	}
 }
 
-// HandleSnapshot reads an incoming streaming snapshot and applies it if
-// possible.
-func (s *Store) HandleSnapshot(
-	header *multiraftbase.SnapshotRequest_Header, stream SnapshotResponseStream,
-) error {
-	return nil
-}
-
 // StoreID accessor.
 func (s *Store) StoreID() multiraftbase.StoreID { return s.Ident.StoreID }
 
@@ -810,6 +805,7 @@ func NewStore(cfg StoreConfig, eng engine.Engine, nodeDesc *multiraftbase.NodeDe
 	s.coalescedMu.heartbeats = map[multiraftbase.StoreIdent][]multiraftbase.RaftHeartbeat{}
 	s.coalescedMu.heartbeatResponses = map[multiraftbase.StoreIdent][]multiraftbase.RaftHeartbeat{}
 	s.coalescedMu.Unlock()
+	s.db = client.NewDB(s)
 	/*
 		if s.cfg.Gossip != nil {
 			// Add range scanner and configure with queues.
@@ -955,4 +951,31 @@ func (s *Store) GetGroupIdsByLeader() ([]string, error) {
 		return true
 	})
 	return vector, nil
+}
+
+// HandleSnapshot reads an incoming streaming snapshot and applies it if
+// possible.
+func (s *Store) HandleSnapshot(
+	header *multiraftbase.SnapshotRequest_Header, stream SnapshotResponseStream,
+) error {
+	return nil
+}
+
+// OutgoingSnapshotStream is the minimal interface on a GRPC stream required
+// to send a snapshot over the network.
+type OutgoingSnapshotStream interface {
+	Send(*multiraftbase.SnapshotRequest) error
+	Recv() (*multiraftbase.SnapshotResponse, error)
+}
+
+// sendSnapshot sends an outgoing snapshot via a pre-opened GRPC stream.
+func sendSnapshot(
+	ctx context.Context,
+	stream OutgoingSnapshotStream,
+	header multiraftbase.SnapshotRequest_Header,
+	snap *OutgoingSnapshot,
+	newBatch func() engine.Batch,
+	sent func(),
+) error {
+	return nil
 }

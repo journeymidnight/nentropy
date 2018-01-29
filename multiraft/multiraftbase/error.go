@@ -1,6 +1,8 @@
 package multiraftbase
 
-import "fmt"
+import (
+	"fmt"
+)
 
 type ErrorDetailInterface interface {
 	error
@@ -39,6 +41,25 @@ func NewError(err error) *Error {
 	}
 
 	return e
+}
+
+// NewErrorf creates an Error from the given error message. It is a
+// passthrough to fmt.Errorf, with an additional prefix containing the
+// filename and line number.
+func NewErrorf(format string, a ...interface{}) *Error {
+	// Cannot use errors.Errorf here due to cyclic dependency.
+
+	s := "caller"
+	return NewError(fmt.Errorf(s+format, a...))
+}
+
+// GoError returns a Go error converted from Error.
+func (e *Error) GoError() error {
+	if e == nil {
+		return nil
+	}
+
+	return e.GetDetailType()
 }
 
 // setGoError sets Error using err.
