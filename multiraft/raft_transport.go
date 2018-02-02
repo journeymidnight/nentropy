@@ -606,7 +606,7 @@ func (t *RaftTransport) SendSnapshot(
 			helper.Printf(5, "failed to close snapshot stream: %s", err)
 		}
 	}()
-	return sendSnapshot(ctx, stream, header, snap, newBatch, sent)
+	return sendSnapshot(ctx, stream, header, snap, sent)
 }
 
 // RaftSnapshot handles incoming streaming snapshot requests.

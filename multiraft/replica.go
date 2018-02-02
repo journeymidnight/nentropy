@@ -12,6 +12,7 @@ import (
 	"github.com/journeymidnight/nentropy/util/protoutil"
 	"github.com/journeymidnight/nentropy/util/syncutil"
 	"github.com/journeymidnight/nentropy/util/timeutil"
+	"github.com/journeymidnight/nentropy/util/uuid"
 	"github.com/journeymidnight/nentropy/util/wait"
 	"github.com/pkg/errors"
 	"golang.org/x/net/context"
@@ -247,7 +248,33 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 	}
 
 	if !raft.IsEmptySnap(rd.Snapshot) {
-		//
+		snapUUID, err := uuid.FromBytes(rd.Snapshot.Data)
+		if err != nil {
+			const expl = "invalid snapshot id"
+			return stats, expl, errors.Wrap(err, expl)
+		}
+		if inSnap.SnapUUID == (uuid.UUID{}) {
+			helper.Fatalf("programming error: a snapshot application was attempted outside of the streaming snapshot codepath")
+		}
+		if snapUUID != inSnap.SnapUUID {
+			helper.Fatalf("incoming snapshot id doesn't match raft snapshot id: %s != %s", snapUUID, inSnap.SnapUUID)
+		}
+
+		if err := r.applySnapshot(ctx, inSnap, rd.Snapshot, rd.HardState); err != nil {
+			const expl = "while applying snapshot"
+			return stats, expl, errors.Wrap(err, expl)
+		}
+
+		// r.mu.lastIndex and r.mu.lastTerm were updated in applySnapshot, but
+		// we also want to make sure we reflect these changes in the local
+		// variables we're tracking here. We could pull these values from
+		// r.mu itself, but that would require us to grab a lock.
+		if lastIndex, err = r.raftMu.stateLoader.loadLastIndex(ctx, r.store.sysEng); err != nil {
+			const expl = "loading last index"
+			return stats, expl, errors.Wrap(err, expl)
+		}
+		lastTerm = invalidLastTerm
+
 	}
 
 	// Use a more efficient write-only batch because we don't need to do any

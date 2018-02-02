@@ -13,13 +13,23 @@ import (
 	"github.com/journeymidnight/nentropy/util/stop"
 	"github.com/journeymidnight/nentropy/util/syncutil"
 	"github.com/journeymidnight/nentropy/util/timeutil"
+	"github.com/journeymidnight/nentropy/util/uuid"
 	"github.com/pkg/errors"
 	"golang.org/x/net/context"
 
+	"github.com/cockroachdb/cockroach/pkg/util/humanizeutil"
+	"github.com/cockroachdb/cockroach/pkg/util/shuffle"
 	"github.com/journeymidnight/nentropy/multiraft/client"
+	"golang.org/x/time/rate"
+	"io"
 	"math"
 	"sync"
+	"sync/atomic"
 	"time"
+)
+
+const (
+	storeDrainingMsg = "store is draining"
 )
 
 var storeSchedulerConcurrency = envutil.EnvOrDefaultInt(
@@ -41,6 +51,13 @@ type StoreConfig struct {
 	RPCContext                  *rpc.Context
 	RaftHeartbeatIntervalTicks  int
 	CoalescedHeartbeatsInterval time.Duration
+	// ScanInterval is the default value for the scan interval
+	ScanInterval time.Duration
+
+	// ScanMaxIdleTime is the maximum time the scanner will be idle between ranges.
+	// If enabled (> 0), the scanner may complete in less than ScanInterval for small
+	// stores.
+	ScanMaxIdleTime time.Duration
 }
 
 type raftRequestInfo struct {
@@ -65,23 +82,34 @@ type Store struct {
 		uninitReplicas map[multiraftbase.GroupID]*Replica
 	}
 
-	engines           sync.Map //map[multiraftbase.GroupID]engine.Engine
-	sysEng            engine.Engine
-	raftEntryCache    *raftEntryCache
-	started           int32
-	raftSnapshotQueue *raftSnapshotQueue // Raft repair queue
-	stopper           *stop.Stopper
-	nodeDesc          *multiraftbase.NodeDescriptor
+	engines        sync.Map //map[multiraftbase.GroupID]engine.Engine
+	sysEng         engine.Engine
+	raftEntryCache *raftEntryCache
+	started        int32
+	stopper        *stop.Stopper
+	nodeDesc       *multiraftbase.NodeDescriptor
 	//	replicaGCQueue     *replicaGCQueue
 	replicaQueues sync.Map // map[multiraftbase.GroupID]*raftRequestQueue
 	//	raftRequestQueues map[multiraftbase.GroupID]*raftRequestQueue
 	scheduler *raftScheduler
+
+	raftLogQueue      *raftLogQueue      // Raft log truncation queue
+	raftSnapshotQueue *raftSnapshotQueue // Raft repair queue
+	scanner           *replicaScanner    // Replica scanner
 
 	coalescedMu struct {
 		syncutil.Mutex
 		heartbeats         map[multiraftbase.StoreIdent][]multiraftbase.RaftHeartbeat
 		heartbeatResponses map[multiraftbase.StoreIdent][]multiraftbase.RaftHeartbeat
 	}
+
+	// draining holds a bool which indicates whether this store is draining. See
+	// SetDraining() for a more detailed explanation of behavior changes.
+	//
+	// TODO(bdarnell,tschottdorf): Would look better inside of `mu`, which at
+	// the time of its creation was riddled with deadlock (but that situation
+	// has likely improved).
+	draining atomic.Value
 }
 
 func (sc *StoreConfig) SetDefaults() {
@@ -789,6 +817,93 @@ func (s *Store) StoreID() multiraftbase.StoreID { return s.Ident.StoreID }
 
 func (s *Store) NodeID() multiraftbase.NodeID { return s.nodeDesc.NodeID }
 
+// A storeReplicaVisitor calls a visitor function for each of a store's
+// initialized Replicas (in unspecified order).
+type storeReplicaVisitor struct {
+	store   *Store
+	repls   []*Replica // Replicas to be visited.
+	visited int        // Number of visited ranges, -1 before first call to Visit()
+}
+
+// Len implements shuffle.Interface.
+func (rs storeReplicaVisitor) Len() int { return len(rs.repls) }
+
+// Swap implements shuffle.Interface.
+func (rs storeReplicaVisitor) Swap(i, j int) { rs.repls[i], rs.repls[j] = rs.repls[j], rs.repls[i] }
+
+// newStoreReplicaVisitor constructs a storeReplicaVisitor.
+func newStoreReplicaVisitor(store *Store) *storeReplicaVisitor {
+	return &storeReplicaVisitor{
+		store:   store,
+		visited: -1,
+	}
+}
+
+// Visit calls the visitor with each Replica until false is returned.
+func (rs *storeReplicaVisitor) Visit(visitor func(*Replica) bool) {
+	// Copy the range IDs to a slice so that we iterate over some (possibly
+	// stale) view of all Replicas without holding the Store lock. In particular,
+	// no locks are acquired during the copy process.
+	rs.repls = nil
+	rs.store.mu.replicas.Range(func(key, value interface{}) bool {
+		r, ok := value.(*Replica)
+		if !ok {
+			return false
+		}
+		rs.repls = append(rs.repls, r)
+		return true
+	})
+
+	// The Replicas are already in "unspecified order" due to map iteration,
+	// but we want to make sure it's completely random to prevent issues in
+	// tests where stores are scanning replicas in lock-step and one store is
+	// winning the race and getting a first crack at processing the replicas on
+	// its queues.
+	//
+	// TODO(peter): Re-evaluate whether this is necessary after we allow
+	// rebalancing away from the leaseholder. See TestRebalance_3To5Small.
+	shuffle.Shuffle(rs)
+
+	rs.visited = 0
+	for _, repl := range rs.repls {
+		// TODO(tschottdorf): let the visitor figure out if something's been
+		// destroyed once we return errors from mutexes (#9190). After all, it
+		// can still happen with this code.
+		rs.visited++
+		repl.mu.RLock()
+		destroyed := repl.mu.destroyed
+		initialized := repl.isInitializedRLocked()
+		repl.mu.RUnlock()
+		if initialized && destroyed == nil && !visitor(repl) {
+			break
+		}
+	}
+	rs.visited = 0
+}
+
+// ReplicaCount returns the number of replicas contained by this store. This
+// method is O(n) in the number of replicas and should not be called from
+// performance critical code.
+func (s *Store) ReplicaCount() int {
+	var count int
+	s.mu.replicas.Range(func(key, value interface{}) bool {
+		count++
+		return true
+	})
+	return count
+}
+
+// EstimatedCount returns an estimated count of the underlying store's
+// replicas.
+//
+// TODO(tschottdorf): this method has highly doubtful semantics.
+func (rs *storeReplicaVisitor) EstimatedCount() int {
+	if rs.visited <= 0 {
+		return rs.store.ReplicaCount()
+	}
+	return len(rs.repls) - rs.visited
+}
+
 // NewStore returns a new instance of a store.
 func NewStore(cfg StoreConfig, eng engine.Engine, nodeDesc *multiraftbase.NodeDescriptor) *Store {
 	cfg.SetDefaults()
@@ -806,17 +921,16 @@ func NewStore(cfg StoreConfig, eng engine.Engine, nodeDesc *multiraftbase.NodeDe
 	s.coalescedMu.heartbeatResponses = map[multiraftbase.StoreIdent][]multiraftbase.RaftHeartbeat{}
 	s.coalescedMu.Unlock()
 	s.db = client.NewDB(s)
-	/*
-		if s.cfg.Gossip != nil {
-			// Add range scanner and configure with queues.
-			s.scanner = newReplicaScanner(
-				s.cfg.AmbientCtx, cfg.ScanInterval, cfg.ScanMaxIdleTime, newStoreReplicaVisitor(s),
-			)
-			s.replicateQueue = newReplicateQueue(s, s.cfg.Gossip, s.allocator, s.cfg.Clock)
-			s.raftLogQueue = newRaftLogQueue(s, s.db, s.cfg.Gossip)
-			s.scanner.AddQueues(s.replicateQueue, s.raftLogQueue)
-		}
-	*/
+
+	//if s.cfg.Gossip != nil {
+	// Add range scanner and configure with queues.
+	s.scanner = newReplicaScanner(
+		s.cfg.AmbientCtx, cfg.ScanInterval, cfg.ScanMaxIdleTime, newStoreReplicaVisitor(s),
+	)
+	s.raftLogQueue = newRaftLogQueue(s, s.db)
+	s.raftSnapshotQueue = newRaftSnapshotQueue(s)
+	s.scanner.AddQueues(s.raftSnapshotQueue, s.raftLogQueue)
+	//}
 
 	s.mu.Lock()
 	s.mu.uninitReplicas = map[multiraftbase.GroupID]*Replica{}
@@ -953,12 +1067,91 @@ func (s *Store) GetGroupIdsByLeader() ([]string, error) {
 	return vector, nil
 }
 
+// IsDraining accessor.
+func (s *Store) IsDraining() bool {
+	return s.draining.Load().(bool)
+}
+
 // HandleSnapshot reads an incoming streaming snapshot and applies it if
 // possible.
 func (s *Store) HandleSnapshot(
 	header *multiraftbase.SnapshotRequest_Header, stream SnapshotResponseStream,
 ) error {
-	return nil
+	if s.IsDraining() {
+		return stream.Send(&multiraftbase.SnapshotResponse{
+			Status:  multiraftbase.SnapshotResponse_DECLINED,
+			Message: storeDrainingMsg,
+		})
+	}
+	ctx := s.AnnotateCtx(stream.Context())
+	sendSnapError := func(err error) error {
+		return stream.Send(&multiraftbase.SnapshotResponse{
+			Status:  multiraftbase.SnapshotResponse_ERROR,
+			Message: err.Error(),
+		})
+	}
+
+	if err := stream.Send(&multiraftbase.SnapshotResponse{Status: multiraftbase.SnapshotResponse_ACCEPTED}); err != nil {
+		return err
+	}
+
+	helper.Printf(5, "accepted snapshot reservation for r%s", header.State.Desc.GroupID)
+
+	var batches [][]byte
+	var logEntries [][]byte
+	for {
+		req, err := stream.Recv()
+		if err != nil {
+			return err
+		}
+		if req.Header != nil {
+			return sendSnapError(errors.New("client error: provided a header mid-stream"))
+		}
+
+		if req.KVBatch != nil {
+			batches = append(batches, req.KVBatch)
+		}
+		batch := newKVBatch(len(req.KVBatch), req.KVBatch)
+		for {
+			key, val, err := batch.GetNextKVData()
+			if err != nil {
+				break
+			}
+			helper.Println(5, "Handle snapshot key:", key)
+			helper.Println(5, "Handle snapshot val:", val)
+			eng := s.loadGroupEngine(header.RaftMessageRequest.GroupID)
+			err = stripeWrite(eng, key, val, 0, uint64(len(val)))
+			if err != nil {
+				helper.Println(5, "Error putting data to db, err:", err)
+			}
+		}
+
+		if req.LogEntries != nil {
+			logEntries = append(logEntries, req.LogEntries...)
+		}
+		if req.Final {
+			snapUUID, err := uuid.FromBytes(header.RaftMessageRequest.Message.Snapshot.Data)
+			if err != nil {
+				return sendSnapError(errors.Wrap(err, "invalid snapshot"))
+			}
+
+			inSnap := IncomingSnapshot{
+				SnapUUID:   snapUUID,
+				Batches:    batches,
+				LogEntries: logEntries,
+				State:      &header.State,
+				snapType:   snapTypeRaft,
+			}
+			if header.RaftMessageRequest.ToReplica.ReplicaID == 0 {
+				inSnap.snapType = snapTypePreemptive
+			}
+
+			if err := s.processRaftRequest(ctx, &header.RaftMessageRequest, inSnap); err != nil {
+				return sendSnapError(errors.Wrap(err.GoError(), "failed to apply snapshot"))
+			}
+			return stream.Send(&multiraftbase.SnapshotResponse{Status: multiraftbase.SnapshotResponse_APPLIED})
+		}
+	}
 }
 
 // OutgoingSnapshotStream is the minimal interface on a GRPC stream required
@@ -968,14 +1161,175 @@ type OutgoingSnapshotStream interface {
 	Recv() (*multiraftbase.SnapshotResponse, error)
 }
 
+func snapshotRateLimit(priority multiraftbase.SnapshotRequest_Priority,
+) (rate.Limit, error) {
+	switch priority {
+	case multiraftbase.SnapshotRequest_RECOVERY:
+		return rate.Limit(8 << 20), nil
+	case multiraftbase.SnapshotRequest_REBALANCE:
+		return rate.Limit(2 << 20), nil
+	default:
+		return 0, errors.Errorf("unknown snapshot priority: %s", priority)
+	}
+}
+
+func sendBatch(stream OutgoingSnapshotStream, batch *KVBatch) error {
+	repr := batch.Repr()
+	batch.Reset()
+	return stream.Send(&multiraftbase.SnapshotRequest{KVBatch: repr})
+}
+
 // sendSnapshot sends an outgoing snapshot via a pre-opened GRPC stream.
 func sendSnapshot(
 	ctx context.Context,
 	stream OutgoingSnapshotStream,
 	header multiraftbase.SnapshotRequest_Header,
 	snap *OutgoingSnapshot,
-	newBatch func() engine.Batch,
 	sent func(),
 ) error {
+	start := timeutil.Now()
+	to := header.RaftMessageRequest.ToReplica
+	if err := stream.Send(&multiraftbase.SnapshotRequest{Header: &header}); err != nil {
+		return err
+	}
+	// Wait until we get a response from the server.
+	resp, err := stream.Recv()
+	if err != nil {
+		return err
+	}
+	switch resp.Status {
+	case multiraftbase.SnapshotResponse_DECLINED:
+		if header.CanDecline {
+			declinedMsg := "reservation rejected"
+			if len(resp.Message) > 0 {
+				declinedMsg = resp.Message
+			}
+			return errors.Errorf("%s: remote declined snapshot: %s", to, declinedMsg)
+		}
+		return errors.Errorf("%s: programming error: remote declined required snapshot: %s",
+			to, resp.Message)
+	case multiraftbase.SnapshotResponse_ERROR:
+		return errors.Errorf("%s: remote couldn't accept snapshot with error: %s",
+			to, resp.Message)
+	case multiraftbase.SnapshotResponse_ACCEPTED:
+		// This is the response we're expecting. Continue with snapshot sending.
+	default:
+		return errors.Errorf("%s: server sent an invalid status during negotiation: %s",
+			to, resp.Status)
+	}
+	// The size of batches to send. This is the granularity of rate limiting.
+	const batchSize = 256 << 10 // 256 KB
+	targetRate, err := snapshotRateLimit(header.Priority)
+	if err != nil {
+		return errors.Wrapf(err, "%s", to)
+	}
+
+	// Convert the bytes/sec rate limit to batches/sec.
+	//
+	// TODO(peter): Using bytes/sec for rate limiting seems more natural but has
+	// practical difficulties. We either need to use a very large burst size
+	// which seems to disable the rate limiting, or call WaitN in smaller than
+	// burst size chunks which caused excessive slowness in testing. Would be
+	// nice to figure this out, but the batches/sec rate limit works for now.
+	limiter := rate.NewLimiter(targetRate/batchSize, 1 /* burst size */)
+
+	// Determine the unreplicated key prefix so we can drop any
+	// unreplicated keys from the snapshot.
+	//unreplicatedPrefix := keys.MakeGroupIDUnreplicatedPrefix(header.State.Desc.GroupID)
+	//var alloc bufalloc.ByteAllocator
+	n := 0
+	data := make([]byte, 2048*1024)
+	b := newKVBatch(len(data), data)
+	for ; ; snap.Iter.Next() {
+		if ok := snap.Iter.Valid(); !ok {
+			break
+		}
+
+		item := snap.Iter.Item()
+		key := item.Key()
+		val, err := item.Value()
+		if err != nil {
+			return errors.Wrapf(err, "Error getting value from item")
+		}
+		err = b.Put(key, val)
+		if err != nil {
+			return errors.Wrapf(err, "Error putting key value")
+		}
+		const batchSize = 256 << 10 // 256 KB
+		if len(b.Repr()) >= batchSize {
+			if err := limiter.WaitN(ctx, 1); err != nil {
+				return err
+			}
+			if err := sendBatch(stream, b); err != nil {
+				return err
+			}
+			b = nil
+			// We no longer need the keys and values in the batch we just sent,
+			// so reset alloc and allow them to be garbage collected.
+			//alloc = bufalloc.ByteAllocator{}
+		}
+	}
+	if b != nil {
+		if err := limiter.WaitN(ctx, 1); err != nil {
+			return err
+		}
+		if err := sendBatch(stream, b); err != nil {
+			return err
+		}
+	}
+
+	firstIndex := header.State.TruncatedState.Index + 1
+	endIndex := snap.RaftSnap.Metadata.Index + 1
+	logEntries := make([][]byte, 0, endIndex-firstIndex)
+
+	scanFunc := func(kv multiraftbase.KeyValue) (bool, error) {
+		bytes, err := kv.Value.GetBytes()
+		if err == nil {
+			logEntries = append(logEntries, bytes)
+		}
+		return false, err
+	}
+
+	rangeID := header.State.Desc.GroupID
+
+	if err := iterateEntries(ctx, snap.EngineSnap, rangeID, firstIndex, endIndex, scanFunc); err != nil {
+		return err
+	}
+
+	req := &multiraftbase.SnapshotRequest{
+		LogEntries: logEntries,
+		Final:      true,
+	}
+	// Notify the sent callback before the final snapshot request is sent so that
+	// the snapshots generated metric gets incremented before the snapshot is
+	// applied.
+	sent()
+	if err := stream.Send(req); err != nil {
+		return err
+	}
+	helper.Printf(5, "streamed snapshot to %s: kv pairs: %d, log entries: %d, rate-limit: %s/sec, %0.0fms",
+		to, n, len(logEntries), humanizeutil.IBytes(int64(targetRate)),
+		timeutil.Since(start).Seconds()*1000)
+
+	resp, err = stream.Recv()
+	if err != nil {
+		return errors.Wrapf(err, "%s: remote failed to apply snapshot", to)
+	}
+	// NB: wait for EOF which ensures that all processing on the server side has
+	// completed (such as defers that might be run after the previous message was
+	// received).
+	if unexpectedResp, err := stream.Recv(); err != io.EOF {
+		return errors.Errorf("%s: expected EOF, got resp=%v err=%v", to, unexpectedResp, err)
+	}
+	switch resp.Status {
+	case multiraftbase.SnapshotResponse_ERROR:
+		return errors.Errorf("%s: remote failed to apply snapshot for reason %s", to, resp.Message)
+	case multiraftbase.SnapshotResponse_APPLIED:
+		return nil
+	default:
+		return errors.Errorf("%s: server sent an invalid status during finalization: %s",
+			to, resp.Status)
+	}
+
 	return nil
 }

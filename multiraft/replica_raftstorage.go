@@ -359,7 +359,8 @@ func (r *Replica) GetSnapshot(
 	// an AddSSTable" (i.e. a state in which an SSTable has been linked in, but
 	// the corresponding Raft command not applied yet).
 	r.raftMu.Lock()
-	snap := r.store.sysEng.NewSnapshot()
+	eng := r.store.loadGroupEngine(r.Desc().GroupID)
+	snap := eng.NewSnapshot()
 	r.raftMu.Unlock()
 
 	defer func() {
@@ -480,6 +481,11 @@ func (r *Replica) append(
 func (r *Replica) applySnapshot(
 	ctx context.Context, inSnap IncomingSnapshot, snap raftpb.Snapshot, hs raftpb.HardState,
 ) (err error) {
+	s := *inSnap.State
+	if s.Desc.GroupID != r.GroupID {
+		helper.Fatalf("unexpected range ID %s", s.Desc.GroupID)
+	}
+
 	return nil
 }
 
@@ -539,4 +545,15 @@ func DecodeRaftCommand(data []byte) (multiraftbase.CmdIDKey, []byte) {
 		panic(fmt.Sprintf("unknown command encoding version %v", data[0]))
 	}
 	return multiraftbase.CmdIDKey(data[1 : 1+raftCommandIDLen]), data[1+raftCommandIDLen:]
+}
+
+func iterateEntries(
+	ctx context.Context,
+	e engine.Reader,
+	groupID multiraftbase.GroupID,
+	lo,
+	hi uint64,
+	scanFunc func(multiraftbase.KeyValue) (bool, error),
+) error {
+	return nil
 }

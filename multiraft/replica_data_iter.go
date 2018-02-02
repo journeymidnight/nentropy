@@ -33,7 +33,7 @@ type ReplicaDataIterator struct {
 func NewReplicaDataIterator(e engine.Reader, replicatedOnly bool,
 ) *ReplicaDataIterator {
 	ri := &ReplicaDataIterator{
-		iterator: e.NewIterator(false),
+		iterator: e.NewIterator(),
 	}
 	return ri
 }
@@ -51,4 +51,9 @@ func (ri *ReplicaDataIterator) Next() {
 // Valid returns true if the iterator currently points to a valid value.
 func (ri *ReplicaDataIterator) Valid() bool {
 	return ri.iterator.Valid()
+}
+
+// Valid returns true if the iterator currently points to a valid value.
+func (ri *ReplicaDataIterator) Item() engine.ItemIntf {
+	return ri.iterator.Item()
 }

@@ -123,3 +123,9 @@ func (b GroupIDPrefixBuf) GroupReplicaDestroyedErrorKey() multiraftbase.Key {
 func GroupDescriptorKey(groupID multiraftbase.GroupID) multiraftbase.Key {
 	return MakeGroupIDPrefix(groupID)
 }
+
+// MakeRangeIDUnreplicatedPrefix creates a range-local key prefix from
+// rangeID for all unreplicated data.
+func MakeGroupIDUnreplicatedPrefix(groupID multiraftbase.GroupID) multiraftbase.Key {
+	return makePrefixWithGroupID(LocalGroupIDPrefix, groupID, localGroupIDUnreplicatedInfix)
+}

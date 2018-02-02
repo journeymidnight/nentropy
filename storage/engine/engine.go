@@ -29,7 +29,7 @@ type Reader interface {
 	// keys without the same user-key prefix will not work correctly (keys may be
 	// skipped). The caller must invoke Iterator.Close() when finished with the
 	// iterator to free resources.
-	NewIterator(prefix bool) Iterator
+	NewIterator() Iterator
 }
 
 // Writer is the write interface to an engine's data.
@@ -99,10 +99,19 @@ type SimpleIterator interface {
 	// iteration. After this call, Valid() will be true if the
 	// iterator was not positioned at the last key.
 	Next()
+
+	Rewind()
+}
+
+type ItemIntf interface {
+	Key() []byte
+	Value() ([]byte, error)
 }
 
 type Iterator interface {
 	SimpleIterator
+
+	Item() ItemIntf
 }
 
 // Stats is a set of RocksDB stats. These are all described in RocksDB

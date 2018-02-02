@@ -6,7 +6,8 @@ import (
 )
 
 type BadgerDB struct {
-	db *badger.DB
+	db  *badger.DB
+	txn *badger.Txn
 }
 
 type badgerDBBatch struct {
@@ -73,8 +74,16 @@ func (b *BadgerDB) Put(key []byte, value []byte) error {
 	return nil
 }
 
-func (b *BadgerDB) NewIterator(prefix bool) Iterator {
-	return nil
+func (b *BadgerDB) NewIterator() Iterator {
+	if b.db == nil {
+		panic("BadgerDB is not initialized yet")
+	}
+	b.txn = b.db.NewTransaction(false)
+	opts := badger.DefaultIteratorOptions
+	opts.PrefetchSize = 10
+	bgIt := &badgerIterator{}
+	bgIt.iter = b.txn.NewIterator(opts)
+	return bgIt
 }
 
 type badgerDBSnapshot struct {
@@ -90,11 +99,12 @@ func (b *badgerDBSnapshot) Get(key []byte) ([]byte, error) {
 	return nil, nil
 }
 
-func (b *badgerDBSnapshot) NewIterator(prefix bool) Iterator {
+func (b *badgerDBSnapshot) NewIterator() Iterator {
 	opts := badger.DefaultIteratorOptions
 	opts.PrefetchSize = 10
-	it := b.txn.NewIterator(opts)
-	return it
+	bgIt := &badgerIterator{}
+	bgIt.iter = b.txn.NewIterator(opts)
+	return bgIt
 }
 
 // NewSnapshot creates a snapshot handle from engine and returns a
@@ -161,4 +171,32 @@ func (r *badgerDBBatch) Commit() error {
 		return err
 	}
 	return nil
+}
+
+type badgerIterator struct {
+	iter *badger.Iterator
+}
+
+func (it *badgerIterator) Close() {
+	it.iter.Close()
+}
+
+func (it *badgerIterator) Seek(key []byte) {
+	it.iter.Seek(key)
+}
+
+func (it *badgerIterator) Valid() bool {
+	return it.iter.Valid()
+}
+
+func (it *badgerIterator) Next() {
+	it.iter.Next()
+}
+
+func (it *badgerIterator) Rewind() {
+	it.iter.Rewind()
+}
+
+func (it *badgerIterator) Item() ItemIntf {
+	return it.iter.Item()
 }

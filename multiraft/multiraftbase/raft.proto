@@ -119,7 +119,7 @@ message SnapshotRequest {
     Header header = 1;
 
     // A RocksDB BatchRepr. Multiple kv_batches may be sent across multiple request messages.
-    bytes kv_batch = 2;
+    bytes kv_batch = 2 [(gogoproto.customname) = "KVBatch"];
 
     // These are really raftpb.Entry, but we model them as raw bytes to avoid
     // roundtripping through memory. They are separate from the kv_batch to

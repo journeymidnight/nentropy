@@ -137,6 +137,15 @@ func (v Value) GetInt() (int64, error) {
 	return i, nil
 }
 
+// GetBytes returns the bytes field of the receiver. If the tag is not
+// BYTES an error will be returned.
+func (v Value) GetBytes() ([]byte, error) {
+	if tag := v.GetTag(); tag != ValueType_BYTES {
+		return nil, fmt.Errorf("value type is not %s: %s", ValueType_BYTES, tag)
+	}
+	return v.dataBytes(), nil
+}
+
 // Validate performs some basic validation of the contents of a replica descriptor.
 func (r ReplicaDescriptor) Validate() error {
 	if r.NodeID == "" {
