@@ -112,6 +112,23 @@ func (e *GroupNotFoundError) message(_ *Error) string {
 
 var _ ErrorDetailInterface = &GroupNotFoundError{}
 
+// NewKeyNonExistent initializes a new KeyNonExistent.
+func NewKeyNonExistent(key Key) *KeyNonExistent {
+	return &KeyNonExistent{
+		Key: key,
+	}
+}
+
+func (e *KeyNonExistent) Error() string {
+	return e.message(nil)
+}
+
+func (e *KeyNonExistent) message(_ *Error) string {
+	return fmt.Sprintf("r%s was not found", string(e.Key))
+}
+
+var _ ErrorDetailInterface = &KeyNonExistent{}
+
 // NewAmbiguousResultError initializes a new AmbiguousResultError with
 // an explanatory message.
 func NewAmbiguousResultError(msg string) *AmbiguousResultError {

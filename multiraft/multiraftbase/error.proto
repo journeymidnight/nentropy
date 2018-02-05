@@ -76,6 +76,13 @@ message GroupNotFoundError {
     string group_id = 1 [(gogoproto.customname) = "GroupID", (gogoproto.casttype) = "GroupID"];
 }
 
+// A GroupNotFoundError indicates that a command was sent to a range
+// which is not hosted on this store.
+message KeyNonExistent {
+    option (gogoproto.equal) = true;
+    bytes key = 1 [(gogoproto.customname) = "Key", (gogoproto.casttype) = "Key"];
+}
+
 // A StoreNotFoundError indicates that a command was sent to a store
 // which is not hosted on this node.
 message StoreNotFoundError {
@@ -100,6 +107,7 @@ message ErrorDetail {
     reserved 7;
     AmbiguousResultError ambiguous_result = 8;
     GroupNotFoundError group_not_found = 9;
+    KeyNonExistent  key_non_existent = 10;
 }
 
 // ErrPosition describes the position of an error in a Batch. A simple nullable

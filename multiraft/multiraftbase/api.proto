@@ -77,6 +77,7 @@ message RequestUnion {
 
     GetRequest get = 1;
     PutRequest put = 2;
+    HasKeyRequest hasKey = 3;
 }
 
 // A ResponseUnion contains exactly one of the responses.
@@ -91,6 +92,7 @@ message ResponseUnion {
 
     GetResponse get = 1;
     PutResponse put = 2;
+    HasKeyResponse hasKey = 3;
 }
 
 // A Header is attached to a BatchRequest, encapsulating routing and auxiliary
@@ -187,5 +189,18 @@ message RaftCommand {
     ReplicaDescriptor proposer_replica = 1 [(gogoproto.nullable) = false];
     int32 method = 2 [(gogoproto.casttype) = "Method"];
     WriteBatch write_batch = 3;
+}
+
+// A HasKeyRequest is the argument for the Get() method.
+message HasKeyRequest {
+    option (gogoproto.equal) = true;
+    bytes key = 1 [(gogoproto.casttype) = "Key"];
+}
+
+// A HasKeyResponse is the return value from the Get() method.
+// If the key doesn't exist, returns nil for Value.Bytes.
+message HasKeyResponse {
+    ResponseHeader header = 1 [(gogoproto.nullable) = false, (gogoproto.embed) = true];
+    bool processed = 2;
 }
 

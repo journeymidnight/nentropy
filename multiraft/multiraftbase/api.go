@@ -2,6 +2,7 @@ package multiraftbase
 
 import (
 	"fmt"
+
 	"github.com/gogo/protobuf/proto"
 )
 
@@ -18,6 +19,8 @@ const (
 	Put
 	// TruncateLog discards a prefix of the raft log.
 	TruncateLog
+	// HasKey check that the key exist
+	HasKey
 )
 
 // Request is an interface for RPC requests.
@@ -33,14 +36,16 @@ type Request interface {
 // Method implements the Request interface.
 func (*GetRequest) Method() Method { return Get }
 
-// Method implements the Request interface.
-func (*PutRequest) Method() Method { return Put }
-
 // ShallowCopy implements the Request interface.
 func (gr *GetRequest) ShallowCopy() Request {
 	shallowCopy := *gr
 	return &shallowCopy
 }
+
+func (*GetRequest) flags() int { return 0 }
+
+// Method implements the Request interface.
+func (*PutRequest) Method() Method { return Put }
 
 // ShallowCopy implements the Request interface.
 func (pr *PutRequest) ShallowCopy() Request {
@@ -48,6 +53,9 @@ func (pr *PutRequest) ShallowCopy() Request {
 	return &shallowCopy
 }
 
+func (*PutRequest) flags() int { return 0 }
+
+// Method implements the Request interface.
 func (*TruncateLogRequest) Method() Method { return TruncateLog }
 
 // ShallowCopy implements the Request interface.
@@ -55,6 +63,19 @@ func (tr *TruncateLogRequest) ShallowCopy() Request {
 	shallowCopy := *tr
 	return &shallowCopy
 }
+
+func (*HasKeyRequest) flags() int { return 0 }
+
+// Method implements the Request interface.
+func (*HasKeyRequest) Method() Method { return HasKey }
+
+// ShallowCopy implements the Request interface.
+func (tr *HasKeyRequest) ShallowCopy() Request {
+	shallowCopy := *tr
+	return &shallowCopy
+}
+
+func (*TruncateLogRequest) flags() int { return 0 }
 
 // NewGet returns a Request initialized to get the value at key.
 func NewGet(key Key, offset int64, len uint64) Request {
@@ -71,10 +92,6 @@ func NewPut(key Key, value Value) Request {
 		Value: value,
 	}
 }
-
-func (*GetRequest) flags() int         { return 0 }
-func (*PutRequest) flags() int         { return 0 }
-func (*TruncateLogRequest) flags() int { return 0 }
 
 // GetInner returns the Request contained in the union.
 func (ru RequestUnion) GetInner() Request {
@@ -96,7 +113,7 @@ func (ru *RequestUnion) MustSetInner(args Request) {
 	}
 }
 
-// Request is an interface for RPC requests.
+// Response is an interface for RPC result.
 type Response interface {
 	proto.Message
 	// Method returns the request method.
@@ -112,6 +129,9 @@ func (*GetResponse) Method() Method { return Get }
 
 // Method implements the Request interface.
 func (*PutResponse) Method() Method { return Put }
+
+// Method implements the Request interface.
+func (*HasKeyResponse) Method() Method { return HasKey }
 
 // Header implements the Response interface for ResponseHeader.
 func (rh ResponseHeader) Header() ResponseHeader {
