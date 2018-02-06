@@ -17,8 +17,6 @@ import (
 	"github.com/pkg/errors"
 	"golang.org/x/net/context"
 
-	"github.com/cockroachdb/cockroach/pkg/util/humanizeutil"
-	"github.com/cockroachdb/cockroach/pkg/util/shuffle"
 	"github.com/journeymidnight/nentropy/multiraft/client"
 	"golang.org/x/time/rate"
 	"io"
@@ -862,7 +860,7 @@ func (rs *storeReplicaVisitor) Visit(visitor func(*Replica) bool) {
 	//
 	// TODO(peter): Re-evaluate whether this is necessary after we allow
 	// rebalancing away from the leaseholder. See TestRebalance_3To5Small.
-	shuffle.Shuffle(rs)
+	//shuffle.Shuffle(rs)
 
 	rs.visited = 0
 	for _, repl := range rs.repls {
@@ -1187,7 +1185,7 @@ func sendSnapshot(
 	snap *OutgoingSnapshot,
 	sent func(),
 ) error {
-	start := timeutil.Now()
+	//start := timeutil.Now()
 	to := header.RaftMessageRequest.ToReplica
 	if err := stream.Send(&multiraftbase.SnapshotRequest{Header: &header}); err != nil {
 		return err
@@ -1237,7 +1235,7 @@ func sendSnapshot(
 	// unreplicated keys from the snapshot.
 	//unreplicatedPrefix := keys.MakeGroupIDUnreplicatedPrefix(header.State.Desc.GroupID)
 	//var alloc bufalloc.ByteAllocator
-	n := 0
+	//n := 0
 	data := make([]byte, 2048*1024)
 	b := newKVBatch(len(data), data)
 	for ; ; snap.Iter.Next() {
@@ -1307,9 +1305,9 @@ func sendSnapshot(
 	if err := stream.Send(req); err != nil {
 		return err
 	}
-	helper.Printf(5, "streamed snapshot to %s: kv pairs: %d, log entries: %d, rate-limit: %s/sec, %0.0fms",
-		to, n, len(logEntries), humanizeutil.IBytes(int64(targetRate)),
-		timeutil.Since(start).Seconds()*1000)
+	//helper.Printf(5, "streamed snapshot to %s: kv pairs: %d, log entries: %d, rate-limit: %s/sec, %0.0fms",
+	//	to, n, len(logEntries), humanizeutil.IBytes(int64(targetRate)),
+	//	timeutil.Since(start).Seconds()*1000)
 
 	resp, err = stream.Recv()
 	if err != nil {
