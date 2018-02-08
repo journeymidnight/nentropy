@@ -26,6 +26,13 @@ Add osd:
 ./tools -t osd -c add -id 3 -server_addr 127.0.0.1:12315  
 ```
 
+Start osd:
+```shell
+./osd -nodeID 1  -advertiseAddr 127.0.0.1:8898 -joinMemberAddr 127.0.0.1:7946   
+./osd -nodeID 2  -advertiseAddr 127.0.0.1:8898 -joinMemberAddr 127.0.0.1:7946  
+./osd -nodeID 3  -advertiseAddr 127.0.0.1:8898 -joinMemberAddr 127.0.0.1:7946    
+```
+
 Create pool and pg:
 ```shell
 ./tools -server_addr 127.0.0.1:12315 -t pool -c create -p test -pg_number 3    
