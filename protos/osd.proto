@@ -69,6 +69,7 @@ message MigrateGetRequest {
 message MigrateGetReply {
     bytes key = 1;
     bytes value = 2;
+    bytes marker = 3;
 }
 
 message CreatePgRequest {

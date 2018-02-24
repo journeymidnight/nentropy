@@ -5,9 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"github.com/journeymidnight/nentropy/helper"
+	"github.com/journeymidnight/nentropy/multiraft"
 	"github.com/journeymidnight/nentropy/multiraft/multiraftbase"
 	"github.com/journeymidnight/nentropy/protos"
 	"golang.org/x/net/context"
+	"math"
 	"strconv"
 	"strings"
 )
@@ -96,20 +98,37 @@ func (s *OsdServer) MigrateGet(ctx context.Context, in *protos.MigrateGetRequest
 	childPgId, _ := strconv.Atoi(strings.Split(in.ChildPgId, ".")[1])
 	pgNumbers := len(s.pgMaps.Pgmaps[int32(poolId)].Pgmap)
 	mask := protos.Calc_pg_masks(int(pgNumbers))
+	if in.Marker != nil {
+		//TODO: CLEAR OBJECT WHICH HAS ALREADY BE MIGRATED
+	}
 	for it.Seek(in.Marker); it.Valid(); it.Next() {
 		item := it.Item()
 		key := item.Key()
+		helper.Println(5, "print migrate iter key :", key, string(key))
 		if bytes.Equal(key, in.Marker) {
 			continue
 		} else {
-			hash := protos.Nentropy_str_hash(string(key))
+			// exclude all localPrefixByte
+			if !bytes.HasPrefix(key, []byte{'\x02'}) {
+				continue
+			}
+			helper.Println(5, "print useful migrate key :", key)
+			oid := bytes.TrimPrefix(key, []byte{'\x02'})
+			if string(oid) == "system_pg_state" {
+				continue
+			}
+			hash := protos.Nentropy_str_hash(string(oid))
 			hashPgId := protos.Nentropy_stable_mod(int(hash), int(pgNumbers), mask)
 			if hashPgId == childPgId {
-				value, err := item.Value()
+				//value, err := item.Value()
+				//var onode multiraft.Onode
+				//bson.Unmarshal(value, onode)
+				value, err := multiraft.StripeRead(engine, oid, 0, math.MaxUint32)
 				if err != nil {
+					helper.Println(5, "print err when migrate key :", oid, string(oid), err)
 					return &protos.MigrateGetReply{}, err
 				} else {
-					return &protos.MigrateGetReply{key, value}, nil
+					return &protos.MigrateGetReply{oid, value, key}, nil
 				}
 			} else {
 				continue

@@ -7,6 +7,7 @@ import (
 
 	"encoding/binary"
 
+	"bytes"
 	"gopkg.in/mgo.v2/bson"
 )
 
@@ -33,15 +34,15 @@ var DefaultStripeSize uint64 = 64 << 10
 
 // onode holds the metadata of each object in osd store
 // use Capital because bson can only serialize Capital fileds
-type onode struct {
+type Onode struct {
 	//nid        uint64 //numeric id (locally unique)
 	Oid        []byte //objectid of an object
 	Size       uint64 //object size
 	StripeSize uint64 //size of each  stripe
 }
 
-func newOnode(oid []byte) *onode {
-	return &onode{Oid: oid, Size: 0, StripeSize: DefaultStripeSize}
+func newOnode(oid []byte) *Onode {
+	return &Onode{Oid: oid, Size: 0, StripeSize: DefaultStripeSize}
 }
 
 func getDataKey(oid []byte, offset uint64) []byte {
@@ -53,35 +54,46 @@ func getDataKey(oid []byte, offset uint64) []byte {
 	return newbuf
 }
 
+func getMetaKey(oid []byte) []byte {
+	newbuf := []byte{'\x02'}
+	newbuf = append(newbuf, oid...)
+	return newbuf
+}
+
+func getOriginKey(metaKey []byte) []byte {
+	return bytes.TrimSuffix(metaKey, []byte{'\x02'})
+}
+
 func getOffset(oid, s []byte) uint64 {
 	offbuf := s[len(oid):]
 	sz, _ := binary.Uvarint(offbuf)
 	return sz
 }
 
-func put(bat engine.Batch, offset uint64, n *onode, value []byte) {
+func put(bat engine.Batch, offset uint64, n *Onode, value []byte) {
 	key := getDataKey(n.Oid, offset)
 	bat.Put(key, value)
 }
 
-func get(eng engine.Engine, offset uint64, n *onode) ([]byte, error) {
+func get(eng engine.Engine, offset uint64, n *Onode) ([]byte, error) {
 	key := getDataKey(n.Oid, offset)
 	value, err := eng.Get(key)
 	return value, err
 }
 
-func clear(bat engine.Batch, offset uint64, n *onode) {
+func clear(bat engine.Batch, offset uint64, n *Onode) {
 	key := getDataKey(n.Oid, offset)
 	bat.Clear(key)
 }
 
-func createOrGetOnonde(eng engine.Engine, oid []byte) (o *onode) {
-	nodebuffer, err := eng.Get(oid)
+func createOrGetOnonde(eng engine.Engine, oid []byte) (o *Onode) {
+	mkey := getMetaKey(oid)
+	nodebuffer, err := eng.Get(mkey)
 	//if cann't get an onode, we should create a new one for this object
 	if err != nil || len(nodebuffer) <= 0 {
 		o = newOnode(oid)
 	} else {
-		var p onode
+		var p Onode
 		bson.Unmarshal(nodebuffer, &p)
 		o = &p
 	}
@@ -187,7 +199,7 @@ func stripeWrite(eng engine.Engine, oid, value []byte, offset, length uint64) er
 
 	//put onode to store
 	newbuf, _ := bson.Marshal(n)
-	batch.Put(oid, newbuf)
+	batch.Put(getMetaKey(oid), newbuf)
 
 	helper.Printf(20, "finished processing stripes\r\n")
 	return batch.Commit()
@@ -203,9 +215,9 @@ func min(a, b uint64) (c uint64) {
 }
 
 // Read reads an object from store
-func stripeRead(eng engine.Engine, oid []byte, offset, length uint64) ([]byte, error) {
+func StripeRead(eng engine.Engine, oid []byte, offset, length uint64) ([]byte, error) {
 	//(fixme)find the onode first, should use cache
-	val, err := eng.Get(oid)
+	val, err := eng.Get(getMetaKey(oid))
 	if err != nil {
 		return nil, err
 	}
@@ -214,7 +226,7 @@ func stripeRead(eng engine.Engine, oid []byte, offset, length uint64) ([]byte, e
 		return nil, ErrNoValueForKey
 	}
 
-	var n onode
+	var n Onode
 	bson.Unmarshal(val, &n)
 	stripeSize := n.StripeSize
 	size := n.Size
@@ -267,7 +279,8 @@ func stripeRead(eng engine.Engine, oid []byte, offset, length uint64) ([]byte, e
 //Remove removes a object from store
 func stripeRemove(eng engine.Engine, oid []byte) error {
 	//(fixme)find the onode first, should use cache
-	val, err := eng.Get(oid)
+	mKey := getMetaKey(oid)
+	val, err := eng.Get(mKey)
 	if err != nil {
 		return err
 	}
@@ -276,7 +289,7 @@ func stripeRemove(eng engine.Engine, oid []byte) error {
 		return ErrNoValueForKey
 	}
 
-	var n onode
+	var n Onode
 	bson.Unmarshal(val, &n)
 
 	size := n.Size
@@ -295,6 +308,6 @@ func stripeRemove(eng engine.Engine, oid []byte) error {
 	}
 
 	// also delete the onode
-	bat.Clear(oid)
+	bat.Clear(mKey)
 	return bat.Commit()
 }

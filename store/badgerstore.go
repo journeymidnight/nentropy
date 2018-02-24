@@ -183,7 +183,7 @@ func (bs *BadgerStore) set(key, value []byte, entries []*badger.Entry) {
 	entries = badger.EntriesSet(entries, key, value)
 }
 
-func stripeRead(offset uint64, value []byte) {
+func StripeRead(offset uint64, value []byte) {
 
 }
 func stripeWrite(offset, length uint64, value []byte) {

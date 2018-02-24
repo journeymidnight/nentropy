@@ -9,11 +9,10 @@ import (
 const (
 	localPrefixByte  = '\x01'
 	localMaxByte     = '\x02'
-	meta1PrefixByte  = localMaxByte
-	meta2PrefixByte  = '\x03'
-	metaMaxByte      = '\x04'
+	metaPrefixByte   = localMaxByte
+	metaMaxByte      = '\x03'
 	systemPrefixByte = metaMaxByte
-	systemMaxByte    = '\x05'
+	systemMaxByte    = '\x04'
 )
 
 var (

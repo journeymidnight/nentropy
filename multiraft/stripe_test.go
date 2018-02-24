@@ -47,7 +47,7 @@ func Test_StripGetData(t *testing.T) {
 	}
 
 	key := "key"
-	data, err := stripeRead(eng, []byte(key), 0, math.MaxUint64)
+	data, err := StripeRead(eng, []byte(key), 0, math.MaxUint64)
 	if err != nil {
 		fmt.Println("Error getting data to db. err", err)
 		t.Error(err)

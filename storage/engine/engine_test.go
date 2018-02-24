@@ -69,3 +69,20 @@ func Test_PutDataByTxn(t *testing.T) {
 
 	fmt.Println("Finished!")
 }
+
+func Test_IteratorKeys(t *testing.T) {
+	opt := KVOpt{Dir: "../../basedir/osd.1/1.6"}
+	eng, err := NewBadgerDB(&opt)
+	if err != nil {
+		t.Error(err)
+	}
+
+	it := eng.NewIterator()
+	for it.Rewind(); it.Valid(); it.Next() {
+		item := it.Item()
+		k := item.Key()
+		fmt.Println("key=", k)
+	}
+
+	eng.Close()
+}

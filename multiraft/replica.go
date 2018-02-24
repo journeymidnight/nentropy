@@ -8,6 +8,7 @@ import (
 	"github.com/journeymidnight/nentropy/helper"
 	"github.com/journeymidnight/nentropy/log"
 	"github.com/journeymidnight/nentropy/multiraft/multiraftbase"
+	"github.com/journeymidnight/nentropy/protos"
 	"github.com/journeymidnight/nentropy/storage/engine"
 	"github.com/journeymidnight/nentropy/util/idutil"
 	"github.com/journeymidnight/nentropy/util/protoutil"
@@ -18,6 +19,7 @@ import (
 	"github.com/pkg/errors"
 	"golang.org/x/net/context"
 	"math/rand"
+	"strconv"
 	"time"
 )
 
@@ -1123,6 +1125,21 @@ func (r *Replica) maybeInitializeRaftGroup(ctx context.Context) {
 	}
 }
 
+func (r *Replica) maybeCanBeReadFromParent(oid []byte, offset, length uint64) ([]byte, error) {
+	state, err := r.engine.Get([]byte("system_pg_state"))
+	if err != nil {
+		return nil, err
+	}
+	s, err := strconv.Atoi(string(state))
+	if err != nil {
+		return nil, err
+	}
+	if s&protos.PG_STATE_MIGRATING == 0 {
+		return nil, errors.New("not in MIGRATE state")
+	}
+	return nil, nil
+}
+
 // executeReadOnlyBatch updates the read timestamp cache and waits for any
 // overlapping writes currently processing through Raft ahead of us to
 // clear via the command queue.
@@ -1138,7 +1155,7 @@ func (r *Replica) executeReadOnlyBatch(
 		r.linearizableReadNotify(ctx)
 
 		eng := r.store.LoadGroupEngine(r.Desc().GroupID)
-		data, err := stripeRead(eng, []byte(getReq.Key), uint64(getReq.Value.Offset), getReq.Value.Len)
+		data, err := StripeRead(eng, []byte(getReq.Key), uint64(getReq.Value.Offset), getReq.Value.Len)
 		if err != nil {
 			helper.Println(5, "Error getting data from db. err ", err)
 			if err == badger.ErrKeyNotFound {

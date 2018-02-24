@@ -50,7 +50,7 @@ func (m *migrateCenter) processMigrateTask(child string) {
 		return
 	}
 	defer conn.Close()
-	helper.Println(5, "migrate start 1", child)
+	helper.Println(5, "migrate start 1", child, st.parent)
 	client_mon := protos.NewMonitorClient(conn)
 	req := protos.GetPgStatusRequest{}
 	req.PgId = st.parent
@@ -83,9 +83,10 @@ func (m *migrateCenter) processMigrateTask(child string) {
 		req.ParentPgId = st.parent
 		req.ChildPgId = child
 		ctx := context.Background()
+		helper.Println(5, "try migrated next object from old pg", req.Marker, req.ParentPgId, req.ChildPgId)
 		res, err := client_osd.MigrateGet(ctx, &req)
 		if err != nil {
-			helper.Println(5, "Error send rpc request!")
+			helper.Println(5, "Error send rpc request!", err)
 			return
 		}
 		if len(res.Key) > 0 {
@@ -101,8 +102,9 @@ func (m *migrateCenter) processMigrateTask(child string) {
 				return
 			}
 			helper.Printf(5, "migrated object to pg:%s from pg:%s, marker=%s, key=%s", child, st.parent, st.marker, res.Key)
+			helper.Println(5, "migrated object to pg", st.marker, res.Key)
 			st.count++
-			st.marker = res.Key
+			st.marker = res.Marker
 			m.setStatics(child, st)
 			UpdatePgStatusMap(child, int32(protos.PG_STATE_ACTIVE|protos.PG_STATE_MIGRATING), st.count)
 		} else {
