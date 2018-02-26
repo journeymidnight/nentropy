@@ -18,6 +18,7 @@ import (
 	"golang.org/x/net/context"
 
 	"github.com/journeymidnight/nentropy/multiraft/client"
+	"github.com/journeymidnight/nentropy/util/shuffle"
 	"golang.org/x/time/rate"
 	"io"
 	"math"
@@ -277,6 +278,8 @@ func (s *Store) Start(ctx context.Context, stopper *stop.Stopper) error {
 
 	s.cfg.Transport.Listen(s)
 	s.processRaft(ctx)
+
+	s.scanner.Start(s.stopper)
 	return nil
 }
 
@@ -862,7 +865,7 @@ func (rs *storeReplicaVisitor) Visit(visitor func(*Replica) bool) {
 	//
 	// TODO(peter): Re-evaluate whether this is necessary after we allow
 	// rebalancing away from the leaseholder. See TestRebalance_3To5Small.
-	//shuffle.Shuffle(rs)
+	shuffle.Shuffle(rs)
 
 	rs.visited = 0
 	for _, repl := range rs.repls {
@@ -922,9 +925,12 @@ func NewStore(cfg StoreConfig, eng engine.Engine, nodeDesc *multiraftbase.NodeDe
 	s.coalescedMu.Unlock()
 	s.Db = client.NewDB(s)
 	s.rsChangeCallback = cb
+	s.draining.Store(false)
 
 	//if s.cfg.Gossip != nil {
 	// Add range scanner and configure with queues.
+	cfg.ScanInterval = 10 * time.Minute
+	cfg.ScanMaxIdleTime = 200 * time.Millisecond
 	s.scanner = newReplicaScanner(
 		s.cfg.AmbientCtx, cfg.ScanInterval, cfg.ScanMaxIdleTime, newStoreReplicaVisitor(s),
 	)
@@ -1113,20 +1119,11 @@ func (s *Store) HandleSnapshot(
 		if req.KVBatch != nil {
 			batches = append(batches, req.KVBatch)
 		}
-		batch := newKVBatch(len(req.KVBatch), req.KVBatch)
-		for {
-			key, val, err := batch.GetNextKVData()
-			if err != nil {
-				break
-			}
-			helper.Println(5, "Handle snapshot key:", key)
-			helper.Println(5, "Handle snapshot val:", val)
-			eng := s.LoadGroupEngine(header.RaftMessageRequest.GroupID)
-			err = stripeWrite(eng, key, val, 0, uint64(len(val)))
-			if err != nil {
-				helper.Println(5, "Error putting data to db, err:", err)
-			}
-		}
+		//eng := s.loadGroupEngine(header.RaftMessageRequest.GroupID)
+		//err = stripeWrite(eng, key, val, 0, uint64(len(val)))
+		//if err != nil {
+		//helper.Println(5, "Error putting data to db, err:", err)
+		//}
 
 		if req.LogEntries != nil {
 			logEntries = append(logEntries, req.LogEntries...)
@@ -1151,6 +1148,7 @@ func (s *Store) HandleSnapshot(
 			if err := s.processRaftRequest(ctx, &header.RaftMessageRequest, inSnap); err != nil {
 				return sendSnapError(errors.Wrap(err.GoError(), "failed to apply snapshot"))
 			}
+
 			return stream.Send(&multiraftbase.SnapshotResponse{Status: multiraftbase.SnapshotResponse_APPLIED})
 		}
 	}
@@ -1175,10 +1173,8 @@ func snapshotRateLimit(priority multiraftbase.SnapshotRequest_Priority,
 	}
 }
 
-func sendBatch(stream OutgoingSnapshotStream, batch *KVBatch) error {
-	repr := batch.Repr()
-	batch.Reset()
-	return stream.Send(&multiraftbase.SnapshotRequest{KVBatch: repr})
+func sendBatch(stream OutgoingSnapshotStream, key, val []byte) error {
+	return stream.Send(&multiraftbase.SnapshotRequest{Key: key, Val: val})
 }
 
 // sendSnapshot sends an outgoing snapshot via a pre-opened GRPC stream.
@@ -1220,11 +1216,11 @@ func sendSnapshot(
 			to, resp.Status)
 	}
 	// The size of batches to send. This is the granularity of rate limiting.
-	const batchSize = 256 << 10 // 256 KB
-	targetRate, err := snapshotRateLimit(header.Priority)
-	if err != nil {
-		return errors.Wrapf(err, "%s", to)
-	}
+	//const batchSize = 256 << 10 // 256 KB
+	//targetRate, err := snapshotRateLimit(header.Priority)
+	//if err != nil {
+	//return errors.Wrapf(err, "%s", to)
+	//}
 
 	// Convert the bytes/sec rate limit to batches/sec.
 	//
@@ -1233,16 +1229,14 @@ func sendSnapshot(
 	// which seems to disable the rate limiting, or call WaitN in smaller than
 	// burst size chunks which caused excessive slowness in testing. Would be
 	// nice to figure this out, but the batches/sec rate limit works for now.
-	limiter := rate.NewLimiter(targetRate/batchSize, 1 /* burst size */)
+	//limiter := rate.NewLimiter(targetRate/batchSize, 1 /* burst size */)
 
 	// Determine the unreplicated key prefix so we can drop any
 	// unreplicated keys from the snapshot.
 	//unreplicatedPrefix := keys.MakeGroupIDUnreplicatedPrefix(header.State.Desc.GroupID)
 	//var alloc bufalloc.ByteAllocator
 	//n := 0
-	data := make([]byte, 2048*1024)
-	b := newKVBatch(len(data), data)
-	for ; ; snap.Iter.Next() {
+	for snap.Iter.Rewind(); ; snap.Iter.Next() {
 		if ok := snap.Iter.Valid(); !ok {
 			break
 		}
@@ -1253,29 +1247,9 @@ func sendSnapshot(
 		if err != nil {
 			return errors.Wrapf(err, "Error getting value from item")
 		}
-		err = b.Put(key, val)
-		if err != nil {
-			return errors.Wrapf(err, "Error putting key value")
-		}
-		const batchSize = 256 << 10 // 256 KB
-		if len(b.Repr()) >= batchSize {
-			if err := limiter.WaitN(ctx, 1); err != nil {
-				return err
-			}
-			if err := sendBatch(stream, b); err != nil {
-				return err
-			}
-			b = nil
-			// We no longer need the keys and values in the batch we just sent,
-			// so reset alloc and allow them to be garbage collected.
-			//alloc = bufalloc.ByteAllocator{}
-		}
-	}
-	if b != nil {
-		if err := limiter.WaitN(ctx, 1); err != nil {
-			return err
-		}
-		if err := sendBatch(stream, b); err != nil {
+		helper.Println(5, "Send snapshot key:", key)
+		//helper.Println(5, "Send snapshot val:", val)
+		if err := sendBatch(stream, key, val); err != nil {
 			return err
 		}
 	}
@@ -1283,21 +1257,21 @@ func sendSnapshot(
 	firstIndex := header.State.TruncatedState.Index + 1
 	endIndex := snap.RaftSnap.Metadata.Index + 1
 	logEntries := make([][]byte, 0, endIndex-firstIndex)
-
 	scanFunc := func(kv multiraftbase.KeyValue) (bool, error) {
-		bytes, err := kv.Value.GetBytes()
+		//bytes, err := kv.Value.GetBytes()
+		bytes := kv.Value.RawBytes
 		if err == nil {
 			logEntries = append(logEntries, bytes)
 		}
 		return false, err
 	}
 
-	rangeID := header.State.Desc.GroupID
+	groupID := header.State.Desc.GroupID
 
-	if err := iterateEntries(ctx, snap.EngineSnap, rangeID, firstIndex, endIndex, scanFunc); err != nil {
+	if err := iterateEntries(ctx, snap.EngineSnap, groupID, firstIndex, endIndex, scanFunc); err != nil {
 		return err
 	}
-
+	helper.Println(5, "sendsnapshot, firstIndex:", firstIndex, " endIndex:", endIndex, " len(logEntries):", len(logEntries))
 	req := &multiraftbase.SnapshotRequest{
 		LogEntries: logEntries,
 		Final:      true,

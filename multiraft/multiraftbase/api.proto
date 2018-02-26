@@ -78,6 +78,7 @@ message RequestUnion {
     GetRequest get = 1;
     PutRequest put = 2;
     HasKeyRequest hasKey = 3;
+    TruncateLogRequest truncate = 4;
 }
 
 // A ResponseUnion contains exactly one of the responses.
@@ -158,12 +159,13 @@ message TruncateLogRequest {
 
     // Log entries < this index are to be discarded.
     uint64 index = 1;
+    uint64 term = 2;
 
     // GroupID is used to double check that the correct range is being truncated.
     // The header specifies a span, start and end keys, but not the range id
     // itself. The range may have changed from the one specified in the header
     // in the case of a merge.
-    string group_id = 2 [(gogoproto.customname) = "GroupID", (gogoproto.casttype) = "GroupID"];
+    string group_id = 3 [(gogoproto.customname) = "GroupID", (gogoproto.casttype) = "GroupID"];
 }
 
 // WriteBatch is the serialized representation of a RocksDB write

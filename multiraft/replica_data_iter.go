@@ -48,6 +48,11 @@ func (ri *ReplicaDataIterator) Next() {
 	ri.iterator.Next()
 }
 
+// Next advances to the next key in the iteration.
+func (ri *ReplicaDataIterator) Rewind() {
+	ri.iterator.Rewind()
+}
+
 // Valid returns true if the iterator currently points to a valid value.
 func (ri *ReplicaDataIterator) Valid() bool {
 	return ri.iterator.Valid()

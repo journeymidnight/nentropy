@@ -6,8 +6,7 @@ import (
 )
 
 type BadgerDB struct {
-	db  *badger.DB
-	txn *badger.Txn
+	db *badger.DB
 }
 
 type badgerDBBatch struct {
@@ -78,11 +77,11 @@ func (b *BadgerDB) NewIterator() Iterator {
 	if b.db == nil {
 		panic("BadgerDB is not initialized yet")
 	}
-	b.txn = b.db.NewTransaction(false)
+	bgIt := &badgerIterator{}
+	bgIt.txn = b.db.NewTransaction(false)
 	opts := badger.DefaultIteratorOptions
 	opts.PrefetchSize = 10
-	bgIt := &badgerIterator{}
-	bgIt.iter = b.txn.NewIterator(opts)
+	bgIt.iter = bgIt.txn.NewIterator(opts)
 	return bgIt
 }
 
@@ -96,7 +95,21 @@ func (b *badgerDBSnapshot) Close() {
 }
 
 func (b *badgerDBSnapshot) Get(key []byte) ([]byte, error) {
-	return nil, nil
+	var val []byte
+	txn := b.txn
+	item, err := txn.Get(key)
+	if err == badger.ErrKeyNotFound {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	val, err = item.Value()
+	if err != nil {
+		return nil, err
+	}
+	return val, nil
 }
 
 func (b *badgerDBSnapshot) NewIterator() Iterator {
@@ -175,6 +188,7 @@ func (r *badgerDBBatch) Commit() error {
 
 type badgerIterator struct {
 	iter *badger.Iterator
+	txn  *badger.Txn
 }
 
 func (it *badgerIterator) Close() {

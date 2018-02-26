@@ -170,6 +170,7 @@ func (rsl replicaStateLoader) save(
 	if err := rsl.setTruncatedState(ctx, eng, state.TruncatedState); err != nil {
 		return err
 	}
+
 	return nil
 }
 
@@ -250,6 +251,7 @@ func (rsl replicaStateLoader) loadReplicaDestroyedError(
 func loadAppliedIndex(
 	ctx context.Context, reader engine.Reader, groupID multiraftbase.GroupID,
 ) (uint64, error) {
+	helper.Println(5, " loadAppliedIndex, groupID:", groupID)
 	rsl := makeReplicaStateLoader(groupID)
 	return rsl.loadAppliedIndex(ctx, reader)
 }

@@ -33,12 +33,22 @@ message RaftTruncatedState {
     uint64 term = 2;
 }
 
+message Stats {
+    option (gogoproto.equal) = true;
+    option (gogoproto.populate) = true;
+
+    int64 key_bytes = 1;
+    int64 val_bytes = 2;
+    int64 total_bytes = 3;
+}
+
 message ReplicaState {
     option (gogoproto.equal) = true;
     uint64 raft_applied_index = 1;
     GroupDescriptor desc = 2;
     // The truncation state of the Raft log.
     RaftTruncatedState truncated_state = 3;
+    Stats Stats = 4 [(gogoproto.nullable) = false];
 }
 
 message PgInfo {

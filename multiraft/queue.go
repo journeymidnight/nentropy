@@ -436,7 +436,7 @@ func (bq *baseQueue) processLoop(stopper *stop.Stopper) {
 							}
 							duration = timeutil.Since(start)
 
-							helper.Printf(5, "done %s", duration)
+							//helper.Printf(5, "done %s", duration)
 						}) != nil {
 						return
 					}

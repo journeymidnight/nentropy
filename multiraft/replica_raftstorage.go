@@ -279,7 +279,18 @@ func (r *Replica) GetFirstIndex() (uint64, error) {
 // does not contain any of the replica data. The snapshot is actually generated
 // (and sent) by the Raft snapshot queue.
 func (r *replicaRaftStorage) Snapshot() (raftpb.Snapshot, error) {
-	return raftpb.Snapshot{}, nil
+	r.mu.AssertHeld()
+	appliedIndex := r.mu.state.RaftAppliedIndex
+	term, err := r.Term(appliedIndex)
+	if err != nil {
+		return raftpb.Snapshot{}, err
+	}
+	return raftpb.Snapshot{
+		Metadata: raftpb.SnapshotMetadata{
+			Index: appliedIndex,
+			Term:  term,
+		},
+	}, nil
 }
 
 // raftSnapshotLocked requires that r.mu is held.
@@ -291,13 +302,12 @@ func (r *Replica) raftSnapshotLocked() (raftpb.Snapshot, error) {
 // given range. Note that snapshot() is called without Replica.raftMu held.
 func snapshot(
 	ctx context.Context,
+	desc multiraftbase.GroupDescriptor,
 	snapType string,
 	snap engine.Reader,
 	groupID multiraftbase.GroupID,
 	eCache *raftEntryCache,
 ) (OutgoingSnapshot, error) {
-	var desc multiraftbase.GroupDescriptor
-
 	var snapData multiraftbase.RaftSnapshotData
 	// Store RangeDescriptor as metadata, it will be retrieved by ApplySnapshot()
 	snapData.GroupDescriptor = desc
@@ -362,6 +372,7 @@ func (r *Replica) GetSnapshot(
 	r.raftMu.Lock()
 	eng := r.store.LoadGroupEngine(r.Desc().GroupID)
 	snap := eng.NewSnapshot()
+	desc := *r.mu.state.Desc
 	r.raftMu.Unlock()
 
 	defer func() {
@@ -375,7 +386,7 @@ func (r *Replica) GetSnapshot(
 	groupID := r.GroupID
 
 	snapData, err := snapshot(
-		ctx, snapType, snap, groupID, r.store.raftEntryCache,
+		ctx, desc, snapType, snap, groupID, r.store.raftEntryCache,
 	)
 	if err != nil {
 		helper.Printf(5, "error generating snapshot: %s", err)
@@ -452,6 +463,7 @@ func (r *Replica) append(
 		if err != nil {
 			return 0, 0, 0, err
 		}
+		prevRaftLogSize += int64(len(key) + len(data))
 	}
 
 	// Delete any previously appended log entries which never committed.
@@ -464,12 +476,13 @@ func (r *Replica) append(
 		if err != nil {
 			return 0, 0, 0, err
 		}
+		// TODO: update prevRaftLogSize
 	}
 	if err := r.raftMu.stateLoader.setLastIndex(ctx, batch, lastIndex); err != nil {
 		return 0, 0, 0, err
 	}
 
-	return lastIndex, lastTerm, 0, nil
+	return lastIndex, lastTerm, prevRaftLogSize, nil
 }
 
 // applySnapshot updates the replica based on the given snapshot and associated
@@ -482,12 +495,110 @@ func (r *Replica) append(
 func (r *Replica) applySnapshot(
 	ctx context.Context, inSnap IncomingSnapshot, snap raftpb.Snapshot, hs raftpb.HardState,
 ) (err error) {
+	helper.Println(5, "----enter applySnapshot()-----------")
 	s := *inSnap.State
 	if s.Desc.GroupID != r.GroupID {
-		helper.Fatalf("unexpected range ID %s", s.Desc.GroupID)
+		helper.Println(5, "s.Desc.GroupID:", s.Desc.GroupID, " r.GroupID:", r.GroupID)
+		helper.Fatalf("unexpected group ID %s", s.Desc.GroupID)
 	}
 
+	if raft.IsEmptySnap(snap) {
+		// Raft discarded the snapshot, indicating that our local state is
+		// already ahead of what the snapshot provides. But we count it for
+		// stats (see the defer above).
+		return nil
+	}
+
+	// Note that we don't require that Raft supply us with a nonempty HardState
+	// on a snapshot. We don't want to make that assumption because it's not
+	// guaranteed by the contract. Raft *must* send us a HardState when it
+	// increases the committed index as a result of the snapshot, but who is to
+	// say it isn't going to accept a snapshot which is identical to the current
+	// state?
+	//
+	// Note that since this snapshot comes from Raft, we don't have to synthesize
+	// the HardState -- Raft wouldn't ask us to update the HardState in incorrect
+	// ways.
+	eng := r.store.LoadGroupEngine(r.mu.state.Desc.GroupID)
+
+	logEntries := make([]raftpb.Entry, len(inSnap.LogEntries))
+	for i, bytes := range inSnap.LogEntries {
+		if err := logEntries[i].Unmarshal(bytes); err != nil {
+			return err
+		}
+	}
+	var raftLogSize int64
+	// Write the snapshot's Raft log into the range.
+	_, _, raftLogSize, err = r.append(
+		ctx, eng, 0, 0, raftLogSize, logEntries,
+	)
+	if err != nil {
+		helper.Fatalln("Failed to append log entries! err:", err)
+		return err
+	}
+
+	if !raft.IsEmptyHardState(hs) {
+		if err := r.raftMu.stateLoader.setHardState(ctx, eng, hs); err != nil {
+			return errors.Wrapf(err, "unable to persist HardState %+v", &hs)
+		}
+	}
+
+	// As outlined above, last and applied index are the same after applying
+	// the snapshot (i.e. the snapshot has no uncommitted tail).
+	if s.RaftAppliedIndex != snap.Metadata.Index {
+		helper.Fatalf("snapshot RaftAppliedIndex %d doesn't match its metadata index %d",
+			s.RaftAppliedIndex, snap.Metadata.Index)
+	}
+
+	r.mu.Lock()
+	// We set the persisted last index to the last applied index. This is
+	// not a correctness issue, but means that we may have just transferred
+	// some entries we're about to re-request from the leader and overwrite.
+	// However, raft.MultiNode currently expects this behaviour, and the
+	// performance implications are not likely to be drastic. If our
+	// feelings about this ever change, we can add a LastIndex field to
+	// raftpb.SnapshotMetadata.
+	r.mu.lastIndex = s.RaftAppliedIndex
+	// We could recompute and return the lastTerm in the snapshot, but instead we
+	// just set an invalid term and force a recomputation later.
+	r.mu.lastTerm = invalidLastTerm
+	//r.mu.raftLogSize = raftLogSize
+	// Update the range and store stats.
+	r.mu.state = s
+	r.mu.Unlock()
+
+	// As the last deferred action after committing the batch, update other
+	// fields which are uninitialized or need updating. This may not happen
+	// if the system config has not yet been loaded. While config update
+	// will correctly set the fields, there is no order guarantee in
+	// ApplySnapshot.
+	// TODO: should go through the standard store lock when adding a replica.
+	//if err := r.updateRangeInfo(s.Desc); err != nil {
+	//panic(err)
+	//}
+
+	r.setDescWithoutProcessUpdate(s.Desc)
+
 	return nil
+}
+
+// setDescWithoutProcessUpdate updates the range descriptor without calling
+// processRangeDescriptorUpdate. Requires raftMu to be locked.
+func (r *Replica) setDescWithoutProcessUpdate(desc *multiraftbase.GroupDescriptor) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if desc.GroupID != r.GroupID {
+		helper.Fatalf("range descriptor ID (%d) does not match replica's range ID (%d)",
+			desc.GroupID, r.GroupID)
+	}
+	if r.mu.state.Desc != nil && r.mu.state.Desc.IsInitialized() &&
+		(desc == nil || !desc.IsInitialized()) {
+		helper.Fatalf("cannot replace initialized descriptor with uninitialized one: %+v -> %+v",
+			r.mu.state.Desc, desc)
+	}
+
+	r.mu.state.Desc = desc
 }
 
 type raftCommandEncodingVersion byte
@@ -556,5 +667,20 @@ func iterateEntries(
 	hi uint64,
 	scanFunc func(multiraftbase.KeyValue) (bool, error),
 ) error {
+	for idx := lo; idx < hi; idx++ {
+		key := keys.RaftLogKey(groupID, idx)
+		val, err := e.Get(key)
+		if err != nil {
+			helper.Println(5, "Error getting raft log key, idx:", idx, " err:", err)
+			return err
+		}
+		kv := multiraftbase.KeyValue{Key: key}
+		kv.Value = multiraftbase.Value{RawBytes: val}
+		_, err = scanFunc(kv)
+		if err != nil {
+			helper.Println(5, "Error calling scanFunc, err:", err)
+			return err
+		}
+	}
 	return nil
 }

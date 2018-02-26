@@ -7,6 +7,8 @@ import (
 	"github.com/dgraph-io/badger"
 	"github.com/journeymidnight/nentropy/helper"
 	"github.com/journeymidnight/nentropy/log"
+	//"github.com/journeymidnight/nentropy/multiraft/keys"
+	"github.com/journeymidnight/nentropy/multiraft/keys"
 	"github.com/journeymidnight/nentropy/multiraft/multiraftbase"
 	"github.com/journeymidnight/nentropy/protos"
 	"github.com/journeymidnight/nentropy/storage/engine"
@@ -120,6 +122,8 @@ type Replica struct {
 		// raft log truncation while a preemptive snapshot is in flight. A value of
 		// 0 indicates that there is no pending snapshot.
 		pendingSnapshotIndex uint64
+		// Max bytes before split.
+		maxBytes int64
 	}
 
 	// raftMu protects Raft processing the replica.
@@ -373,6 +377,7 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 	r.mu.leaderID = leaderID
 	r.mu.Unlock()
 
+	//helper.Printf(10, "=====raftLogSize:%d", raftLogSize)
 	for _, message := range rd.Messages {
 		helper.Println(20, "sent message:", "To:", message.To,
 			"From:", message.From,
@@ -530,7 +535,7 @@ func (r *Replica) processRaftCommand(
 		response.Reply.Responses.MustSetInner(resp)
 	}
 
-	helper.Println(5, "processRaftCommand(): RaftAppliedIndex:", index)
+	helper.Println(5, "GroupID:", r.GroupID, "processRaftCommand(): RaftAppliedIndex:", index)
 	r.mu.state.RaftAppliedIndex = index
 	r.applyWait.Trigger(index)
 
@@ -626,6 +631,24 @@ func (r *Replica) applyRaftCommand(
 		if err != nil {
 			helper.Println(5, "Error putting data to db, err:", err)
 		}
+
+	} else if method == multiraftbase.TruncateLog {
+		truncateReq := multiraftbase.TruncateLogRequest{}
+		err := truncateReq.Unmarshal(writeBatch.Data)
+		if err != nil {
+			helper.Printf(5, "Cannot unmarshal data to kv")
+		}
+		eng := r.store.LoadGroupEngine(r.Desc().GroupID)
+		for i := uint64(1); i < truncateReq.Index; i++ {
+			err := eng.Clear(keys.RaftLogKey(truncateReq.GroupID, i))
+			if err != nil {
+				helper.Println(5, "Failed to remove raft log, index:", i)
+			}
+		}
+		r.mu.state.TruncatedState.Index = truncateReq.Index
+		r.mu.state.TruncatedState.Term = truncateReq.Term
+		helper.Println(5, "Finished to truncate log! GroupID:", truncateReq.GroupID, " index:", truncateReq.Index)
+
 	} else {
 		helper.Printf(5, "Unexpected raft command method.")
 	}
@@ -971,7 +994,7 @@ func (r *Replica) initRaftMuLockedReplicaMuLocked(
 	if r.mu.state.Desc != nil && r.isInitializedRLocked() {
 		helper.Fatalf("r%d: cannot reinitialize an initialized replica", desc.GroupID)
 	}
-	helper.Println(10, "GroupID:", r.GroupID, " replicaID:", replicaID)
+	helper.Printf(10, "initRaftMuLockedReplicaMuLocked() GroupID: %s, replicaID: %s", r.GroupID, replicaID)
 	if desc.IsInitialized() && replicaID != 0 {
 		return errors.Errorf("replicaID must be 0 when creating an initialized replica")
 	}
@@ -1188,7 +1211,7 @@ func (r *Replica) Send(
 	req := ba.Request.GetValue().(multiraftbase.Request)
 	if req.Method() == multiraftbase.Get {
 		br, pErr = r.executeReadOnlyBatch(ctx, ba)
-	} else if req.Method() == multiraftbase.Put {
+	} else if req.Method() == multiraftbase.Put || req.Method() == multiraftbase.TruncateLog {
 		br, pErr = r.executeWriteBatch(ctx, ba)
 	} else {
 		helper.Fatalf("don't know how to handle command %s", ba)
@@ -1271,6 +1294,12 @@ func (r *Replica) requestToProposal(
 		data, err = putReq.Marshal()
 		if err != nil {
 			helper.Printf(5, "Error marshal put request.")
+		}
+	} else if req.Method() == multiraftbase.TruncateLog {
+		truncateLogReq := req.(*multiraftbase.TruncateLogRequest)
+		data, err = truncateLogReq.Marshal()
+		if err != nil {
+			helper.Printf(5, "Error marshal truncate request.")
 		}
 	} else {
 		helper.Panicln(0, "Unsupported req type.")
@@ -1448,6 +1477,7 @@ func (r *Replica) sendSnapshot(
 	snapType string,
 	priority multiraftbase.SnapshotRequest_Priority,
 ) error {
+	helper.Println(5, "Send replica groupId:", r.GroupID, " snapshot", " r.Desc().GroupID:", r.Desc().GroupID)
 	snap, err := r.GetSnapshot(ctx, snapType)
 	if err != nil {
 		return errors.Wrapf(err, "%s: failed to generate %s snapshot", r, snapType)
@@ -1492,7 +1522,7 @@ func (r *Replica) sendSnapshot(
 
 	}
 	if err := r.store.cfg.Transport.SendSnapshot(
-		ctx, req, snap, r.store.sysEng.NewBatch, sent); err != nil {
+		ctx, req, snap, sent); err != nil {
 		return &snapshotError{err}
 	}
 	return nil

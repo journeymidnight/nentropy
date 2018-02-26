@@ -36,7 +36,7 @@ const (
 	// RaftLogQueueStaleThreshold is the minimum threshold for stale raft log
 	// entries. A stale entry is one which all replicas of the range have
 	// progressed past and thus is no longer needed and can be truncated.
-	RaftLogQueueStaleThreshold = 100
+	RaftLogQueueStaleThreshold = 20
 	// RaftLogQueueStaleSize is the minimum size of the Raft log that we'll
 	// truncate even if there are fewer than RaftLogQueueStaleThreshold entries
 	// to truncate. The value of 64 KB was chosen experimentally by looking at
@@ -103,11 +103,11 @@ func getTruncatableIndexes(ctx context.Context, r *Replica) (uint64, uint64, int
 	// and end transaction operations. If the estimated raft log size becomes
 	// larger than the replica size, we're better off recovering the replica
 	// using a snapshot.
-	//targetSize := r.mu.state.Stats.Total()
-	//if targetSize > r.mu.maxBytes {
-	//targetSize = r.mu.maxBytes
-	//}
-	targetSize := int64(0)
+	r.mu.maxBytes = 64 << 20 // 64MB
+	targetSize := r.mu.state.Stats.TotalBytes
+	if targetSize > r.mu.maxBytes {
+		targetSize = r.mu.maxBytes
+	}
 	if targetSize > raftLogMaxSize {
 		targetSize = raftLogMaxSize
 	}
@@ -118,10 +118,11 @@ func getTruncatableIndexes(ctx context.Context, r *Replica) (uint64, uint64, int
 	if err != nil {
 		return 0, 0, 0, errors.Errorf("error retrieving first index for r%d: %s", groupID, err)
 	}
-
+	helper.Println(5, "groupID:", r.GroupID, "raftLogSize:", raftLogSize, "targetSize:", targetSize, "firstIndex:", firstIndex, "lastIndex:", lastIndex, "pendingSnapshotIndex:", pendingSnapshotIndex)
 	truncatableIndex := computeTruncatableIndex(
 		raftStatus, raftLogSize, targetSize, firstIndex, lastIndex, pendingSnapshotIndex)
 	// Return the number of truncatable indexes.
+	helper.Println(5, "truncatableIndex is:", truncatableIndex)
 	return truncatableIndex - firstIndex, truncatableIndex, raftLogSize, nil
 }
 
@@ -248,17 +249,24 @@ func (rlq *raftLogQueue) process(ctx context.Context, r *Replica) error {
 	if shouldTruncate(truncatableIndexes, raftLogSize) {
 		r.mu.Lock()
 		raftLogSize := r.mu.raftLogSize
+		term, err := r.raftTermRLocked(oldestIndex)
+		if err != nil {
+			helper.Println(5, "Error getting term.")
+		}
 		r.mu.Unlock()
 
 		helper.Printf(5, "truncating raft log %d-%d: size=%d",
 			oldestIndex-truncatableIndexes, oldestIndex, raftLogSize)
 
 		b := &client.Batch{}
+		b.Header.GroupID = r.GroupID
 		b.AddRawRequest(&multiraftbase.TruncateLogRequest{
 			Index:   oldestIndex,
+			Term:    term,
 			GroupID: r.GroupID,
 		})
 		if err := rlq.db.Run(ctx, b); err != nil {
+			helper.Println(5, "result is:", err)
 			return err
 		}
 	}

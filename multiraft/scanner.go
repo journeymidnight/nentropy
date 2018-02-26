@@ -205,14 +205,13 @@ func (rs *replicaScanner) waitAndProcess(
 	for {
 		select {
 		case <-rs.waitTimer.C:
-			helper.Printf(5, "wait timer fired")
 			rs.waitTimer.Read = true
 			if repl == nil {
 				return false
 			}
 
-			helper.Printf(5, "replica scanner processing %s", repl)
 			for _, q := range rs.queues {
+				helper.Printf(5, "replica scanner processing %s", repl.GroupID)
 				q.MaybeAdd(repl)
 			}
 			return false
@@ -283,6 +282,7 @@ func (rs *replicaScanner) scanLoop(stopper *stop.Stopper) {
 					start = timeutil.Now()
 				})
 			if shouldStop {
+				helper.Printf(5, "----exist scan loop------")
 				return
 			}
 		}

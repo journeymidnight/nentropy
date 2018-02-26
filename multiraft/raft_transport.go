@@ -33,7 +33,7 @@ import (
 	"github.com/journeymidnight/nentropy/helper"
 	"github.com/journeymidnight/nentropy/memberlist"
 	"github.com/journeymidnight/nentropy/multiraft/multiraftbase"
-	"github.com/journeymidnight/nentropy/storage/engine"
+	//"github.com/journeymidnight/nentropy/storage/engine"
 	"github.com/pkg/errors"
 	"sync"
 )
@@ -574,7 +574,6 @@ func (t *RaftTransport) SendSnapshot(
 	ctx context.Context,
 	header multiraftbase.SnapshotRequest_Header,
 	snap *OutgoingSnapshot,
-	newBatch func() engine.Batch,
 	sent func(),
 ) error {
 	var stream multiraftbase.MultiRaft_RaftSnapshotClient

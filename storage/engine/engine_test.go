@@ -86,3 +86,25 @@ func Test_IteratorKeys(t *testing.T) {
 
 	eng.Close()
 }
+
+func Test_Snapshot(t *testing.T) {
+	opt := KVOpt{Dir: "../../osd/basedir/osd.1/1.1"}
+	eng, err := NewBadgerDB(&opt)
+	if err != nil {
+		t.Error(err)
+	}
+
+	snap := eng.NewSnapshot()
+	iter := snap.NewIterator()
+
+	for iter.Rewind(); ; iter.Next() {
+		if ok := iter.Valid(); !ok {
+			break
+		}
+		item := iter.Item()
+		k := item.Key()
+		fmt.Println("key=", k)
+	}
+
+	eng.Close()
+}
