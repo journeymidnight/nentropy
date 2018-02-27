@@ -225,6 +225,7 @@ func (s *OsdServer) batchInternal(
 
 	if err := s.stopper.RunTaskWithErr(ctx, "node.Node: batch", func(ctx context.Context) error {
 		var pErr *multiraftbase.Error
+		br = &multiraftbase.BatchResponse{}
 		state, err := s.GetPgStateFromMap(string(args.GroupID))
 		if err != nil {
 			br.Error = multiraftbase.NewError(err)
@@ -415,7 +416,7 @@ func (s *OsdServer) GetPgStateFromMap(pgId string) (int32, error) {
 	if !ok {
 		return protos.PG_STATE_UNINITIAL, errors.New("pg state not existed")
 	}
-	return value.(protos.PgStatus).Status, nil
+	return value.(*protos.PgStatus).Status, nil
 }
 
 func ReplicaStateChangeCallback(pgId string, replicaState string) {

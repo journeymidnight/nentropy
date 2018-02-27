@@ -201,7 +201,6 @@ func (rs *replicaScanner) waitAndProcess(
 	waitInterval := rs.paceInterval(start, timeutil.Now())
 	rs.waitTimer.Reset(waitInterval)
 
-	helper.Printf(5, "wait timer interval set to %s", waitInterval)
 	for {
 		select {
 		case <-rs.waitTimer.C:
@@ -211,7 +210,6 @@ func (rs *replicaScanner) waitAndProcess(
 			}
 
 			for _, q := range rs.queues {
-				helper.Printf(5, "replica scanner processing %s", repl.GroupID)
 				q.MaybeAdd(repl)
 			}
 			return false
@@ -276,13 +274,12 @@ func (rs *replicaScanner) scanLoop(stopper *stop.Stopper) {
 					rs.mu.scanCount++
 					rs.mu.total += timeutil.Since(start)
 
-					helper.Printf(5, "reset replica scan iteration")
+					helper.Printf(20, "reset replica scan iteration")
 
 					// Reset iteration and start time.
 					start = timeutil.Now()
 				})
 			if shouldStop {
-				helper.Printf(5, "----exist scan loop------")
 				return
 			}
 		}

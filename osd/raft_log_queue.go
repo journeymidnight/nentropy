@@ -118,11 +118,9 @@ func getTruncatableIndexes(ctx context.Context, r *Replica) (uint64, uint64, int
 	if err != nil {
 		return 0, 0, 0, errors.Errorf("error retrieving first index for r%d: %s", groupID, err)
 	}
-	helper.Println(5, "groupID:", r.GroupID, "raftLogSize:", raftLogSize, "targetSize:", targetSize, "firstIndex:", firstIndex, "lastIndex:", lastIndex, "pendingSnapshotIndex:", pendingSnapshotIndex)
 	truncatableIndex := computeTruncatableIndex(
 		raftStatus, raftLogSize, targetSize, firstIndex, lastIndex, pendingSnapshotIndex)
 	// Return the number of truncatable indexes.
-	helper.Println(5, "truncatableIndex is:", truncatableIndex)
 	return truncatableIndex - firstIndex, truncatableIndex, raftLogSize, nil
 }
 

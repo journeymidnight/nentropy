@@ -322,6 +322,38 @@ func getObject(pgname string, osd string, oid []byte, filename string) error {
 	return nil
 }
 
+func deleteObject(pgname string, osd string, oid []byte) error {
+	if *length > MAX_SIZE {
+		return errors.New(fmt.Sprintf("the read length should not be 0 or more than %s", MAX_SIZE))
+	}
+	if *length == 0 {
+		*length = MAX_SIZE
+	}
+	conn, err := grpc.Dial(osd, grpc.WithInsecure())
+	if err != nil {
+		log.Fatalf("Fail to dial: %v", err)
+	}
+	defer conn.Close()
+	client := multiraftbase.NewInternalClient(conn)
+
+	dumy := multiraftbase.BatchRequest{}
+	dumy.GroupID = multiraftbase.GroupID(pgname)
+
+	deleteReq := &multiraftbase.DeleteRequest{}
+	deleteReq.Key = oid
+	dumy.Request.MustSetInner(deleteReq)
+
+	ctx := context.Background()
+	_, err = client.Batch(ctx, &dumy)
+	if err != nil {
+		fmt.Printf("Error send rpc request!")
+		return err
+	}
+	//deleteRes := res.Responses.GetValue().(*multiraftbase.DeleteResponse)
+
+	return nil
+}
+
 func objectHandle() {
 	switch *cmd {
 	case "search":
@@ -368,6 +400,23 @@ func objectHandle() {
 		err = getObject(result.PgName, result.Osds[0].Addr, []byte(*oid), *filename)
 		if err != nil {
 			fmt.Println("Error putting object from osd, err:", err)
+			return
+		}
+	case "delete":
+		result, err := getObjectLayout(*pool, *oid)
+		if err != nil {
+			fmt.Println("get object layout error: ", err)
+			return
+		}
+		fmt.Println("Layout Info:")
+		fmt.Println("PG name:", result.PgName)
+		fmt.Println("OSDS:")
+		for _, osd := range result.Osds {
+			fmt.Println(fmt.Sprintf("id:%d addr:%s weight:%d host:%s zone:%s up:%v in:%v", osd.Id, osd.Addr, osd.Weight, osd.Host, osd.Zone, osd.Up, osd.In))
+		}
+		err = deleteObject(result.PgName, result.Osds[0].Addr, []byte(*oid))
+		if err != nil {
+			fmt.Println("Error removing object from osd, err:", err)
 			return
 		}
 

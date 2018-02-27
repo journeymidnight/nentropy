@@ -21,6 +21,8 @@ const (
 	TruncateLog
 	// HasKey check that the key exist
 	HasKey
+	// Delete removes the value for the specified key.
+	Delete
 )
 
 // Request is an interface for RPC requests.
@@ -54,6 +56,17 @@ func (pr *PutRequest) ShallowCopy() Request {
 }
 
 func (*PutRequest) flags() int { return 0 }
+
+// Method implements the Request interface.
+func (*DeleteRequest) Method() Method { return Delete }
+
+// ShallowCopy implements the Request interface.
+func (gr *DeleteRequest) ShallowCopy() Request {
+	shallowCopy := *gr
+	return &shallowCopy
+}
+
+func (*DeleteRequest) flags() int { return 0 }
 
 // Method implements the Request interface.
 func (*TruncateLogRequest) Method() Method { return TruncateLog }
@@ -142,6 +155,9 @@ func (*PutResponse) Method() Method { return Put }
 
 // Method implements the Request interface.
 func (*HasKeyResponse) Method() Method { return HasKey }
+
+// Method implements the Request interface.
+func (*DeleteResponse) Method() Method { return Delete }
 
 // Header implements the Response interface for ResponseHeader.
 func (rh ResponseHeader) Header() ResponseHeader {

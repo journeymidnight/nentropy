@@ -495,7 +495,7 @@ func (r *Replica) append(
 func (r *Replica) applySnapshot(
 	ctx context.Context, inSnap IncomingSnapshot, snap raftpb.Snapshot, hs raftpb.HardState,
 ) (err error) {
-	helper.Println(5, "----enter applySnapshot()-----------")
+	helper.Println(5, "Apply Snapshot groupID:", r.GroupID)
 	s := *inSnap.State
 	if s.Desc.GroupID != r.GroupID {
 		helper.Println(5, "s.Desc.GroupID:", s.Desc.GroupID, " r.GroupID:", r.GroupID)

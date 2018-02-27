@@ -649,6 +649,19 @@ func (r *Replica) applyRaftCommand(
 		r.mu.state.TruncatedState.Term = truncateReq.Term
 		helper.Println(5, "Finished to truncate log! GroupID:", truncateReq.GroupID, " index:", truncateReq.Index)
 
+	} else if method == multiraftbase.Delete {
+		deleteReq := multiraftbase.DeleteRequest{}
+		err := deleteReq.Unmarshal(writeBatch.Data)
+		if err != nil {
+			helper.Printf(5, "Cannot unmarshal data to kv")
+		}
+		eng := r.store.LoadGroupEngine(r.Desc().GroupID)
+		err = stripeRemove(eng, deleteReq.Key)
+		if err != nil {
+			helper.Println(5, "Failed to remove key:", deleteReq.Key)
+		}
+		helper.Println(5, "Finished to delete key! key:", deleteReq.Key)
+
 	} else {
 		helper.Printf(5, "Unexpected raft command method.")
 	}
@@ -1241,11 +1254,12 @@ func (r *Replica) Send(
 
 	var pErr *multiraftbase.Error
 	req := ba.Request.GetValue().(multiraftbase.Request)
-	if req.Method() == multiraftbase.Get {
+	switch req.Method() {
+	case multiraftbase.Get:
 		br, pErr = r.executeReadOnlyBatch(ctx, ba)
-	} else if req.Method() == multiraftbase.Put || req.Method() == multiraftbase.TruncateLog {
+	case multiraftbase.Put, multiraftbase.TruncateLog, multiraftbase.Delete:
 		br, pErr = r.executeWriteBatch(ctx, ba)
-	} else {
+	default:
 		helper.Fatalf("don't know how to handle command %s", ba)
 	}
 
@@ -1332,6 +1346,12 @@ func (r *Replica) requestToProposal(
 		data, err = truncateLogReq.Marshal()
 		if err != nil {
 			helper.Printf(5, "Error marshal truncate request.")
+		}
+	} else if req.Method() == multiraftbase.Delete {
+		deleteReq := req.(*multiraftbase.DeleteRequest)
+		data, err = deleteReq.Marshal()
+		if err != nil {
+			helper.Printf(5, "Error marshal delete request.")
 		}
 	} else {
 		helper.Panicln(0, "Unsupported req type.")

@@ -16,9 +16,11 @@
 	It has these top-level messages:
 		ResponseHeader
 		GetRequest
+		DeleteRequest
 		GetResponse
 		PutRequest
 		PutResponse
+		DeleteResponse
 		RequestUnion
 		ResponseUnion
 		Header
@@ -185,6 +187,23 @@ func (m *GetRequest) GetValue() Value {
 	return Value{}
 }
 
+// A GetRequest is the argument for the Get() method.
+type DeleteRequest struct {
+	Key Key `protobuf:"bytes,1,opt,name=key,proto3,casttype=Key" json:"key,omitempty"`
+}
+
+func (m *DeleteRequest) Reset()                    { *m = DeleteRequest{} }
+func (m *DeleteRequest) String() string            { return proto.CompactTextString(m) }
+func (*DeleteRequest) ProtoMessage()               {}
+func (*DeleteRequest) Descriptor() ([]byte, []int) { return fileDescriptorApi, []int{2} }
+
+func (m *DeleteRequest) GetKey() Key {
+	if m != nil {
+		return m.Key
+	}
+	return nil
+}
+
 // A GetResponse is the return value from the Get() method.
 // If the key doesn't exist, returns nil for Value.Bytes.
 type GetResponse struct {
@@ -195,7 +214,7 @@ type GetResponse struct {
 func (m *GetResponse) Reset()                    { *m = GetResponse{} }
 func (m *GetResponse) String() string            { return proto.CompactTextString(m) }
 func (*GetResponse) ProtoMessage()               {}
-func (*GetResponse) Descriptor() ([]byte, []int) { return fileDescriptorApi, []int{2} }
+func (*GetResponse) Descriptor() ([]byte, []int) { return fileDescriptorApi, []int{3} }
 
 func (m *GetResponse) GetValue() *Value {
 	if m != nil {
@@ -213,7 +232,7 @@ type PutRequest struct {
 func (m *PutRequest) Reset()                    { *m = PutRequest{} }
 func (m *PutRequest) String() string            { return proto.CompactTextString(m) }
 func (*PutRequest) ProtoMessage()               {}
-func (*PutRequest) Descriptor() ([]byte, []int) { return fileDescriptorApi, []int{3} }
+func (*PutRequest) Descriptor() ([]byte, []int) { return fileDescriptorApi, []int{4} }
 
 func (m *PutRequest) GetKey() Key {
 	if m != nil {
@@ -237,7 +256,17 @@ type PutResponse struct {
 func (m *PutResponse) Reset()                    { *m = PutResponse{} }
 func (m *PutResponse) String() string            { return proto.CompactTextString(m) }
 func (*PutResponse) ProtoMessage()               {}
-func (*PutResponse) Descriptor() ([]byte, []int) { return fileDescriptorApi, []int{4} }
+func (*PutResponse) Descriptor() ([]byte, []int) { return fileDescriptorApi, []int{5} }
+
+// A PutResponse is the return value from the Put() method.
+type DeleteResponse struct {
+	ResponseHeader `protobuf:"bytes,1,opt,name=header,embedded=header" json:"header"`
+}
+
+func (m *DeleteResponse) Reset()                    { *m = DeleteResponse{} }
+func (m *DeleteResponse) String() string            { return proto.CompactTextString(m) }
+func (*DeleteResponse) ProtoMessage()               {}
+func (*DeleteResponse) Descriptor() ([]byte, []int) { return fileDescriptorApi, []int{6} }
 
 // A RequestUnion contains exactly one of the requests.
 // The values added here must match those in ResponseUnion.
@@ -254,12 +283,13 @@ type RequestUnion struct {
 	Put      *PutRequest         `protobuf:"bytes,2,opt,name=put" json:"put,omitempty"`
 	HasKey   *HasKeyRequest      `protobuf:"bytes,3,opt,name=hasKey" json:"hasKey,omitempty"`
 	Truncate *TruncateLogRequest `protobuf:"bytes,4,opt,name=truncate" json:"truncate,omitempty"`
+	Delete   *DeleteRequest      `protobuf:"bytes,5,opt,name=delete" json:"delete,omitempty"`
 }
 
 func (m *RequestUnion) Reset()                    { *m = RequestUnion{} }
 func (m *RequestUnion) String() string            { return proto.CompactTextString(m) }
 func (*RequestUnion) ProtoMessage()               {}
-func (*RequestUnion) Descriptor() ([]byte, []int) { return fileDescriptorApi, []int{5} }
+func (*RequestUnion) Descriptor() ([]byte, []int) { return fileDescriptorApi, []int{7} }
 
 func (m *RequestUnion) GetGet() *GetRequest {
 	if m != nil {
@@ -289,6 +319,13 @@ func (m *RequestUnion) GetTruncate() *TruncateLogRequest {
 	return nil
 }
 
+func (m *RequestUnion) GetDelete() *DeleteRequest {
+	if m != nil {
+		return m.Delete
+	}
+	return nil
+}
+
 // A ResponseUnion contains exactly one of the responses.
 // The values added here must match those in RequestUnion.
 //
@@ -300,12 +337,13 @@ type ResponseUnion struct {
 	Get    *GetResponse    `protobuf:"bytes,1,opt,name=get" json:"get,omitempty"`
 	Put    *PutResponse    `protobuf:"bytes,2,opt,name=put" json:"put,omitempty"`
 	HasKey *HasKeyResponse `protobuf:"bytes,3,opt,name=hasKey" json:"hasKey,omitempty"`
+	Delete *DeleteResponse `protobuf:"bytes,4,opt,name=delete" json:"delete,omitempty"`
 }
 
 func (m *ResponseUnion) Reset()                    { *m = ResponseUnion{} }
 func (m *ResponseUnion) String() string            { return proto.CompactTextString(m) }
 func (*ResponseUnion) ProtoMessage()               {}
-func (*ResponseUnion) Descriptor() ([]byte, []int) { return fileDescriptorApi, []int{6} }
+func (*ResponseUnion) Descriptor() ([]byte, []int) { return fileDescriptorApi, []int{8} }
 
 func (m *ResponseUnion) GetGet() *GetResponse {
 	if m != nil {
@@ -328,6 +366,13 @@ func (m *ResponseUnion) GetHasKey() *HasKeyResponse {
 	return nil
 }
 
+func (m *ResponseUnion) GetDelete() *DeleteResponse {
+	if m != nil {
+		return m.Delete
+	}
+	return nil
+}
+
 // A Header is attached to a BatchRequest, encapsulating routing and auxiliary
 // information required for executing it.
 type Header struct {
@@ -342,7 +387,7 @@ type Header struct {
 func (m *Header) Reset()                    { *m = Header{} }
 func (m *Header) String() string            { return proto.CompactTextString(m) }
 func (*Header) ProtoMessage()               {}
-func (*Header) Descriptor() ([]byte, []int) { return fileDescriptorApi, []int{7} }
+func (*Header) Descriptor() ([]byte, []int) { return fileDescriptorApi, []int{9} }
 
 func (m *Header) GetReplica() ReplicaDescriptor {
 	if m != nil {
@@ -368,7 +413,7 @@ type BatchRequest struct {
 
 func (m *BatchRequest) Reset()                    { *m = BatchRequest{} }
 func (*BatchRequest) ProtoMessage()               {}
-func (*BatchRequest) Descriptor() ([]byte, []int) { return fileDescriptorApi, []int{8} }
+func (*BatchRequest) Descriptor() ([]byte, []int) { return fileDescriptorApi, []int{10} }
 
 func (m *BatchRequest) GetRequest() RequestUnion {
 	if m != nil {
@@ -388,7 +433,7 @@ type BatchResponse struct {
 
 func (m *BatchResponse) Reset()                    { *m = BatchResponse{} }
 func (*BatchResponse) ProtoMessage()               {}
-func (*BatchResponse) Descriptor() ([]byte, []int) { return fileDescriptorApi, []int{9} }
+func (*BatchResponse) Descriptor() ([]byte, []int) { return fileDescriptorApi, []int{11} }
 
 func (m *BatchResponse) GetResponses() ResponseUnion {
 	if m != nil {
@@ -405,7 +450,7 @@ type BatchResponse_Header struct {
 func (m *BatchResponse_Header) Reset()                    { *m = BatchResponse_Header{} }
 func (m *BatchResponse_Header) String() string            { return proto.CompactTextString(m) }
 func (*BatchResponse_Header) ProtoMessage()               {}
-func (*BatchResponse_Header) Descriptor() ([]byte, []int) { return fileDescriptorApi, []int{9, 0} }
+func (*BatchResponse_Header) Descriptor() ([]byte, []int) { return fileDescriptorApi, []int{11, 0} }
 
 func (m *BatchResponse_Header) GetError() *Error {
 	if m != nil {
@@ -433,7 +478,7 @@ type TruncateLogRequest struct {
 func (m *TruncateLogRequest) Reset()                    { *m = TruncateLogRequest{} }
 func (m *TruncateLogRequest) String() string            { return proto.CompactTextString(m) }
 func (*TruncateLogRequest) ProtoMessage()               {}
-func (*TruncateLogRequest) Descriptor() ([]byte, []int) { return fileDescriptorApi, []int{10} }
+func (*TruncateLogRequest) Descriptor() ([]byte, []int) { return fileDescriptorApi, []int{12} }
 
 func (m *TruncateLogRequest) GetIndex() uint64 {
 	if m != nil {
@@ -468,7 +513,7 @@ type WriteBatch struct {
 func (m *WriteBatch) Reset()                    { *m = WriteBatch{} }
 func (m *WriteBatch) String() string            { return proto.CompactTextString(m) }
 func (*WriteBatch) ProtoMessage()               {}
-func (*WriteBatch) Descriptor() ([]byte, []int) { return fileDescriptorApi, []int{11} }
+func (*WriteBatch) Descriptor() ([]byte, []int) { return fileDescriptorApi, []int{13} }
 
 func (m *WriteBatch) GetData() []byte {
 	if m != nil {
@@ -492,7 +537,7 @@ type RaftCommand struct {
 func (m *RaftCommand) Reset()                    { *m = RaftCommand{} }
 func (m *RaftCommand) String() string            { return proto.CompactTextString(m) }
 func (*RaftCommand) ProtoMessage()               {}
-func (*RaftCommand) Descriptor() ([]byte, []int) { return fileDescriptorApi, []int{12} }
+func (*RaftCommand) Descriptor() ([]byte, []int) { return fileDescriptorApi, []int{14} }
 
 func (m *RaftCommand) GetProposerReplica() ReplicaDescriptor {
 	if m != nil {
@@ -523,7 +568,7 @@ type HasKeyRequest struct {
 func (m *HasKeyRequest) Reset()                    { *m = HasKeyRequest{} }
 func (m *HasKeyRequest) String() string            { return proto.CompactTextString(m) }
 func (*HasKeyRequest) ProtoMessage()               {}
-func (*HasKeyRequest) Descriptor() ([]byte, []int) { return fileDescriptorApi, []int{13} }
+func (*HasKeyRequest) Descriptor() ([]byte, []int) { return fileDescriptorApi, []int{15} }
 
 func (m *HasKeyRequest) GetKey() Key {
 	if m != nil {
@@ -542,7 +587,7 @@ type HasKeyResponse struct {
 func (m *HasKeyResponse) Reset()                    { *m = HasKeyResponse{} }
 func (m *HasKeyResponse) String() string            { return proto.CompactTextString(m) }
 func (*HasKeyResponse) ProtoMessage()               {}
-func (*HasKeyResponse) Descriptor() ([]byte, []int) { return fileDescriptorApi, []int{14} }
+func (*HasKeyResponse) Descriptor() ([]byte, []int) { return fileDescriptorApi, []int{16} }
 
 func (m *HasKeyResponse) GetProcessed() bool {
 	if m != nil {
@@ -554,9 +599,11 @@ func (m *HasKeyResponse) GetProcessed() bool {
 func init() {
 	proto.RegisterType((*ResponseHeader)(nil), "multiraftbase.ResponseHeader")
 	proto.RegisterType((*GetRequest)(nil), "multiraftbase.GetRequest")
+	proto.RegisterType((*DeleteRequest)(nil), "multiraftbase.DeleteRequest")
 	proto.RegisterType((*GetResponse)(nil), "multiraftbase.GetResponse")
 	proto.RegisterType((*PutRequest)(nil), "multiraftbase.PutRequest")
 	proto.RegisterType((*PutResponse)(nil), "multiraftbase.PutResponse")
+	proto.RegisterType((*DeleteResponse)(nil), "multiraftbase.DeleteResponse")
 	proto.RegisterType((*RequestUnion)(nil), "multiraftbase.RequestUnion")
 	proto.RegisterType((*ResponseUnion)(nil), "multiraftbase.ResponseUnion")
 	proto.RegisterType((*Header)(nil), "multiraftbase.Header")
@@ -599,6 +646,36 @@ func (this *GetRequest) Equal(that interface{}) bool {
 		return false
 	}
 	if !this.Value.Equal(&that1.Value) {
+		return false
+	}
+	return true
+}
+func (this *DeleteRequest) Equal(that interface{}) bool {
+	if that == nil {
+		if this == nil {
+			return true
+		}
+		return false
+	}
+
+	that1, ok := that.(*DeleteRequest)
+	if !ok {
+		that2, ok := that.(DeleteRequest)
+		if ok {
+			that1 = &that2
+		} else {
+			return false
+		}
+	}
+	if that1 == nil {
+		if this == nil {
+			return true
+		}
+		return false
+	} else if this == nil {
+		return false
+	}
+	if !bytes.Equal(this.Key, that1.Key) {
 		return false
 	}
 	return true
@@ -906,6 +983,30 @@ func (m *GetRequest) MarshalTo(dAtA []byte) (int, error) {
 	return i, nil
 }
 
+func (m *DeleteRequest) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalTo(dAtA)
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *DeleteRequest) MarshalTo(dAtA []byte) (int, error) {
+	var i int
+	_ = i
+	var l int
+	_ = l
+	if len(m.Key) > 0 {
+		dAtA[i] = 0xa
+		i++
+		i = encodeVarintApi(dAtA, i, uint64(len(m.Key)))
+		i += copy(dAtA[i:], m.Key)
+	}
+	return i, nil
+}
+
 func (m *GetResponse) Marshal() (dAtA []byte, err error) {
 	size := m.Size()
 	dAtA = make([]byte, size)
@@ -1000,6 +1101,32 @@ func (m *PutResponse) MarshalTo(dAtA []byte) (int, error) {
 	return i, nil
 }
 
+func (m *DeleteResponse) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalTo(dAtA)
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *DeleteResponse) MarshalTo(dAtA []byte) (int, error) {
+	var i int
+	_ = i
+	var l int
+	_ = l
+	dAtA[i] = 0xa
+	i++
+	i = encodeVarintApi(dAtA, i, uint64(m.ResponseHeader.Size()))
+	n6, err := m.ResponseHeader.MarshalTo(dAtA[i:])
+	if err != nil {
+		return 0, err
+	}
+	i += n6
+	return i, nil
+}
+
 func (m *RequestUnion) Marshal() (dAtA []byte, err error) {
 	size := m.Size()
 	dAtA = make([]byte, size)
@@ -1019,41 +1146,51 @@ func (m *RequestUnion) MarshalTo(dAtA []byte) (int, error) {
 		dAtA[i] = 0xa
 		i++
 		i = encodeVarintApi(dAtA, i, uint64(m.Get.Size()))
-		n6, err := m.Get.MarshalTo(dAtA[i:])
-		if err != nil {
-			return 0, err
-		}
-		i += n6
-	}
-	if m.Put != nil {
-		dAtA[i] = 0x12
-		i++
-		i = encodeVarintApi(dAtA, i, uint64(m.Put.Size()))
-		n7, err := m.Put.MarshalTo(dAtA[i:])
+		n7, err := m.Get.MarshalTo(dAtA[i:])
 		if err != nil {
 			return 0, err
 		}
 		i += n7
 	}
-	if m.HasKey != nil {
-		dAtA[i] = 0x1a
+	if m.Put != nil {
+		dAtA[i] = 0x12
 		i++
-		i = encodeVarintApi(dAtA, i, uint64(m.HasKey.Size()))
-		n8, err := m.HasKey.MarshalTo(dAtA[i:])
+		i = encodeVarintApi(dAtA, i, uint64(m.Put.Size()))
+		n8, err := m.Put.MarshalTo(dAtA[i:])
 		if err != nil {
 			return 0, err
 		}
 		i += n8
 	}
-	if m.Truncate != nil {
-		dAtA[i] = 0x22
+	if m.HasKey != nil {
+		dAtA[i] = 0x1a
 		i++
-		i = encodeVarintApi(dAtA, i, uint64(m.Truncate.Size()))
-		n9, err := m.Truncate.MarshalTo(dAtA[i:])
+		i = encodeVarintApi(dAtA, i, uint64(m.HasKey.Size()))
+		n9, err := m.HasKey.MarshalTo(dAtA[i:])
 		if err != nil {
 			return 0, err
 		}
 		i += n9
+	}
+	if m.Truncate != nil {
+		dAtA[i] = 0x22
+		i++
+		i = encodeVarintApi(dAtA, i, uint64(m.Truncate.Size()))
+		n10, err := m.Truncate.MarshalTo(dAtA[i:])
+		if err != nil {
+			return 0, err
+		}
+		i += n10
+	}
+	if m.Delete != nil {
+		dAtA[i] = 0x2a
+		i++
+		i = encodeVarintApi(dAtA, i, uint64(m.Delete.Size()))
+		n11, err := m.Delete.MarshalTo(dAtA[i:])
+		if err != nil {
+			return 0, err
+		}
+		i += n11
 	}
 	return i, nil
 }
@@ -1077,31 +1214,41 @@ func (m *ResponseUnion) MarshalTo(dAtA []byte) (int, error) {
 		dAtA[i] = 0xa
 		i++
 		i = encodeVarintApi(dAtA, i, uint64(m.Get.Size()))
-		n10, err := m.Get.MarshalTo(dAtA[i:])
+		n12, err := m.Get.MarshalTo(dAtA[i:])
 		if err != nil {
 			return 0, err
 		}
-		i += n10
+		i += n12
 	}
 	if m.Put != nil {
 		dAtA[i] = 0x12
 		i++
 		i = encodeVarintApi(dAtA, i, uint64(m.Put.Size()))
-		n11, err := m.Put.MarshalTo(dAtA[i:])
+		n13, err := m.Put.MarshalTo(dAtA[i:])
 		if err != nil {
 			return 0, err
 		}
-		i += n11
+		i += n13
 	}
 	if m.HasKey != nil {
 		dAtA[i] = 0x1a
 		i++
 		i = encodeVarintApi(dAtA, i, uint64(m.HasKey.Size()))
-		n12, err := m.HasKey.MarshalTo(dAtA[i:])
+		n14, err := m.HasKey.MarshalTo(dAtA[i:])
 		if err != nil {
 			return 0, err
 		}
-		i += n12
+		i += n14
+	}
+	if m.Delete != nil {
+		dAtA[i] = 0x22
+		i++
+		i = encodeVarintApi(dAtA, i, uint64(m.Delete.Size()))
+		n15, err := m.Delete.MarshalTo(dAtA[i:])
+		if err != nil {
+			return 0, err
+		}
+		i += n15
 	}
 	return i, nil
 }
@@ -1124,11 +1271,11 @@ func (m *Header) MarshalTo(dAtA []byte) (int, error) {
 	dAtA[i] = 0x12
 	i++
 	i = encodeVarintApi(dAtA, i, uint64(m.Replica.Size()))
-	n13, err := m.Replica.MarshalTo(dAtA[i:])
+	n16, err := m.Replica.MarshalTo(dAtA[i:])
 	if err != nil {
 		return 0, err
 	}
-	i += n13
+	i += n16
 	if len(m.GroupID) > 0 {
 		dAtA[i] = 0x1a
 		i++
@@ -1156,19 +1303,19 @@ func (m *BatchRequest) MarshalTo(dAtA []byte) (int, error) {
 	dAtA[i] = 0xa
 	i++
 	i = encodeVarintApi(dAtA, i, uint64(m.Header.Size()))
-	n14, err := m.Header.MarshalTo(dAtA[i:])
+	n17, err := m.Header.MarshalTo(dAtA[i:])
 	if err != nil {
 		return 0, err
 	}
-	i += n14
+	i += n17
 	dAtA[i] = 0x12
 	i++
 	i = encodeVarintApi(dAtA, i, uint64(m.Request.Size()))
-	n15, err := m.Request.MarshalTo(dAtA[i:])
+	n18, err := m.Request.MarshalTo(dAtA[i:])
 	if err != nil {
 		return 0, err
 	}
-	i += n15
+	i += n18
 	return i, nil
 }
 
@@ -1190,19 +1337,19 @@ func (m *BatchResponse) MarshalTo(dAtA []byte) (int, error) {
 	dAtA[i] = 0xa
 	i++
 	i = encodeVarintApi(dAtA, i, uint64(m.BatchResponse_Header.Size()))
-	n16, err := m.BatchResponse_Header.MarshalTo(dAtA[i:])
+	n19, err := m.BatchResponse_Header.MarshalTo(dAtA[i:])
 	if err != nil {
 		return 0, err
 	}
-	i += n16
+	i += n19
 	dAtA[i] = 0x12
 	i++
 	i = encodeVarintApi(dAtA, i, uint64(m.Responses.Size()))
-	n17, err := m.Responses.MarshalTo(dAtA[i:])
+	n20, err := m.Responses.MarshalTo(dAtA[i:])
 	if err != nil {
 		return 0, err
 	}
-	i += n17
+	i += n20
 	return i, nil
 }
 
@@ -1225,11 +1372,11 @@ func (m *BatchResponse_Header) MarshalTo(dAtA []byte) (int, error) {
 		dAtA[i] = 0xa
 		i++
 		i = encodeVarintApi(dAtA, i, uint64(m.Error.Size()))
-		n18, err := m.Error.MarshalTo(dAtA[i:])
+		n21, err := m.Error.MarshalTo(dAtA[i:])
 		if err != nil {
 			return 0, err
 		}
-		i += n18
+		i += n21
 	}
 	return i, nil
 }
@@ -1310,11 +1457,11 @@ func (m *RaftCommand) MarshalTo(dAtA []byte) (int, error) {
 	dAtA[i] = 0xa
 	i++
 	i = encodeVarintApi(dAtA, i, uint64(m.ProposerReplica.Size()))
-	n19, err := m.ProposerReplica.MarshalTo(dAtA[i:])
+	n22, err := m.ProposerReplica.MarshalTo(dAtA[i:])
 	if err != nil {
 		return 0, err
 	}
-	i += n19
+	i += n22
 	if m.Method != 0 {
 		dAtA[i] = 0x10
 		i++
@@ -1324,11 +1471,11 @@ func (m *RaftCommand) MarshalTo(dAtA []byte) (int, error) {
 		dAtA[i] = 0x1a
 		i++
 		i = encodeVarintApi(dAtA, i, uint64(m.WriteBatch.Size()))
-		n20, err := m.WriteBatch.MarshalTo(dAtA[i:])
+		n23, err := m.WriteBatch.MarshalTo(dAtA[i:])
 		if err != nil {
 			return 0, err
 		}
-		i += n20
+		i += n23
 	}
 	return i, nil
 }
@@ -1375,11 +1522,11 @@ func (m *HasKeyResponse) MarshalTo(dAtA []byte) (int, error) {
 	dAtA[i] = 0xa
 	i++
 	i = encodeVarintApi(dAtA, i, uint64(m.ResponseHeader.Size()))
-	n21, err := m.ResponseHeader.MarshalTo(dAtA[i:])
+	n24, err := m.ResponseHeader.MarshalTo(dAtA[i:])
 	if err != nil {
 		return 0, err
 	}
-	i += n21
+	i += n24
 	if m.Processed {
 		dAtA[i] = 0x10
 		i++
@@ -1447,6 +1594,16 @@ func (m *GetRequest) Size() (n int) {
 	return n
 }
 
+func (m *DeleteRequest) Size() (n int) {
+	var l int
+	_ = l
+	l = len(m.Key)
+	if l > 0 {
+		n += 1 + l + sovApi(uint64(l))
+	}
+	return n
+}
+
 func (m *GetResponse) Size() (n int) {
 	var l int
 	_ = l
@@ -1479,6 +1636,14 @@ func (m *PutResponse) Size() (n int) {
 	return n
 }
 
+func (m *DeleteResponse) Size() (n int) {
+	var l int
+	_ = l
+	l = m.ResponseHeader.Size()
+	n += 1 + l + sovApi(uint64(l))
+	return n
+}
+
 func (m *RequestUnion) Size() (n int) {
 	var l int
 	_ = l
@@ -1498,6 +1663,10 @@ func (m *RequestUnion) Size() (n int) {
 		l = m.Truncate.Size()
 		n += 1 + l + sovApi(uint64(l))
 	}
+	if m.Delete != nil {
+		l = m.Delete.Size()
+		n += 1 + l + sovApi(uint64(l))
+	}
 	return n
 }
 
@@ -1514,6 +1683,10 @@ func (m *ResponseUnion) Size() (n int) {
 	}
 	if m.HasKey != nil {
 		l = m.HasKey.Size()
+		n += 1 + l + sovApi(uint64(l))
+	}
+	if m.Delete != nil {
+		l = m.Delete.Size()
 		n += 1 + l + sovApi(uint64(l))
 	}
 	return n
@@ -1649,6 +1822,9 @@ func (this *RequestUnion) GetValue() interface{} {
 	if this.Truncate != nil {
 		return this.Truncate
 	}
+	if this.Delete != nil {
+		return this.Delete
+	}
 	return nil
 }
 
@@ -1662,6 +1838,8 @@ func (this *RequestUnion) SetValue(value interface{}) bool {
 		this.HasKey = vt
 	case *TruncateLogRequest:
 		this.Truncate = vt
+	case *DeleteRequest:
+		this.Delete = vt
 	default:
 		return false
 	}
@@ -1677,6 +1855,9 @@ func (this *ResponseUnion) GetValue() interface{} {
 	if this.HasKey != nil {
 		return this.HasKey
 	}
+	if this.Delete != nil {
+		return this.Delete
+	}
 	return nil
 }
 
@@ -1688,6 +1869,8 @@ func (this *ResponseUnion) SetValue(value interface{}) bool {
 		this.Put = vt
 	case *HasKeyResponse:
 		this.HasKey = vt
+	case *DeleteResponse:
+		this.Delete = vt
 	default:
 		return false
 	}
@@ -1881,6 +2064,87 @@ func (m *GetRequest) Unmarshal(dAtA []byte) error {
 			}
 			if err := m.Value.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
 				return err
+			}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipApi(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if skippy < 0 {
+				return ErrInvalidLengthApi
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *DeleteRequest) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowApi
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= (uint64(b) & 0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: DeleteRequest: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: DeleteRequest: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Key", wireType)
+			}
+			var byteLen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowApi
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				byteLen |= (int(b) & 0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if byteLen < 0 {
+				return ErrInvalidLengthApi
+			}
+			postIndex := iNdEx + byteLen
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Key = append(m.Key[:0], dAtA[iNdEx:postIndex]...)
+			if m.Key == nil {
+				m.Key = []byte{}
 			}
 			iNdEx = postIndex
 		default:
@@ -2208,6 +2472,86 @@ func (m *PutResponse) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
+func (m *DeleteResponse) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowApi
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= (uint64(b) & 0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: DeleteResponse: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: DeleteResponse: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ResponseHeader", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowApi
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= (int(b) & 0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthApi
+			}
+			postIndex := iNdEx + msglen
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if err := m.ResponseHeader.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipApi(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if skippy < 0 {
+				return ErrInvalidLengthApi
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
 func (m *RequestUnion) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
@@ -2369,6 +2713,39 @@ func (m *RequestUnion) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
+		case 5:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Delete", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowApi
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= (int(b) & 0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthApi
+			}
+			postIndex := iNdEx + msglen
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.Delete == nil {
+				m.Delete = &DeleteRequest{}
+			}
+			if err := m.Delete.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
 			skippy, err := skipApi(dAtA[iNdEx:])
@@ -2515,6 +2892,39 @@ func (m *ResponseUnion) Unmarshal(dAtA []byte) error {
 				m.HasKey = &HasKeyResponse{}
 			}
 			if err := m.HasKey.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 4:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Delete", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowApi
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= (int(b) & 0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthApi
+			}
+			postIndex := iNdEx + msglen
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.Delete == nil {
+				m.Delete = &DeleteResponse{}
+			}
+			if err := m.Delete.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
 				return err
 			}
 			iNdEx = postIndex
@@ -3570,62 +3980,64 @@ var (
 func init() { proto.RegisterFile("api.proto", fileDescriptorApi) }
 
 var fileDescriptorApi = []byte{
-	// 899 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xb4, 0x56, 0xcf, 0x6f, 0x1b, 0x45,
-	0x14, 0xf6, 0xc6, 0x6b, 0x7b, 0xfd, 0x36, 0x0e, 0xd6, 0x10, 0x90, 0xe3, 0xa6, 0xb6, 0x59, 0x2e,
-	0x51, 0xa8, 0x42, 0x09, 0xbf, 0x24, 0x23, 0x44, 0xe5, 0xc4, 0x6a, 0xdd, 0x14, 0x13, 0x26, 0x29,
-	0x48, 0x5c, 0xac, 0x89, 0x3d, 0x71, 0x56, 0x8d, 0x77, 0x96, 0x99, 0x59, 0x52, 0x73, 0xe5, 0x82,
-	0xf8, 0x0b, 0x7a, 0xac, 0xc4, 0x85, 0x3f, 0x83, 0x63, 0x8e, 0x3d, 0x73, 0xb0, 0x50, 0x7a, 0xe1,
-	0x6f, 0xc8, 0x09, 0xcd, 0xec, 0x38, 0x1b, 0x6f, 0xe2, 0x8a, 0x1f, 0xe9, 0x6d, 0x66, 0xde, 0xf7,
-	0xbe, 0xf9, 0xbe, 0x99, 0xf7, 0x66, 0x17, 0x8a, 0x24, 0xf4, 0x37, 0x42, 0xce, 0x24, 0x43, 0xa5,
-	0x51, 0x74, 0x2c, 0x7d, 0x4e, 0x0e, 0xe5, 0x01, 0x11, 0xb4, 0xea, 0x0a, 0x49, 0x24, 0x8d, 0x63,
-	0x55, 0x97, 0x72, 0xce, 0xb8, 0x99, 0x2c, 0x8d, 0xa8, 0x24, 0x03, 0x22, 0x89, 0x99, 0x2f, 0x0f,
-	0xd9, 0x90, 0xe9, 0xe1, 0xfb, 0x6a, 0x14, 0xaf, 0x7a, 0x7d, 0x58, 0xc2, 0x54, 0x84, 0x2c, 0x10,
-	0xf4, 0x01, 0x25, 0x03, 0xca, 0xd1, 0x0a, 0x38, 0x41, 0x34, 0xea, 0x3d, 0xa1, 0x63, 0x51, 0xb1,
-	0x1a, 0xd6, 0x5a, 0x16, 0x17, 0x82, 0x68, 0xb4, 0x43, 0xc7, 0x02, 0x7d, 0x02, 0x4e, 0x38, 0xec,
-	0xf9, 0xc1, 0x21, 0x13, 0x95, 0x85, 0x46, 0x76, 0xcd, 0xdd, 0x7c, 0x6b, 0x63, 0x46, 0xce, 0xc6,
-	0xee, 0xb0, 0x13, 0x1c, 0xb2, 0x96, 0x7d, 0x3a, 0xa9, 0x67, 0x70, 0x21, 0xd4, 0x33, 0xe1, 0xf5,
-	0x00, 0xee, 0x53, 0x89, 0xe9, 0xf7, 0x11, 0x15, 0x12, 0xad, 0x40, 0xf6, 0x09, 0x1d, 0x6b, 0xee,
-	0xc5, 0x56, 0xe1, 0x7c, 0x52, 0xcf, 0xee, 0xd0, 0x31, 0x56, 0x6b, 0xe8, 0x2e, 0xe4, 0x7e, 0x20,
-	0xc7, 0x11, 0xad, 0x2c, 0x34, 0xac, 0x35, 0x77, 0x73, 0x39, 0xc5, 0xfe, 0x8d, 0x8a, 0x19, 0xf2,
-	0x18, 0xd8, 0xb4, 0xff, 0x7a, 0x5e, 0xb7, 0xbc, 0x1f, 0xc1, 0xd5, 0x1b, 0xc4, 0x46, 0xd0, 0x17,
-	0x90, 0x3f, 0xd2, 0x66, 0xf4, 0x26, 0xee, 0xe6, 0xed, 0x14, 0xcf, 0xac, 0xe3, 0x96, 0xa3, 0x08,
-	0x5f, 0x4c, 0xea, 0x16, 0x36, 0x69, 0x68, 0xfd, 0x1f, 0xe8, 0x30, 0x0a, 0x94, 0xb9, 0xdd, 0xe8,
-	0x75, 0x9a, 0xeb, 0x82, 0xab, 0x37, 0xb8, 0x21, 0x73, 0xde, 0x4b, 0x0b, 0x16, 0x8d, 0xdc, 0xc7,
-	0x81, 0xcf, 0x02, 0xf4, 0x1e, 0x64, 0x87, 0x54, 0x1a, 0xba, 0x95, 0x14, 0x5d, 0x72, 0x71, 0x58,
-	0xa1, 0x14, 0x38, 0x8c, 0xa4, 0xf1, 0x90, 0x06, 0x27, 0x07, 0x81, 0x15, 0x0a, 0x7d, 0x04, 0xf9,
-	0x23, 0x22, 0x76, 0xe8, 0xb8, 0x92, 0xd5, 0xf8, 0xd5, 0x14, 0xfe, 0x81, 0x0e, 0x4e, 0x53, 0x0c,
-	0x16, 0x7d, 0x0e, 0x8e, 0xe4, 0x51, 0xd0, 0x27, 0x92, 0x56, 0x6c, 0x9d, 0xf7, 0x4e, 0x2a, 0x6f,
-	0xdf, 0x84, 0x1f, 0xb1, 0xe1, 0x34, 0xf9, 0x22, 0xa5, 0x69, 0x9f, 0xaa, 0x53, 0xfb, 0xcd, 0x82,
-	0xd2, 0xf4, 0x28, 0x62, 0x9b, 0x77, 0x2e, 0xdb, 0xac, 0x5e, 0x67, 0x33, 0x46, 0xc7, 0x3e, 0xef,
-	0x5c, 0xf6, 0x59, 0xbd, 0xce, 0xe7, 0x14, 0xad, 0x8c, 0x7e, 0x9c, 0x32, 0x7a, 0x7b, 0x8e, 0x51,
-	0x93, 0x63, 0xc0, 0x46, 0xea, 0x4f, 0x16, 0xe4, 0x4d, 0xf3, 0xdd, 0x83, 0x02, 0xa7, 0xe1, 0xb1,
-	0xdf, 0x27, 0x66, 0xe7, 0xc6, 0x95, 0xdb, 0xd5, 0xd1, 0x6d, 0x2a, 0xfa, 0xdc, 0x0f, 0x25, 0xe3,
-	0xd3, 0x5e, 0x33, 0x69, 0xe8, 0x03, 0x70, 0x86, 0x9c, 0x45, 0x61, 0xcf, 0x1f, 0x68, 0x2d, 0xc5,
-	0xd6, 0xdb, 0x67, 0x93, 0x7a, 0xe1, 0xbe, 0x5a, 0xeb, 0x6c, 0x9f, 0x27, 0x43, 0x5c, 0xd0, 0xb8,
-	0xce, 0xe0, 0xa1, 0xed, 0x14, 0xca, 0x8e, 0xf7, 0x8b, 0x05, 0x8b, 0x2d, 0x22, 0xfb, 0x47, 0xd3,
-	0x52, 0xfe, 0x34, 0x55, 0x68, 0xe9, 0x5e, 0x9f, 0xdb, 0x3d, 0x9f, 0x29, 0x13, 0x9a, 0xc3, 0x98,
-	0xb8, 0x75, 0xc5, 0x44, 0x52, 0x7d, 0x89, 0x7e, 0xbd, 0xd6, 0xb4, 0x9f, 0x3d, 0xaf, 0x67, 0xbc,
-	0x3f, 0x2c, 0x28, 0x19, 0x31, 0xa6, 0xec, 0xdb, 0x29, 0x35, 0xef, 0xa6, 0x38, 0x67, 0xd0, 0xf3,
-	0xb5, 0xdd, 0x83, 0x22, 0x37, 0x20, 0x61, 0xd4, 0xad, 0xce, 0x69, 0xa0, 0xcb, 0xf2, 0x92, 0xa4,
-	0x6a, 0xf3, 0xe2, 0xb2, 0xd6, 0x21, 0xa7, 0x1f, 0x5c, 0xa3, 0x28, 0xdd, 0xd0, 0x6d, 0x15, 0xc3,
-	0x31, 0xe4, 0xa1, 0xed, 0xd8, 0xe5, 0x9c, 0x31, 0x77, 0x02, 0xe8, 0x6a, 0x01, 0xa3, 0x65, 0xc8,
-	0xf9, 0xc1, 0x80, 0x3e, 0xd5, 0x6c, 0x36, 0x8e, 0x27, 0x08, 0x81, 0x2d, 0x29, 0x1f, 0x69, 0xa9,
-	0x36, 0xd6, 0xe3, 0xff, 0x70, 0xc5, 0xe6, 0x25, 0x69, 0x00, 0x7c, 0xcb, 0x7d, 0x49, 0xf5, 0x59,
-	0x29, 0x6a, 0xf5, 0x79, 0x88, 0xdf, 0x2a, 0xac, 0xc7, 0xde, 0xef, 0x16, 0xb8, 0x98, 0x1c, 0xca,
-	0x2d, 0x36, 0x1a, 0x91, 0x60, 0x80, 0xbe, 0x86, 0x72, 0xc8, 0x59, 0xc8, 0x04, 0xe5, 0xbd, 0x69,
-	0x61, 0x5a, 0xff, 0xaa, 0x30, 0xdf, 0x98, 0xe6, 0x1b, 0x00, 0xf2, 0x20, 0x3f, 0xa2, 0xf2, 0x88,
-	0x0d, 0xb4, 0xa7, 0x5c, 0x0b, 0xce, 0x27, 0xf5, 0xfc, 0x97, 0x7a, 0x05, 0x9b, 0x08, 0x6a, 0x82,
-	0x7b, 0xa2, 0x84, 0xf6, 0x0e, 0x94, 0x52, 0xd3, 0x53, 0xe9, 0xc7, 0x26, 0xb1, 0x82, 0xe1, 0xe4,
-	0x62, 0xec, 0xdd, 0x85, 0xd2, 0xcc, 0xb3, 0xf2, 0x8a, 0x27, 0xd9, 0x1c, 0x0b, 0x83, 0xa5, 0xd9,
-	0xfe, 0xfc, 0xff, 0x1f, 0x90, 0x55, 0x28, 0x86, 0x9c, 0xf5, 0xa9, 0x10, 0x34, 0xf6, 0xe9, 0xe0,
-	0x64, 0x61, 0xfd, 0x11, 0xbc, 0x89, 0x29, 0x19, 0x6c, 0xb1, 0x40, 0xf8, 0x42, 0xd2, 0xa0, 0x3f,
-	0xde, 0x1f, 0x87, 0x14, 0x2d, 0x01, 0x6c, 0x7d, 0xd5, 0xdd, 0xeb, 0xec, 0xed, 0xb7, 0xbb, 0xfb,
-	0xe5, 0x0c, 0x2a, 0x41, 0x51, 0xcd, 0xdb, 0xdd, 0xbd, 0xc7, 0x7b, 0x65, 0x0b, 0x95, 0x61, 0xb1,
-	0xd3, 0xbd, 0x04, 0x58, 0xa8, 0xda, 0x3f, 0xff, 0x5a, 0xcb, 0x6c, 0xee, 0x82, 0xd3, 0x09, 0x24,
-	0xe5, 0x01, 0x39, 0x46, 0xdb, 0x90, 0x8b, 0x2f, 0xf7, 0xd6, 0xf5, 0xed, 0xa1, 0x4f, 0xa4, 0xba,
-	0xfa, 0xaa, 0xde, 0xf1, 0x34, 0x63, 0xfb, 0xe9, 0x4d, 0x32, 0xb6, 0xea, 0xa7, 0x67, 0x35, 0xeb,
-	0xc5, 0x59, 0xcd, 0xfa, 0xf3, 0xac, 0x66, 0x3d, 0x7b, 0x59, 0xcb, 0x7c, 0x37, 0xfb, 0x1f, 0x73,
-	0x90, 0xd7, 0xbf, 0x23, 0x1f, 0xfe, 0x1d, 0x00, 0x00, 0xff, 0xff, 0x07, 0x15, 0x90, 0x90, 0xea,
-	0x08, 0x00, 0x00,
+	// 941 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xb4, 0x56, 0x4f, 0x6f, 0x1b, 0x45,
+	0x14, 0xf7, 0xc6, 0x6b, 0x7b, 0xfd, 0x1c, 0x1b, 0x6b, 0x28, 0xc8, 0x71, 0x53, 0xdb, 0x98, 0x4b,
+	0x14, 0xaa, 0x50, 0x02, 0x05, 0xc9, 0x08, 0x51, 0x39, 0xb1, 0x5a, 0x37, 0xc5, 0xa4, 0x93, 0x14,
+	0x24, 0x2e, 0xd6, 0xc6, 0xfb, 0xe2, 0xac, 0x6a, 0xef, 0x2c, 0xb3, 0xb3, 0xa4, 0xe6, 0xca, 0x05,
+	0xf1, 0x09, 0xca, 0xad, 0x12, 0x5f, 0x84, 0x63, 0x8e, 0x3d, 0x73, 0x30, 0x28, 0x5c, 0xf8, 0x0c,
+	0x39, 0xa1, 0x99, 0x9d, 0x8d, 0xe3, 0x8d, 0x43, 0xf9, 0x13, 0x6e, 0x33, 0xf3, 0x7e, 0xef, 0xcd,
+	0xef, 0xfd, 0xf6, 0xbd, 0x37, 0x0b, 0x79, 0xdb, 0x77, 0x37, 0x7c, 0xce, 0x04, 0x23, 0xc5, 0x71,
+	0x38, 0x12, 0x2e, 0xb7, 0x0f, 0xc5, 0x81, 0x1d, 0x60, 0xb5, 0x10, 0x08, 0x5b, 0x60, 0x64, 0xab,
+	0x16, 0x90, 0x73, 0xc6, 0xf5, 0xa6, 0x34, 0x46, 0x61, 0x3b, 0xb6, 0xb0, 0xf5, 0xfe, 0xc6, 0x90,
+	0x0d, 0x99, 0x5a, 0xbe, 0x2b, 0x57, 0xd1, 0x69, 0x73, 0x00, 0x25, 0x8a, 0x81, 0xcf, 0xbc, 0x00,
+	0x1f, 0xa0, 0xed, 0x20, 0x27, 0x2b, 0x60, 0x79, 0xe1, 0xb8, 0xff, 0x14, 0x27, 0x41, 0xc5, 0x68,
+	0x18, 0x6b, 0x69, 0x9a, 0xf3, 0xc2, 0xf1, 0x0e, 0x4e, 0x02, 0xf2, 0x21, 0x58, 0xfe, 0xb0, 0xef,
+	0x7a, 0x87, 0x2c, 0xa8, 0x2c, 0x35, 0xd2, 0x6b, 0x85, 0xcd, 0x37, 0x36, 0xe6, 0xe8, 0x6c, 0xec,
+	0x0e, 0xbb, 0xde, 0x21, 0x6b, 0x9b, 0x27, 0xd3, 0x7a, 0x8a, 0xe6, 0x7c, 0xb5, 0x0b, 0x9a, 0x7d,
+	0x80, 0xfb, 0x28, 0x28, 0x7e, 0x1d, 0x62, 0x20, 0xc8, 0x0a, 0xa4, 0x9f, 0xe2, 0x44, 0xc5, 0x5e,
+	0x6e, 0xe7, 0xce, 0xa6, 0xf5, 0xf4, 0x0e, 0x4e, 0xa8, 0x3c, 0x23, 0x77, 0x20, 0xf3, 0x8d, 0x3d,
+	0x0a, 0xb1, 0xb2, 0xd4, 0x30, 0xd6, 0x0a, 0x9b, 0x37, 0x12, 0xd1, 0xbf, 0x90, 0x36, 0x1d, 0x3c,
+	0x02, 0xb6, 0xcc, 0x3f, 0x5e, 0xd4, 0x8d, 0xe6, 0x1d, 0x28, 0x6e, 0xe3, 0x08, 0x05, 0xbe, 0xfa,
+	0x0e, 0xed, 0xf1, 0x2d, 0x14, 0x14, 0xa5, 0x28, 0x75, 0xf2, 0x29, 0x64, 0x8f, 0x54, 0xfa, 0xca,
+	0xa5, 0xb0, 0x79, 0x2b, 0x71, 0xf3, 0xbc, 0x46, 0x6d, 0x4b, 0x52, 0x78, 0x39, 0xad, 0x1b, 0x54,
+	0xbb, 0x91, 0xf5, 0xbf, 0xc1, 0x5c, 0x73, 0x96, 0x72, 0xec, 0x86, 0xff, 0xa7, 0x1c, 0x3d, 0x28,
+	0xa8, 0x0b, 0xae, 0x29, 0xb9, 0xe6, 0x63, 0x28, 0xc5, 0xf2, 0x5e, 0x57, 0xc8, 0x1f, 0x97, 0x60,
+	0x59, 0x2b, 0xf0, 0xc4, 0x73, 0x99, 0x47, 0xde, 0x81, 0xf4, 0x10, 0x85, 0x0e, 0xb7, 0x92, 0x08,
+	0x37, 0xab, 0x1e, 0x2a, 0x51, 0x12, 0xec, 0x87, 0x42, 0xcb, 0x92, 0x04, 0xcf, 0xb4, 0xa5, 0x12,
+	0x45, 0x3e, 0x80, 0xec, 0x91, 0x1d, 0xec, 0xe0, 0xa4, 0x92, 0x56, 0xf8, 0xd5, 0x04, 0xfe, 0x81,
+	0x32, 0xc6, 0x2e, 0x1a, 0x4b, 0x3e, 0x01, 0x4b, 0xf0, 0xd0, 0x1b, 0xd8, 0x02, 0x2b, 0xa6, 0xf2,
+	0x7b, 0x2b, 0xe1, 0xb7, 0xaf, 0xcd, 0x8f, 0xd8, 0x30, 0x76, 0x3e, 0x77, 0x91, 0x97, 0x3a, 0x4a,
+	0xb2, 0x4a, 0x66, 0xe1, 0xa5, 0x73, 0xe5, 0x4a, 0x35, 0xb6, 0x65, 0x9e, 0xc8, 0xcf, 0xf7, 0xab,
+	0x01, 0xc5, 0x58, 0xc0, 0x48, 0x9c, 0xdb, 0x17, 0xc5, 0xa9, 0x2e, 0x12, 0x27, 0x42, 0x47, 0xea,
+	0xdc, 0xbe, 0xa8, 0x4e, 0x75, 0x91, 0x3a, 0x31, 0x5a, 0xca, 0x73, 0x37, 0x21, 0xcf, 0xad, 0x2b,
+	0xe4, 0xd1, 0x3e, 0xb1, 0x3e, 0x77, 0xcf, 0x13, 0x34, 0x17, 0xba, 0xcd, 0x17, 0x4c, 0x22, 0xc3,
+	0xef, 0x0c, 0xc8, 0xea, 0x71, 0x73, 0x0f, 0x72, 0x1c, 0xfd, 0x91, 0x3b, 0xb0, 0x35, 0xe1, 0xc6,
+	0xa5, 0x52, 0x52, 0xd6, 0x6d, 0x0c, 0x06, 0xdc, 0xf5, 0x05, 0xe3, 0xf1, 0x74, 0xd1, 0x6e, 0xe4,
+	0x3d, 0xb0, 0x86, 0x9c, 0x85, 0x7e, 0xdf, 0x75, 0x54, 0x0a, 0xf9, 0xf6, 0x9b, 0xa7, 0xd3, 0x7a,
+	0xee, 0xbe, 0x3c, 0xeb, 0x6e, 0x9f, 0xcd, 0x96, 0x34, 0xa7, 0x70, 0x5d, 0xe7, 0xa1, 0x69, 0xe5,
+	0xca, 0x56, 0xf3, 0x07, 0x03, 0x96, 0xdb, 0xb6, 0x18, 0x1c, 0xc5, 0xad, 0xf8, 0x51, 0xa2, 0xaa,
+	0x93, 0xd3, 0xed, 0xca, 0xee, 0xff, 0x58, 0x26, 0xa1, 0x62, 0xe8, 0x24, 0x6e, 0x5e, 0x4a, 0x62,
+	0x56, 0xea, 0x33, 0xfe, 0xea, 0xac, 0x65, 0x3e, 0x7f, 0x51, 0x4f, 0x35, 0x7f, 0x31, 0xa0, 0xa8,
+	0xc9, 0xe8, 0x1e, 0xeb, 0x24, 0xd8, 0xbc, 0x9d, 0x88, 0x39, 0x87, 0xbe, 0x9a, 0xdb, 0x3d, 0xc8,
+	0x73, 0x0d, 0x0a, 0x34, 0xbb, 0xd5, 0x2b, 0xba, 0xf5, 0x22, 0xbd, 0x99, 0x53, 0xb5, 0x75, 0xfe,
+	0xb1, 0xd6, 0x21, 0xa3, 0x9e, 0x18, 0xcd, 0x28, 0x39, 0x90, 0x3a, 0xd2, 0x46, 0x23, 0xc8, 0x43,
+	0xd3, 0x32, 0xcb, 0x19, 0x9d, 0xdc, 0x31, 0x90, 0xcb, 0xdd, 0x42, 0x6e, 0x40, 0xc6, 0xf5, 0x1c,
+	0x7c, 0xa6, 0xa2, 0x99, 0x34, 0xda, 0x10, 0x02, 0xa6, 0x40, 0x3e, 0x56, 0x54, 0x4d, 0xaa, 0xd6,
+	0xff, 0xe2, 0x13, 0xeb, 0x49, 0xd8, 0x00, 0xf8, 0x92, 0xbb, 0x02, 0x95, 0x56, 0x32, 0xb4, 0x7c,
+	0x10, 0xa3, 0x59, 0x4b, 0xd5, 0xba, 0xf9, 0xb3, 0x01, 0x05, 0x6a, 0x1f, 0x8a, 0x2d, 0x36, 0x1e,
+	0xdb, 0x9e, 0x43, 0x1e, 0x43, 0xd9, 0xe7, 0xcc, 0x67, 0x01, 0xf2, 0x7e, 0x5c, 0x98, 0xc6, 0x3f,
+	0x2a, 0xcc, 0xd7, 0x62, 0x7f, 0x0d, 0x20, 0x4d, 0xc8, 0x8e, 0x51, 0x1c, 0x31, 0x47, 0xe5, 0x94,
+	0x69, 0xc3, 0xd9, 0xb4, 0x9e, 0xfd, 0x4c, 0x9d, 0x50, 0x6d, 0x21, 0x2d, 0x28, 0x1c, 0x4b, 0xa2,
+	0xfd, 0x03, 0xc9, 0x54, 0xb7, 0x62, 0x72, 0xb2, 0xcd, 0x52, 0xa1, 0x70, 0x7c, 0xbe, 0x96, 0xaf,
+	0xdf, 0xdc, 0x0c, 0x7b, 0xf5, 0xeb, 0xc7, 0xa0, 0x34, 0xdf, 0xd6, 0xff, 0xfd, 0x01, 0x5c, 0x85,
+	0xbc, 0xcf, 0xd9, 0x00, 0x83, 0x00, 0xa3, 0x3c, 0x2d, 0x3a, 0x3b, 0x58, 0x7f, 0x04, 0xaf, 0x53,
+	0xb4, 0x9d, 0x2d, 0xe6, 0x05, 0x6e, 0x20, 0xd0, 0x1b, 0x4c, 0xf6, 0x27, 0x3e, 0x92, 0x12, 0xc0,
+	0xd6, 0xe7, 0xbd, 0xbd, 0xee, 0xde, 0x7e, 0xa7, 0xb7, 0x5f, 0x4e, 0x91, 0x22, 0xe4, 0xe5, 0xbe,
+	0xd3, 0xdb, 0x7b, 0xb2, 0x57, 0x36, 0x48, 0x19, 0x96, 0xbb, 0xbd, 0x0b, 0x80, 0xa5, 0xaa, 0xf9,
+	0xfd, 0x4f, 0xb5, 0xd4, 0xe6, 0x2e, 0x58, 0x5d, 0x4f, 0x20, 0xf7, 0xec, 0x11, 0xd9, 0x86, 0x4c,
+	0xf4, 0x71, 0x6f, 0x2e, 0x6e, 0x0f, 0xa5, 0x48, 0x75, 0xf5, 0xaf, 0x7a, 0xa7, 0xa9, 0x22, 0x76,
+	0x9e, 0x5d, 0x67, 0xc4, 0x76, 0xfd, 0xe4, 0xb4, 0x66, 0xbc, 0x3c, 0xad, 0x19, 0xbf, 0x9d, 0xd6,
+	0x8c, 0xe7, 0xbf, 0xd7, 0x52, 0x5f, 0xcd, 0xff, 0xb9, 0x1d, 0x64, 0xd5, 0x0f, 0xd8, 0xfb, 0x7f,
+	0x06, 0x00, 0x00, 0xff, 0xff, 0x8b, 0x06, 0xe8, 0xc4, 0xdc, 0x09, 0x00, 0x00,
 }

@@ -42,6 +42,12 @@ message GetRequest {
 
 }
 
+// A GetRequest is the argument for the Get() method.
+message DeleteRequest {
+    option (gogoproto.equal) = true;
+    bytes key = 1 [(gogoproto.casttype) = "Key"];
+}
+
 // A GetResponse is the return value from the Get() method.
 // If the key doesn't exist, returns nil for Value.Bytes.
 message GetResponse {
@@ -62,6 +68,11 @@ message PutResponse {
     ResponseHeader header = 1 [(gogoproto.nullable) = false, (gogoproto.embed) = true];
 }
 
+// A PutResponse is the return value from the Put() method.
+message DeleteResponse {
+    ResponseHeader header = 1 [(gogoproto.nullable) = false, (gogoproto.embed) = true];
+}
+
 // A RequestUnion contains exactly one of the requests.
 // The values added here must match those in ResponseUnion.
 //
@@ -79,6 +90,7 @@ message RequestUnion {
     PutRequest put = 2;
     HasKeyRequest hasKey = 3;
     TruncateLogRequest truncate = 4;
+    DeleteRequest delete = 5;
 }
 
 // A ResponseUnion contains exactly one of the responses.
@@ -94,6 +106,7 @@ message ResponseUnion {
     GetResponse get = 1;
     PutResponse put = 2;
     HasKeyResponse hasKey = 3;
+    DeleteResponse delete = 4;
 }
 
 // A Header is attached to a BatchRequest, encapsulating routing and auxiliary
