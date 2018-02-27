@@ -1196,6 +1196,38 @@ func (r *Replica) executeReadOnlyBatch(
 	return &res, pErr
 }
 
+func (r *Replica) ExistCheck(
+	ctx context.Context, ba multiraftbase.BatchRequest,
+) (bool, *multiraftbase.Error) {
+	ctx = r.AnnotateCtx(ctx)
+
+	// If the internal Raft group is not initialized, create it and wake the leader.
+	r.maybeInitializeRaftGroup(ctx)
+	//var pErr *multiraftbase.Error
+	req := ba.Request.GetValue().(multiraftbase.Request)
+	oid := []byte{}
+	if req.Method() == multiraftbase.Get {
+		getReq := req.(*multiraftbase.GetRequest)
+		oid = getReq.Key
+	} else if req.Method() == multiraftbase.Put {
+		putReq := req.(*multiraftbase.PutRequest)
+		oid = putReq.Key
+	} else {
+		return true, nil
+	}
+	r.store.enqueueRaftUpdateCheck(r.GroupID)
+	r.linearizableReadNotify(ctx)
+	eng := r.store.LoadGroupEngine(r.Desc().GroupID)
+	mkey := getMetaKey(oid)
+	_, err := eng.Get(mkey)
+	if err != nil {
+		return false, nil
+	} else {
+		return true, nil
+	}
+
+}
+
 func (r *Replica) Send(
 	ctx context.Context, ba multiraftbase.BatchRequest,
 ) (*multiraftbase.BatchResponse, *multiraftbase.Error) {

@@ -199,6 +199,44 @@ func (s *Store) processRequestQueue(ctx context.Context, id multiraftbase.GroupI
 	}
 }
 
+func (s *Store) ExistCheck(
+	ctx context.Context, ba multiraftbase.BatchRequest,
+) (exist bool, pErr *multiraftbase.Error) {
+	ctx = s.AnnotateCtx(ctx)
+
+	// Add the command to the range for execution; exit retry loop on success.
+	for {
+		// Exit loop if context has been canceled or timed out.
+		if err := ctx.Err(); err != nil {
+			return false, multiraftbase.NewError(err)
+		}
+
+		// Get range and add command to the range for execution.
+		repl, err := s.GetReplica(ba.GroupID)
+		if err != nil {
+			return false, multiraftbase.NewError(err)
+		}
+		if !repl.IsInitialized() {
+			repl.mu.RLock()
+			repl.mu.RUnlock()
+
+			// If we have an uninitialized copy of the range, then we are
+			// probably a valid member of the range, we're just in the
+			// process of getting our snapshot. If we returned
+			// RangeNotFoundError, the client would invalidate its cache,
+			// but we can be smarter: the replica that caused our
+			// uninitialized replica to be created is most likely the
+			// leader.
+			err = errors.New("Replica is not initialized!")
+			return false, multiraftbase.NewError(err)
+		}
+
+		exist, pErr := repl.ExistCheck(ctx, ba)
+		return exist, pErr
+	}
+	return
+}
+
 func (s *Store) Send(
 	ctx context.Context, ba multiraftbase.BatchRequest,
 ) (br *multiraftbase.BatchResponse, pErr *multiraftbase.Error) {

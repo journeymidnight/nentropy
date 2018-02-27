@@ -213,6 +213,10 @@ type ListenError struct {
 	Addr string
 }
 
+func (s *OsdServer) fetchAndStoreObjectFromParent(ctx context.Context, ba multiraftbase.BatchRequest) {
+
+}
+
 func (s *OsdServer) batchInternal(
 	ctx context.Context, args *multiraftbase.BatchRequest,
 ) (*multiraftbase.BatchResponse, error) {
@@ -220,8 +224,23 @@ func (s *OsdServer) batchInternal(
 	var br *multiraftbase.BatchResponse
 
 	if err := s.stopper.RunTaskWithErr(ctx, "node.Node: batch", func(ctx context.Context) error {
-
 		var pErr *multiraftbase.Error
+		state, err := s.GetPgStateFromMap(string(args.GroupID))
+		if err != nil {
+			br.Error = multiraftbase.NewError(err)
+			return nil
+		}
+		if state&protos.PG_STATE_MIGRATING != 0 {
+			exist, err := s.store.ExistCheck(ctx, *args)
+			if err != nil {
+				br.Error = err
+				return nil
+			}
+			if exist == false {
+				s.fetchAndStoreObjectFromParent(ctx, *args)
+			}
+		}
+
 		br, pErr = s.store.Send(ctx, *args)
 		if pErr != nil {
 			br = &multiraftbase.BatchResponse{}
@@ -389,6 +408,14 @@ func (s *OsdServer) GetPgState(pgId string) (int32, error) {
 	state := b.Results[0].Rows[0].Value.RawBytes
 	ret, _ := strconv.Atoi(string(state))
 	return int32(ret), nil
+}
+
+func (s *OsdServer) GetPgStateFromMap(pgId string) (int32, error) {
+	value, ok := Server.leaderPgStatusMap.Load(pgId)
+	if !ok {
+		return protos.PG_STATE_UNINITIAL, errors.New("pg state not existed")
+	}
+	return value.(protos.PgStatus).Status, nil
 }
 
 func ReplicaStateChangeCallback(pgId string, replicaState string) {
