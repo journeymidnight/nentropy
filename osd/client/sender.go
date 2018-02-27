@@ -17,7 +17,7 @@ package client
 import (
 	"golang.org/x/net/context"
 
-	"github.com/journeymidnight/nentropy/multiraft/multiraftbase"
+	"github.com/journeymidnight/nentropy/osd/multiraftbase"
 )
 
 // Sender is the interface used to call into a Cockroach instance.

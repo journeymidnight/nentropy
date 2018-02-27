@@ -1,4 +1,4 @@
-package multiraft
+package main
 
 import (
 	"fmt"
@@ -6,7 +6,7 @@ import (
 	"github.com/coreos/etcd/raft/raftpb"
 	"github.com/journeymidnight/nentropy/helper"
 	"github.com/journeymidnight/nentropy/log"
-	"github.com/journeymidnight/nentropy/multiraft/multiraftbase"
+	"github.com/journeymidnight/nentropy/osd/multiraftbase"
 	"github.com/journeymidnight/nentropy/rpc"
 	"github.com/journeymidnight/nentropy/storage/engine"
 	"github.com/journeymidnight/nentropy/util/envutil"
@@ -17,7 +17,7 @@ import (
 	"github.com/pkg/errors"
 	"golang.org/x/net/context"
 
-	"github.com/journeymidnight/nentropy/multiraft/client"
+	"github.com/journeymidnight/nentropy/osd/client"
 	"github.com/journeymidnight/nentropy/util/shuffle"
 	"golang.org/x/time/rate"
 	"io"
@@ -69,7 +69,7 @@ type raftRequestQueue struct {
 	infos []raftRequestInfo
 }
 
-type ReplicaStateChangeCallback func(pgId string, state string)
+//type ReplicaStateChangeCallback func(pgId string, state string)
 
 // A Store maintains a map of ranges by start key. A Store corresponds
 // to one physical device.
@@ -97,7 +97,6 @@ type Store struct {
 	raftLogQueue      *raftLogQueue      // Raft log truncation queue
 	raftSnapshotQueue *raftSnapshotQueue // Raft repair queue
 	scanner           *replicaScanner    // Replica scanner
-	rsChangeCallback  ReplicaStateChangeCallback
 	coalescedMu       struct {
 		syncutil.Mutex
 		heartbeats         map[multiraftbase.StoreIdent][]multiraftbase.RaftHeartbeat
@@ -908,7 +907,7 @@ func (rs *storeReplicaVisitor) EstimatedCount() int {
 }
 
 // NewStore returns a new instance of a store.
-func NewStore(cfg StoreConfig, eng engine.Engine, nodeDesc *multiraftbase.NodeDescriptor, cb ReplicaStateChangeCallback) *Store {
+func NewStore(cfg StoreConfig, eng engine.Engine, nodeDesc *multiraftbase.NodeDescriptor) *Store {
 	cfg.SetDefaults()
 
 	s := &Store{
@@ -924,7 +923,6 @@ func NewStore(cfg StoreConfig, eng engine.Engine, nodeDesc *multiraftbase.NodeDe
 	s.coalescedMu.heartbeatResponses = map[multiraftbase.StoreIdent][]multiraftbase.RaftHeartbeat{}
 	s.coalescedMu.Unlock()
 	s.Db = client.NewDB(s)
-	s.rsChangeCallback = cb
 	s.draining.Store(false)
 
 	//if s.cfg.Gossip != nil {
@@ -937,7 +935,6 @@ func NewStore(cfg StoreConfig, eng engine.Engine, nodeDesc *multiraftbase.NodeDe
 	s.raftLogQueue = newRaftLogQueue(s, s.Db)
 	s.raftSnapshotQueue = newRaftSnapshotQueue(s)
 	s.scanner.AddQueues(s.raftSnapshotQueue, s.raftLogQueue)
-	s.rsChangeCallback = cb
 	//}
 
 	s.mu.Lock()

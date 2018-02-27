@@ -5,8 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/journeymidnight/nentropy/helper"
-	"github.com/journeymidnight/nentropy/multiraft"
-	"github.com/journeymidnight/nentropy/multiraft/multiraftbase"
+	"github.com/journeymidnight/nentropy/osd/multiraftbase"
 	"github.com/journeymidnight/nentropy/protos"
 	"golang.org/x/net/context"
 	"math"
@@ -123,7 +122,7 @@ func (s *OsdServer) MigrateGet(ctx context.Context, in *protos.MigrateGetRequest
 				//value, err := item.Value()
 				//var onode multiraft.Onode
 				//bson.Unmarshal(value, onode)
-				value, err := multiraft.StripeRead(engine, oid, 0, math.MaxUint32)
+				value, err := StripeRead(engine, oid, 0, math.MaxUint32)
 				if err != nil {
 					helper.Println(5, "print err when migrate key :", oid, string(oid), err)
 					return &protos.MigrateGetReply{}, err

@@ -13,7 +13,7 @@
 // permissions and limitations under the License. See the AUTHORS file
 // for names of contributors.
 
-package multiraft
+package main
 
 import (
 	"bytes"
@@ -32,7 +32,7 @@ import (
 
 	"github.com/journeymidnight/nentropy/helper"
 	"github.com/journeymidnight/nentropy/memberlist"
-	"github.com/journeymidnight/nentropy/multiraft/multiraftbase"
+	"github.com/journeymidnight/nentropy/osd/multiraftbase"
 	//"github.com/journeymidnight/nentropy/storage/engine"
 	"github.com/pkg/errors"
 	"sync"

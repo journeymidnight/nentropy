@@ -1,4 +1,4 @@
-package multiraft
+package main
 
 import (
 	"bytes"

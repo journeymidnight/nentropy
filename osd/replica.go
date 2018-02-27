@@ -1,4 +1,4 @@
-package multiraft
+package main
 
 import (
 	"fmt"
@@ -8,8 +8,8 @@ import (
 	"github.com/journeymidnight/nentropy/helper"
 	"github.com/journeymidnight/nentropy/log"
 	//"github.com/journeymidnight/nentropy/multiraft/keys"
-	"github.com/journeymidnight/nentropy/multiraft/keys"
-	"github.com/journeymidnight/nentropy/multiraft/multiraftbase"
+	"github.com/journeymidnight/nentropy/osd/keys"
+	"github.com/journeymidnight/nentropy/osd/multiraftbase"
 	"github.com/journeymidnight/nentropy/protos"
 	"github.com/journeymidnight/nentropy/storage/engine"
 	"github.com/journeymidnight/nentropy/util/idutil"
@@ -252,9 +252,9 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 	if rd.SoftState != nil {
 		leader := r.mu.leaderID == r.mu.replicaID
 		if rd.RaftState == raft.StateFollower && leader {
-			r.store.rsChangeCallback(string(r.GroupID), rd.SoftState.RaftState.String())
+			ReplicaStateChangeCallback(string(r.GroupID), rd.SoftState.RaftState.String())
 		} else if rd.RaftState == raft.StateLeader && !leader {
-			r.store.rsChangeCallback(string(r.GroupID), rd.SoftState.RaftState.String())
+			ReplicaStateChangeCallback(string(r.GroupID), rd.SoftState.RaftState.String())
 		}
 	}
 

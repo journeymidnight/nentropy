@@ -1,4 +1,4 @@
-package multiraft
+package main
 
 import (
 	"golang.org/x/net/context"
@@ -6,8 +6,8 @@ import (
 	"github.com/coreos/etcd/raft/raftpb"
 	"github.com/dgraph-io/badger"
 	"github.com/journeymidnight/nentropy/helper"
-	"github.com/journeymidnight/nentropy/multiraft/keys"
-	"github.com/journeymidnight/nentropy/multiraft/multiraftbase"
+	"github.com/journeymidnight/nentropy/osd/keys"
+	"github.com/journeymidnight/nentropy/osd/multiraftbase"
 	"github.com/journeymidnight/nentropy/storage/engine"
 	"github.com/journeymidnight/nentropy/util/protoutil"
 )

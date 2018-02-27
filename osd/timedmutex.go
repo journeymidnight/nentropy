@@ -1,4 +1,4 @@
-package multiraft
+package main
 
 // Copyright 2016 The Cockroach Authors.
 //

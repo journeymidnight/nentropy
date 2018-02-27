@@ -3,7 +3,7 @@ package keys
 import (
 	"bytes"
 	"github.com/journeymidnight/nentropy/helper"
-	"github.com/journeymidnight/nentropy/multiraft/multiraftbase"
+	"github.com/journeymidnight/nentropy/osd/multiraftbase"
 )
 
 const (

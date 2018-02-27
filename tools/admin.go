@@ -3,7 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
-	"github.com/journeymidnight/nentropy/multiraft/multiraftbase"
+	"github.com/journeymidnight/nentropy/osd/multiraftbase"
 	pb "github.com/journeymidnight/nentropy/protos"
 	"github.com/pkg/errors"
 	"golang.org/x/net/context"

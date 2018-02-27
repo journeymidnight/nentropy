@@ -18,7 +18,7 @@ import (
 	"github.com/pkg/errors"
 
 	"github.com/journeymidnight/nentropy/helper"
-	"github.com/journeymidnight/nentropy/multiraft/multiraftbase"
+	"github.com/journeymidnight/nentropy/osd/multiraftbase"
 )
 
 const (

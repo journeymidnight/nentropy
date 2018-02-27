@@ -12,7 +12,7 @@
 // implied. See the License for the specific language governing
 // permissions and limitations under the License.
 
-package multiraft
+package main
 
 import (
 	"time"
@@ -22,7 +22,7 @@ import (
 	"golang.org/x/net/context"
 
 	"github.com/journeymidnight/nentropy/helper"
-	"github.com/journeymidnight/nentropy/multiraft/multiraftbase"
+	"github.com/journeymidnight/nentropy/osd/multiraftbase"
 )
 
 const (

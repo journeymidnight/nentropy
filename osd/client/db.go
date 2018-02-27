@@ -21,7 +21,7 @@ import (
 	"golang.org/x/net/context"
 
 	"github.com/journeymidnight/nentropy/helper"
-	"github.com/journeymidnight/nentropy/multiraft/multiraftbase"
+	"github.com/journeymidnight/nentropy/osd/multiraftbase"
 )
 
 // KeyValue represents a single key/value pair. This is similar to

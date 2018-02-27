@@ -16,7 +16,7 @@
 
 // Use protos/gen.sh to generate .pb.go files.
 syntax = "proto3";
-import "github.com/journeymidnight/nentropy/multiraft/multiraftbase/metadata.proto";
+import "github.com/journeymidnight/nentropy/osd/multiraftbase/metadata.proto";
 import "mon.proto";
 import "gogoproto/gogo.proto";
 package protos;

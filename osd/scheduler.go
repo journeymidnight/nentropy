@@ -1,4 +1,4 @@
-package multiraft
+package main
 
 import (
 	"container/list"
@@ -7,7 +7,7 @@ import (
 
 	"golang.org/x/net/context"
 
-	"github.com/journeymidnight/nentropy/multiraft/multiraftbase"
+	"github.com/journeymidnight/nentropy/osd/multiraftbase"
 	"github.com/journeymidnight/nentropy/util/stop"
 	"github.com/journeymidnight/nentropy/util/syncutil"
 )

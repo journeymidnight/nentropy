@@ -5,9 +5,8 @@ import (
 	"github.com/coreos/etcd/raft"
 	"github.com/journeymidnight/nentropy/helper"
 	"github.com/journeymidnight/nentropy/memberlist"
-	"github.com/journeymidnight/nentropy/multiraft"
-	"github.com/journeymidnight/nentropy/multiraft/client"
-	"github.com/journeymidnight/nentropy/multiraft/multiraftbase"
+	"github.com/journeymidnight/nentropy/osd/client"
+	"github.com/journeymidnight/nentropy/osd/multiraftbase"
 	"github.com/journeymidnight/nentropy/protos"
 	"github.com/journeymidnight/nentropy/rpc"
 	"github.com/journeymidnight/nentropy/storage/engine"
@@ -26,9 +25,9 @@ type OsdServer struct {
 	cfg               Config
 	grpc              *grpc.Server
 	rpcContext        *rpc.Context
-	raftTransport     *multiraft.RaftTransport
+	raftTransport     *RaftTransport
 	stopper           *stop.Stopper
-	store             *multiraft.Store
+	store             *Store
 	engine            engine.Engine
 	pgMaps            *protos.PgMaps
 	leaderPgStatusMap sync.Map //map[string]protos.PgStatus
@@ -36,7 +35,7 @@ type OsdServer struct {
 	confChangeLock    *sync.Mutex
 	mc                *migrateCenter
 	lastPgMapsEpoch   uint64
-	storeCfg          multiraft.StoreConfig // Config to use and pass to stores
+	storeCfg          StoreConfig // Config to use and pass to stores
 }
 
 const OSD_STATUS_REPORT_PERIOD = 2 * time.Second
@@ -167,9 +166,9 @@ func NewOsdServer(ctx context.Context, cfg Config, stopper *stop.Stopper) (*OsdS
 	//	i = i + 1
 	//}
 
-	s.raftTransport = multiraft.NewRaftTransport(
+	s.raftTransport = NewRaftTransport(
 		s.cfg.AmbientCtx,
-		multiraft.GossipAddressResolver(), s.grpc, s.rpcContext,
+		GossipAddressResolver(), s.grpc, s.rpcContext,
 	)
 
 	//register osd outer rpc service for mon or client
@@ -188,7 +187,7 @@ func NewOsdServer(ctx context.Context, cfg Config, stopper *stop.Stopper) (*OsdS
 	}
 	s.engine = eng
 
-	storeCfg := multiraft.StoreConfig{
+	storeCfg := StoreConfig{
 		AmbientCtx:                  s.cfg.AmbientCtx,
 		RaftConfig:                  s.cfg.RaftConfig,
 		Transport:                   s.raftTransport,
@@ -200,7 +199,7 @@ func NewOsdServer(ctx context.Context, cfg Config, stopper *stop.Stopper) (*OsdS
 	desc := multiraftbase.NodeDescriptor{}
 	desc.NodeID = multiraftbase.NodeID(fmt.Sprintf("%s.%d", s.cfg.NodeType, s.cfg.NodeID))
 	helper.Println(0, "New osd server nodeid: ", s.cfg.NodeID)
-	s.store = multiraft.NewStore(storeCfg, eng, &desc, ReplicaStateChangeCallback)
+	s.store = NewStore(storeCfg, eng, &desc)
 
 	if err := s.store.Start(ctx, stopper); err != nil {
 		return nil, err

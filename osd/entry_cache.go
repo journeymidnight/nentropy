@@ -13,12 +13,12 @@
 // permissions and limitations under the License. See the AUTHORS file
 // for names of contributors.
 
-package multiraft
+package main
 
 import (
 	"github.com/biogo/store/llrb"
 	"github.com/coreos/etcd/raft/raftpb"
-	"github.com/journeymidnight/nentropy/multiraft/multiraftbase"
+	"github.com/journeymidnight/nentropy/osd/multiraftbase"
 	"github.com/journeymidnight/nentropy/util/cache"
 	"github.com/journeymidnight/nentropy/util/syncutil"
 )
