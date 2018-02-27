@@ -1,17 +1,32 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"github.com/journeymidnight/nentropy/storage/engine"
-	"io/ioutil"
-	//"math"
 	"math"
+	"math/rand"
 	"os"
 	"testing"
+	"time"
 )
 
-func Test_StripPutData(t *testing.T) {
-	opt := engine.KVOpt{Dir: "./test"}
+func Test_StripPutAndGetData(t *testing.T) {
+	rand.Seed(time.Now().UTC().UnixNano())
+	dir := fmt.Sprintf("mytest-%d", 10000+rand.Intn(10000))
+	err := os.Mkdir(dir, 0755)
+	if err != nil {
+		t.Error(err)
+	}
+	defer os.RemoveAll(dir)
+
+	var letter = []byte("abcdefghijklmnopqrstuvwxy")
+	bigBuff := make([]byte, 1024*1024)
+	for i := range bigBuff {
+		bigBuff[i] = letter[rand.Intn(len(letter))]
+	}
+
+	opt := engine.KVOpt{Dir: dir}
 	eng, err := engine.NewBadgerDB(&opt)
 	if err != nil {
 		fmt.Println("Error open badger db.")
@@ -19,13 +34,7 @@ func Test_StripPutData(t *testing.T) {
 	}
 
 	key := "key"
-	filename := "./testfile"
-
-	data, err := ioutil.ReadFile(filename)
-	if err != nil {
-		fmt.Println("Error reading local file, err:", err)
-		t.Error(err)
-	}
+	data := bigBuff
 
 	err = stripeWrite(eng, []byte(key), data, 0, uint64(len(data)))
 	if err != nil {
@@ -35,31 +44,27 @@ func Test_StripPutData(t *testing.T) {
 
 	eng.Close()
 
-	fmt.Println("Finished!")
-}
-
-func Test_StripGetData(t *testing.T) {
-	opt := engine.KVOpt{Dir: "./test"}
-	eng, err := engine.NewBadgerDB(&opt)
+	opt = engine.KVOpt{Dir: dir}
+	eng, err = engine.NewBadgerDB(&opt)
 	if err != nil {
 		fmt.Println("Error open badger db.")
 		t.Error(err)
 	}
 
-	key := "key"
-	data, err := StripeRead(eng, []byte(key), 0, math.MaxUint64)
+	key = "key"
+	data, err = StripeRead(eng, []byte(key), 0, math.MaxUint64)
 	if err != nil {
 		fmt.Println("Error getting data to db. err", err)
 		t.Error(err)
 	}
-	fmt.Println("stripRead ret lengh:", len(data))
-	err = ioutil.WriteFile("testfile.res", data, os.ModePerm)
-	if err != nil {
-		fmt.Println("Error writing local file, err:", err)
-		t.Error(err)
+	for i := 0; i < len(bigBuff); i++ {
+		if data[i] != bigBuff[i] {
+			t.Error(errors.New(""))
+			break
+		}
 	}
 
 	eng.Close()
 
-	//fmt.Println("Finished! data:", data)
+	fmt.Println("Finished!")
 }
