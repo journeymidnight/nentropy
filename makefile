@@ -20,4 +20,4 @@ test-osd:
 	cd $(URLPATH)/$(REPO)/osd && go test -v
 test-store:
 	cd $(URLPATH)/$(REPO)/store && go test -v
-test: test-osd test-store
+test:  test-store
