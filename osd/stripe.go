@@ -75,7 +75,7 @@ func put(bat engine.Batch, offset uint64, n *Onode, value []byte) {
 	bat.Put(key, value)
 }
 
-func get(eng engine.Engine, offset uint64, n *Onode) ([]byte, error) {
+func get(eng engine.Reader, offset uint64, n *Onode) ([]byte, error) {
 	key := getDataKey(n.Oid, offset)
 	value, err := eng.Get(key)
 	return value, err
@@ -215,7 +215,7 @@ func min(a, b uint64) (c uint64) {
 }
 
 // Read reads an object from store
-func StripeRead(eng engine.Engine, oid []byte, offset, length uint64) ([]byte, error) {
+func StripeRead(eng engine.Reader, oid []byte, offset, length uint64) ([]byte, error) {
 	//(fixme)find the onode first, should use cache
 	val, err := eng.Get(getMetaKey(oid))
 	if err != nil {

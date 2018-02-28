@@ -17,6 +17,7 @@ import (
 	"github.com/pkg/errors"
 	"golang.org/x/net/context"
 
+	"bytes"
 	"github.com/journeymidnight/nentropy/osd/client"
 	"github.com/journeymidnight/nentropy/util/shuffle"
 	"golang.org/x/time/rate"
@@ -1275,13 +1276,18 @@ func sendSnapshot(
 		if ok := snap.Iter.Valid(); !ok {
 			break
 		}
-
 		item := snap.Iter.Item()
 		key := item.Key()
-		val, err := item.Value()
-		if err != nil {
-			return errors.Wrapf(err, "Error getting value from item")
+		if !bytes.HasPrefix(key, []byte{'\x02'}) {
+			continue
 		}
+		oid := bytes.TrimPrefix(key, []byte{'\x02'})
+		val, err := StripeRead(snap.EngineSnap, oid, 0, math.MaxUint32)
+		if err != nil {
+			helper.Println(5, "Error reading data when snapshot", oid, "err:", err)
+			return errors.Wrapf(err, "Error reading data when  snapshot.")
+		}
+
 		helper.Println(5, "Send snapshot key:", key)
 		//helper.Println(5, "Send snapshot val:", val)
 		if err := sendBatch(stream, key, val); err != nil {

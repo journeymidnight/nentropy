@@ -146,7 +146,6 @@ func (rsl replicaStateLoader) load(
 	if s.RaftAppliedIndex, err = rsl.loadAppliedIndex(ctx, reader); err != nil {
 		return multiraftbase.ReplicaState{}, err
 	}
-	helper.Println(5, "loadAppliedIndex, index:", s.RaftAppliedIndex)
 
 	// The truncated state should not be optional (i.e. the pointer is
 	// pointless), but it is and the migration is not worth it.
@@ -155,6 +154,9 @@ func (rsl replicaStateLoader) load(
 		return multiraftbase.ReplicaState{}, err
 	}
 	s.TruncatedState = &truncState
+
+	helper.Println(5, "replicaStateLoader load RaftAppliedIndex:", s.RaftAppliedIndex)
+	helper.Println(5, "replicaStateLoader load TruncatedState Index:", s.TruncatedState.Index, " Term:", s.TruncatedState.Term)
 
 	return s, nil
 }
@@ -228,24 +230,6 @@ func (rsl replicaStateLoader) setLastIndex(
 	}
 
 	return writer.Put(rsl.RaftLastIndexKey(), data)
-}
-
-// loadReplicaDestroyedError loads the replica destroyed error for the specified
-// range. If there is no error, nil is returned.
-func (rsl replicaStateLoader) loadReplicaDestroyedError(
-	ctx context.Context, reader engine.Reader,
-) (*multiraftbase.Error, error) {
-	var v multiraftbase.Error
-	value, err := reader.Get(rsl.GroupReplicaDestroyedErrorKey())
-	if err != nil && err != badger.ErrKeyNotFound {
-		return nil, err
-	}
-	found := value != nil
-	if !found {
-		return nil, nil
-	}
-	err = v.Unmarshal(value)
-	return &v, nil
 }
 
 func loadAppliedIndex(

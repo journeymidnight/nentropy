@@ -530,8 +530,7 @@ func (r *Replica) processRaftCommand(
 			writeBatch = raftCmd.WriteBatch
 		}
 		response.Reply = &multiraftbase.BatchResponse{}
-		r.applyRaftCommand(ctx, idKey, raftCmd.Method, writeBatch)
-		resp := &multiraftbase.PutResponse{}
+		resp, _ := r.applyRaftCommand(ctx, idKey, raftCmd.Method, writeBatch)
 		response.Reply.Responses.MustSetInner(resp)
 	}
 
@@ -604,13 +603,12 @@ func (r *Replica) applyRaftCommand(
 	idKey multiraftbase.CmdIDKey,
 	method multiraftbase.Method,
 	writeBatch *multiraftbase.WriteBatch,
-) *multiraftbase.Error {
+) (multiraftbase.Response, *multiraftbase.Error) {
 
-	if writeBatch == nil {
-		return nil
-	}
-	if writeBatch.Data == nil {
-		return nil
+	var resp multiraftbase.Response
+
+	if writeBatch == nil || writeBatch.Data == nil {
+		return nil, nil
 	}
 
 	if method == multiraftbase.Get {
@@ -631,6 +629,7 @@ func (r *Replica) applyRaftCommand(
 		if err != nil {
 			helper.Println(5, "Error putting data to db, err:", err)
 		}
+		resp = &multiraftbase.PutResponse{}
 
 	} else if method == multiraftbase.TruncateLog {
 		truncateReq := multiraftbase.TruncateLogRequest{}
@@ -661,12 +660,13 @@ func (r *Replica) applyRaftCommand(
 			helper.Println(5, "Failed to remove key:", deleteReq.Key)
 		}
 		helper.Println(5, "Finished to delete key! key:", deleteReq.Key)
+		resp = &multiraftbase.DeleteResponse{}
 
 	} else {
-		helper.Printf(5, "Unexpected raft command method.")
+		helper.Fatalln("Unexpected raft command method.")
 	}
 
-	return nil
+	return resp, nil
 }
 
 func (r *Replica) getReplicaDescriptorByIDRLocked(
@@ -1030,11 +1030,6 @@ func (r *Replica) initRaftMuLockedReplicaMuLocked(
 		return err
 	}
 	r.mu.lastTerm = invalidLastTerm
-
-	_, err = r.mu.stateLoader.loadReplicaDestroyedError(ctx, eng)
-	if err != nil {
-		return err
-	}
 
 	if replicaID == 0 {
 		repDesc, ok := desc.GetReplicaDescriptor(r.store.nodeDesc.NodeID)
