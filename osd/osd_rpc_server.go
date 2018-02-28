@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/journeymidnight/nentropy/helper"
+	"github.com/journeymidnight/nentropy/osd/client"
 	"github.com/journeymidnight/nentropy/osd/multiraftbase"
 	"github.com/journeymidnight/nentropy/protos"
 	"golang.org/x/net/context"
@@ -90,6 +91,19 @@ func (s *OsdServer) SyncMap(ctx context.Context, in *protos.SyncMapRequest) (*pr
 	return &protos.SyncMapReply{}, nil
 }
 
+func deleteAfterMigrate(pgid string, key []byte) {
+	b := &client.Batch{}
+	b.Header.GroupID = multiraftbase.GroupID(pgid)
+	b.AddRawRequest(&multiraftbase.DeleteRequest{
+		Key: multiraftbase.Key(key),
+	})
+
+	if err := Server.store.Db.Run(context.Background(), b); err != nil {
+		helper.Printf(5, "Error run batch! try put deleteAfterMigrate kv failed", pgid, key, err)
+		return
+	}
+}
+
 func (s *OsdServer) MigrateGet(ctx context.Context, in *protos.MigrateGetRequest) (*protos.MigrateGetReply, error) {
 	engine := s.store.LoadGroupEngine(multiraftbase.GroupID(in.ParentPgId))
 	it := engine.NewIterator()
@@ -106,6 +120,7 @@ func (s *OsdServer) MigrateGet(ctx context.Context, in *protos.MigrateGetRequest
 			helper.Println(5, "print err when migrate key :", in.Marker, string(in.Marker), err)
 			return &protos.MigrateGetReply{}, err
 		} else {
+			defer deleteAfterMigrate(in.ParentPgId, in.Marker)
 			return &protos.MigrateGetReply{in.Marker, value, in.Marker}, nil
 		}
 	}
@@ -136,6 +151,7 @@ func (s *OsdServer) MigrateGet(ctx context.Context, in *protos.MigrateGetRequest
 					helper.Println(5, "print err when migrate key :", oid, string(oid), err)
 					return &protos.MigrateGetReply{}, err
 				} else {
+					defer deleteAfterMigrate(in.ParentPgId, oid)
 					return &protos.MigrateGetReply{oid, value, key}, nil
 				}
 			} else {

@@ -175,6 +175,10 @@ func (b *Batch) fillResults() error {
 					row.Value = &req.Value
 				}
 
+			case *multiraftbase.DeleteRequest:
+				row := &result.Rows[k]
+				row.Key = []byte(req.Key)
+
 			default:
 				if result.Err == nil {
 					result.Err = errors.Errorf("unsupported reply: %T for %T",

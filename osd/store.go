@@ -317,7 +317,7 @@ func (s *Store) Start(ctx context.Context, stopper *stop.Stopper) error {
 	s.cfg.Transport.Listen(s)
 	s.processRaft(ctx)
 
-	s.scanner.Start(s.stopper)
+	//s.scanner.Start(s.stopper)
 	return nil
 }
 
@@ -966,14 +966,14 @@ func NewStore(cfg StoreConfig, eng engine.Engine, nodeDesc *multiraftbase.NodeDe
 
 	//if s.cfg.Gossip != nil {
 	// Add range scanner and configure with queues.
-	cfg.ScanInterval = 10 * time.Minute
-	cfg.ScanMaxIdleTime = 200 * time.Millisecond
-	s.scanner = newReplicaScanner(
-		s.cfg.AmbientCtx, cfg.ScanInterval, cfg.ScanMaxIdleTime, newStoreReplicaVisitor(s),
-	)
-	s.raftLogQueue = newRaftLogQueue(s, s.Db)
-	s.raftSnapshotQueue = newRaftSnapshotQueue(s)
-	s.scanner.AddQueues(s.raftSnapshotQueue, s.raftLogQueue)
+	//cfg.ScanInterval = 10 * time.Minute
+	//cfg.ScanMaxIdleTime = 200 * time.Millisecond
+	//s.scanner = newReplicaScanner(
+	//	s.cfg.AmbientCtx, cfg.ScanInterval, cfg.ScanMaxIdleTime, newStoreReplicaVisitor(s),
+	//)
+	//s.raftLogQueue = newRaftLogQueue(s, s.Db)
+	//s.raftSnapshotQueue = newRaftSnapshotQueue(s)
+	//s.scanner.AddQueues(s.raftSnapshotQueue, s.raftLogQueue)
 	//}
 
 	s.mu.Lock()
