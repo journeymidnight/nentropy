@@ -159,6 +159,9 @@ func (*HasKeyResponse) Method() Method { return HasKey }
 // Method implements the Request interface.
 func (*DeleteResponse) Method() Method { return Delete }
 
+// Method implements the Request interface.
+func (*TruncateLogResponse) Method() Method { return TruncateLog }
+
 // Header implements the Response interface for ResponseHeader.
 func (rh ResponseHeader) Header() ResponseHeader {
 	return rh

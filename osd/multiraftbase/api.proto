@@ -73,6 +73,11 @@ message DeleteResponse {
     ResponseHeader header = 1 [(gogoproto.nullable) = false, (gogoproto.embed) = true];
 }
 
+// A TruncateLogRequest is the return value from the truncatelog() method.
+message TruncateLogResponse {
+    ResponseHeader header = 1 [(gogoproto.nullable) = false, (gogoproto.embed) = true];
+}
+
 // A RequestUnion contains exactly one of the requests.
 // The values added here must match those in ResponseUnion.
 //
@@ -106,7 +111,8 @@ message ResponseUnion {
     GetResponse get = 1;
     PutResponse put = 2;
     HasKeyResponse hasKey = 3;
-    DeleteResponse delete = 4;
+    TruncateLogResponse truncate = 4;
+    DeleteResponse delete = 5;
 }
 
 // A Header is attached to a BatchRequest, encapsulating routing and auxiliary

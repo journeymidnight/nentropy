@@ -650,6 +650,7 @@ func (r *Replica) applyRaftCommand(
 		}
 		r.mu.state.TruncatedState.Index = truncateReq.Index
 		r.mu.state.TruncatedState.Term = truncateReq.Term
+		resp = &multiraftbase.TruncateLogResponse{}
 		helper.Println(5, "Finished to truncate log! GroupID:", truncateReq.GroupID, " index:", truncateReq.Index)
 
 	} else if method == multiraftbase.Delete {
