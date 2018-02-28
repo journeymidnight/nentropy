@@ -235,7 +235,7 @@ func GetMemberByName(name string) *Member {
 
 func GetLeaderMon() *Member {
 	for _, v := range GetMembers() {
-		helper.Println(5, "member", v)
+		//helper.Println(5, "member", v)
 		if v.IsLeader == true {
 			return &v
 		}

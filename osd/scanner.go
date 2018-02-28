@@ -273,9 +273,7 @@ func (rs *replicaScanner) scanLoop(stopper *stop.Stopper) {
 					defer rs.mu.Unlock()
 					rs.mu.scanCount++
 					rs.mu.total += timeutil.Since(start)
-
 					helper.Printf(20, "reset replica scan iteration")
-
 					// Reset iteration and start time.
 					start = timeutil.Now()
 				})

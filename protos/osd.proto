@@ -64,6 +64,7 @@ message MigrateGetRequest {
     string parent_pg_id = 1;
     string child_pg_id = 2;
     bytes marker = 3;
+    bool flag_next = 4;
 }
 
 message MigrateGetReply {

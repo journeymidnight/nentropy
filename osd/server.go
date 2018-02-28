@@ -213,8 +213,83 @@ type ListenError struct {
 	Addr string
 }
 
-func (s *OsdServer) fetchAndStoreObjectFromParent(ctx context.Context, ba multiraftbase.BatchRequest) {
+func (s *OsdServer) fetchAndStoreObjectFromParent(ctx context.Context, ba multiraftbase.BatchRequest) error {
+	child := string(ba.GroupID)
+	st := s.mc.getStatics(child)
+	mon := memberlist.GetLeaderMon()
+	if mon == nil {
+		helper.Println(5, "can not get primary mon addr yet!")
+		return errors.New("can not get primary mon addr yet! when fetchAndStoreObjectFromParent")
+	}
+	conn, err := grpc.Dial(mon.Addr, grpc.WithInsecure())
+	if err != nil {
+		helper.Println(5, "fail to dial: %v, when try connect to mon", err)
+		return errors.New("fail to dial: when try connect to mon! when fetchAndStoreObjectFromParent")
 
+	}
+	defer conn.Close()
+	helper.Println(5, "migrate get start 1", child, st.parent)
+	client_mon := protos.NewMonitorClient(conn)
+	req := protos.GetPgStatusRequest{}
+	req.PgId = st.parent
+	res, err := client_mon.GetPgStatus(ctx, &req)
+	if err != nil {
+		helper.Println(5, "Error send rpc request!")
+		return errors.New("Error send rpc request! when fetchAndStoreObjectFromParent")
+
+	}
+	helper.Println(5, "migrate get start 2", child)
+	nodeId := res.Status.LeaderNodeId
+	member := memberlist.GetMemberByName(fmt.Sprintf("osd.%d", nodeId))
+	if member == nil {
+		helper.Println(5, "Exec GetMemberByName failed! nodeId:", nodeId)
+		return errors.New("Exec GetMemberByName failed! when fetchAndStoreObjectFromParent")
+
+	}
+	helper.Println(5, "migrate get start 3", child)
+	conn_osd, err := grpc.Dial(member.Addr, grpc.WithInsecure())
+	if err != nil {
+		helper.Println(5, "fail to dial: %v, when try connect to member", err)
+		return errors.New("fail to dial: %v, when try connect to member! when fetchAndStoreObjectFromParent")
+
+	}
+	defer conn_osd.Close()
+	helper.Println(5, "migrate get start 4", child)
+	client_osd := protos.NewOsdRpcClient(conn_osd)
+
+	oid := []byte{}
+	bReq := ba.Request.GetValue().(multiraftbase.Request)
+	if bReq.Method() == multiraftbase.Get {
+		gReq := bReq.(*multiraftbase.GetRequest)
+		oid = gReq.Key
+	} else {
+		pReq := bReq.(*multiraftbase.PutRequest)
+		oid = pReq.Key
+	}
+
+	getReq := protos.MigrateGetRequest{}
+	getReq.Marker = oid
+	getReq.FlagNext = false
+	helper.Println(5, "try migrated get object from old pg", getReq.Marker, getReq.ParentPgId, getReq.ChildPgId)
+	getRes, err := client_osd.MigrateGet(ctx, &getReq)
+	if err != nil {
+		helper.Println(5, "Error send rpc request!", err)
+		return errors.New("Error send rpc request! when fetchAndStoreObjectFromParent")
+
+	}
+	if len(getRes.Key) > 0 {
+		b := &client.Batch{}
+		b.Header.GroupID = multiraftbase.GroupID(child)
+		b.AddRawRequest(&multiraftbase.PutRequest{
+			Key:   multiraftbase.Key(getRes.Key),
+			Value: multiraftbase.Value{Offset: 0, Len: uint64(len(getRes.Value)), RawBytes: getRes.Value},
+		})
+		if err := Server.store.Db.Run(context.Background(), b); err != nil {
+			helper.Printf(5, "Error run batch! try put migrated get kv failed")
+			return errors.New("Error run batch! try put migrated get kv failed! when fetchAndStoreObjectFromParent")
+		}
+	}
+	return nil
 }
 
 func (s *OsdServer) batchInternal(
@@ -238,7 +313,11 @@ func (s *OsdServer) batchInternal(
 				return nil
 			}
 			if exist == false {
-				s.fetchAndStoreObjectFromParent(ctx, *args)
+				err := s.fetchAndStoreObjectFromParent(ctx, *args)
+				if err != nil {
+					br.Error = multiraftbase.NewError(err)
+					return nil
+				}
 			}
 		}
 

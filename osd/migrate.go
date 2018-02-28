@@ -82,6 +82,7 @@ func (m *migrateCenter) processMigrateTask(child string) {
 		req.Marker = st.marker
 		req.ParentPgId = st.parent
 		req.ChildPgId = child
+		req.FlagNext = true
 		ctx := context.Background()
 		helper.Println(5, "try migrated next object from old pg", req.Marker, req.ParentPgId, req.ChildPgId)
 		res, err := client_osd.MigrateGet(ctx, &req)

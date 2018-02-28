@@ -100,6 +100,15 @@ func (s *OsdServer) MigrateGet(ctx context.Context, in *protos.MigrateGetRequest
 	if in.Marker != nil {
 		//TODO: CLEAR OBJECT WHICH HAS ALREADY BE MIGRATED
 	}
+	if in.FlagNext == false {
+		value, err := StripeRead(engine, in.Marker, 0, math.MaxUint32)
+		if err != nil {
+			helper.Println(5, "print err when migrate key :", in.Marker, string(in.Marker), err)
+			return &protos.MigrateGetReply{}, err
+		} else {
+			return &protos.MigrateGetReply{in.Marker, value, in.Marker}, nil
+		}
+	}
 	for it.Seek(in.Marker); it.Valid(); it.Next() {
 		item := it.Item()
 		key := item.Key()
