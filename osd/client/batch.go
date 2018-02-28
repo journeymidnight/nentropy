@@ -163,7 +163,6 @@ func (b *Batch) fillResults() error {
 				row := &result.Rows[k]
 				row.Key = []byte(req.Key)
 				if result.Err == nil {
-					//row.Value = reply.(*multiraftbase.GetResponse).Value
 					getRes := b.response.Responses.GetValue().(*multiraftbase.GetResponse)
 					row.Value = getRes.Value
 					helper.Println(5, "sssssssss:", row.Value.RawBytes)

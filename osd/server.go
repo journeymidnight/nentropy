@@ -323,16 +323,19 @@ func (s *OsdServer) batchInternal(
 
 		br, pErr = s.store.Send(ctx, *args)
 		if pErr != nil {
-			br = &multiraftbase.BatchResponse{}
+			if br == nil {
+				br = &multiraftbase.BatchResponse{}
+			}
+			br.Error = pErr
 			helper.Printf(5, "%T", pErr.GetDetail())
+			return pErr.GoError()
 		}
 		if br.Error != nil {
 			helper.Panicln(0, "unexpectedly error. error:", br.Error)
 		}
-		br.Error = pErr
 		return nil
 	}); err != nil {
-		return nil, err
+		return br, err
 	}
 	return br, nil
 }
@@ -356,11 +359,9 @@ func (s *OsdServer) Batch(
 	if err != nil {
 		if br == nil {
 			br = &multiraftbase.BatchResponse{}
+			br.Error = multiraftbase.NewError(err)
 		}
-		if br.Error != nil {
-			helper.Fatalf("attempting to return both a plain error (%s) and roachpb.Error (%s)", err, br.Error)
-		}
-		br.Error = multiraftbase.NewError(err)
+		return br, err
 	}
 
 	return br, nil

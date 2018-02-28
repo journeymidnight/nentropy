@@ -271,11 +271,10 @@ func putObject(pgname string, osd string, oid []byte, filename string) error {
 	ctx := context.Background()
 	res, err := client.Batch(ctx, &dumy)
 	if err != nil {
-		fmt.Printf("Error sending rpc request!")
 		return err
 	}
 
-	fmt.Printf("putobject()! res=%s", res)
+	fmt.Printf("putobject()! res=%s", res.Error.GoError())
 	return nil
 }
 

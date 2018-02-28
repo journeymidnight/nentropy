@@ -530,8 +530,9 @@ func (r *Replica) processRaftCommand(
 			writeBatch = raftCmd.WriteBatch
 		}
 		response.Reply = &multiraftbase.BatchResponse{}
-		resp, _ := r.applyRaftCommand(ctx, idKey, raftCmd.Method, writeBatch)
+		resp, err := r.applyRaftCommand(ctx, idKey, raftCmd.Method, writeBatch)
 		response.Reply.Responses.MustSetInner(resp)
+		response.Err = err
 	}
 
 	helper.Println(5, "GroupID:", r.GroupID, "processRaftCommand(): RaftAppliedIndex:", index)
@@ -603,9 +604,7 @@ func (r *Replica) applyRaftCommand(
 	idKey multiraftbase.CmdIDKey,
 	method multiraftbase.Method,
 	writeBatch *multiraftbase.WriteBatch,
-) (multiraftbase.Response, *multiraftbase.Error) {
-
-	var resp multiraftbase.Response
+) (resp multiraftbase.Response, Err *multiraftbase.Error) {
 
 	if writeBatch == nil || writeBatch.Data == nil {
 		return nil, nil
@@ -615,18 +614,21 @@ func (r *Replica) applyRaftCommand(
 		getReq := multiraftbase.GetRequest{}
 		err := getReq.Unmarshal(writeBatch.Data)
 		if err != nil {
+			Err = multiraftbase.NewError(err)
 			helper.Printf(5, "Cannot unmarshal data to kv")
 		}
 	} else if method == multiraftbase.Put {
 		putReq := multiraftbase.PutRequest{}
 		err := putReq.Unmarshal(writeBatch.Data)
 		if err != nil {
+			Err = multiraftbase.NewError(err)
 			helper.Printf(5, "Cannot unmarshal data to kv")
 		}
 		eng := r.store.LoadGroupEngine(r.Desc().GroupID)
 		err = stripeWrite(eng, []byte(putReq.Key), []byte(putReq.Value.RawBytes), uint64(putReq.Value.Offset), putReq.Value.Len)
 		helper.Println(5, "write kv ***************", r.GroupID, putReq.Key)
 		if err != nil {
+			Err = multiraftbase.NewError(err)
 			helper.Println(5, "Error putting data to db, err:", err)
 		}
 		resp = &multiraftbase.PutResponse{}
@@ -635,12 +637,14 @@ func (r *Replica) applyRaftCommand(
 		truncateReq := multiraftbase.TruncateLogRequest{}
 		err := truncateReq.Unmarshal(writeBatch.Data)
 		if err != nil {
+			Err = multiraftbase.NewError(err)
 			helper.Printf(5, "Cannot unmarshal data to kv")
 		}
 		eng := r.store.LoadGroupEngine(r.Desc().GroupID)
 		for i := uint64(1); i < truncateReq.Index; i++ {
 			err := eng.Clear(keys.RaftLogKey(truncateReq.GroupID, i))
 			if err != nil {
+				Err = multiraftbase.NewError(err)
 				helper.Println(5, "Failed to remove raft log, index:", i)
 			}
 		}
@@ -652,11 +656,13 @@ func (r *Replica) applyRaftCommand(
 		deleteReq := multiraftbase.DeleteRequest{}
 		err := deleteReq.Unmarshal(writeBatch.Data)
 		if err != nil {
+			Err = multiraftbase.NewError(err)
 			helper.Printf(5, "Cannot unmarshal data to kv")
 		}
 		eng := r.store.LoadGroupEngine(r.Desc().GroupID)
 		err = stripeRemove(eng, deleteReq.Key)
 		if err != nil {
+			Err = multiraftbase.NewError(err)
 			helper.Println(5, "Failed to remove key:", deleteReq.Key)
 		}
 		helper.Println(5, "Finished to delete key! key:", deleteReq.Key)
@@ -666,7 +672,7 @@ func (r *Replica) applyRaftCommand(
 		helper.Fatalln("Unexpected raft command method.")
 	}
 
-	return resp, nil
+	return
 }
 
 func (r *Replica) getReplicaDescriptorByIDRLocked(

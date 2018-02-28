@@ -966,8 +966,8 @@ func NewStore(cfg StoreConfig, eng engine.Engine, nodeDesc *multiraftbase.NodeDe
 
 	//if s.cfg.Gossip != nil {
 	// Add range scanner and configure with queues.
-	//cfg.ScanInterval = 10 * time.Minute
-	//cfg.ScanMaxIdleTime = 200 * time.Millisecond
+	cfg.ScanInterval = 10 * time.Minute
+	cfg.ScanMaxIdleTime = 200 * time.Millisecond
 	//s.scanner = newReplicaScanner(
 	//	s.cfg.AmbientCtx, cfg.ScanInterval, cfg.ScanMaxIdleTime, newStoreReplicaVisitor(s),
 	//)
