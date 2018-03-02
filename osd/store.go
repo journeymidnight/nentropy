@@ -1155,11 +1155,12 @@ func (s *Store) HandleSnapshot(
 		if req.KVBatch != nil {
 			batches = append(batches, req.KVBatch)
 		}
-		//eng := s.loadGroupEngine(header.RaftMessageRequest.GroupID)
-		//err = stripeWrite(eng, key, val, 0, uint64(len(val)))
-		//if err != nil {
-		//helper.Println(5, "Error putting data to db, err:", err)
-		//}
+		//helper.Println(5, "Receive key:", req.Key)
+		eng := s.LoadGroupEngine(header.RaftMessageRequest.GroupID)
+		err = stripeWrite(eng, req.Key, req.Val, 0, uint64(len(req.Val)))
+		if err != nil {
+			helper.Panicln(5, "Error putting data to db, err:", err)
+		}
 
 		if req.LogEntries != nil {
 			logEntries = append(logEntries, req.LogEntries...)

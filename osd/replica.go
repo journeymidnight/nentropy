@@ -263,7 +263,7 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 		leaderID = multiraftbase.ReplicaID(rd.SoftState.Lead)
 
 	}
-
+	eng := r.store.LoadGroupEngine(r.mu.state.Desc.GroupID)
 	if !raft.IsEmptySnap(rd.Snapshot) {
 		snapUUID, err := uuid.FromBytes(rd.Snapshot.Data)
 		if err != nil {
@@ -279,6 +279,7 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 
 		if err := r.applySnapshot(ctx, inSnap, rd.Snapshot, rd.HardState); err != nil {
 			const expl = "while applying snapshot"
+			helper.Println(5, "Error applying snapshot. err:", err)
 			return stats, expl, errors.Wrap(err, expl)
 		}
 
@@ -286,7 +287,7 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 		// we also want to make sure we reflect these changes in the local
 		// variables we're tracking here. We could pull these values from
 		// r.mu itself, but that would require us to grab a lock.
-		if lastIndex, err = r.raftMu.stateLoader.loadLastIndex(ctx, r.store.sysEng); err != nil {
+		if lastIndex, err = r.raftMu.stateLoader.loadLastIndex(ctx, eng); err != nil {
 			const expl = "loading last index"
 			return stats, expl, errors.Wrap(err, expl)
 		}
@@ -297,7 +298,6 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 	// Use a more efficient write-only batch because we don't need to do any
 	// reads from the batch. Any reads are performed via the "distinct" batch
 	// which passes the reads through to the underlying DB.
-	eng := r.store.LoadGroupEngine(r.mu.state.Desc.GroupID)
 	batch := eng.NewBatch()
 	defer batch.Close()
 
@@ -391,7 +391,7 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 	}
 
 	for _, e := range rd.CommittedEntries {
-		helper.Println(5, "commit index:", e.Index)
+		helper.Println(5, "raft commit index:", e.Index, " term:", e.Term)
 		switch e.Type {
 		case raftpb.EntryNormal:
 			var commandID multiraftbase.CmdIDKey
@@ -472,7 +472,12 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 	if err != nil {
 		helper.Println(5, "Failed to write replica state! err:", err)
 	}
-
+	if len(rd.CommittedEntries) != 0 {
+		helper.Println(5, "Group:", r.GroupID, "Raft lastIndex:", r.mu.lastIndex,
+			" RaftAppliedIndex:", r.mu.state.RaftAppliedIndex,
+			" TruncatedState.index:", r.mu.state.TruncatedState.Index,
+			" TruncatedState.term:", r.mu.state.TruncatedState.Term)
+	}
 	// TODO(bdarnell): need to check replica id and not Advance if it
 	// has changed. Or do we need more locking to guarantee that replica
 	// ID cannot change during handleRaftReady?

@@ -530,12 +530,14 @@ func (r *Replica) applySnapshot(
 	var raftLogSize int64
 	// Write the snapshot's Raft log into the range.
 	_, _, raftLogSize, err = r.append(
-		ctx, eng, 0, 0, raftLogSize, logEntries,
+		ctx, eng, r.mu.lastIndex, r.mu.lastTerm, raftLogSize, logEntries,
 	)
 	if err != nil {
 		helper.Fatalln("Failed to append log entries! err:", err)
 		return err
 	}
+	//r.mu.lastIndex = lastIndex
+	//r.mu.lastTerm = lastTerm
 
 	if !raft.IsEmptyHardState(hs) {
 		if err := r.raftMu.stateLoader.setHardState(ctx, eng, hs); err != nil {

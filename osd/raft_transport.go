@@ -403,7 +403,7 @@ func (t *RaftTransport) connectAndProcess(
 	if err := func() error {
 		addr, err := t.resolver(string(nodeID))
 		if err != nil {
-			helper.Printf(5, "Cannot get nodeID %s address: %s", nodeID, addr)
+			helper.Printf(20, "Cannot get nodeID %s address: %s", nodeID, addr)
 			return err
 		}
 		conn, err := t.rpcContext.GRPCDial(addr, grpc.WithBlock())
