@@ -606,12 +606,18 @@ func updatePgMap(m *protos.PgMap, poolMap *protos.PoolMap, ring *consistent.Cons
 		copy(oldReplicas, m.Pgmap[k].Replicas)
 		m.Pgmap[k].Replicas = m.Pgmap[k].Replicas[:0]
 		//		helper.Print(5, "osdids******************", m.Pgmap[k].OsdIds)
+
 		for _, value := range osds {
+			foundExistOsd := false
 			for _, oldReplica := range oldReplicas {
 				if value.Id == oldReplica.OsdId {
 					m.Pgmap[k].Replicas = append(m.Pgmap[k].Replicas, oldReplica)
-					continue
+					foundExistOsd = true
+					break
 				}
+			}
+			if foundExistOsd == true {
+				continue
 			}
 			m.Pgmap[k].Replicas = append(m.Pgmap[k].Replicas, protos.PgReplica{value.Id, m.Pgmap[k].NextReplicaId})
 			m.Pgmap[k].NextReplicaId = m.Pgmap[k].NextReplicaId + 1
