@@ -30,6 +30,7 @@ type OsdServer struct {
 	store             *Store
 	engine            engine.Engine
 	pgMaps            *protos.PgMaps
+	pgState           sync.Map
 	leaderPgStatusMap sync.Map //map[string]protos.PgStatus
 	mapLock           *sync.Mutex
 	confChangeLock    *sync.Mutex
@@ -497,6 +498,19 @@ func (s *OsdServer) GetPgStateFromMap(pgId string) (int32, error) {
 		return protos.PG_STATE_UNINITIAL, errors.New("pg state not existed")
 	}
 	return value.(*protos.PgStatus).Status, nil
+}
+
+func GetPgState(pgId string) (int32, error) {
+	return Server.GetPgState(pgId)
+}
+
+func GetExpectedReplicaId(pgId string) (int32, bool) {
+	id, err := Server.pgMaps.GetPgExpectedId(pgId)
+	if err != nil {
+		helper.Printf(5, "GetExpectedPrimaryId failed:%d", pgId)
+		return 0, false
+	}
+	return id, true
 }
 
 func ReplicaStateChangeCallback(pgId string, replicaState string) {

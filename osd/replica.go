@@ -72,8 +72,6 @@ type Replica struct {
 		// from the Raft log entry. Use the invalidLastTerm constant for this
 		// case.
 		lastIndex, lastTerm uint64
-
-		GroupID multiraftbase.GroupID // Should only be set by the constructor.
 		// proposals stores the Raft in-flight commands which
 		// originated at this Replica, i.e. all commands for which
 		// propose has been called, but which have not yet
@@ -247,13 +245,12 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 		return stats, "", nil
 	}
 
-	helper.Printf(20, "get ready from raft group")
-
 	if rd.SoftState != nil {
 		leader := r.mu.leaderID == r.mu.replicaID
 		if rd.RaftState == raft.StateFollower && leader {
 			ReplicaStateChangeCallback(string(r.GroupID), rd.SoftState.RaftState.String())
 		} else if rd.RaftState == raft.StateLeader && !leader {
+			helper.Println(5, "ID ", r.mu.replicaID, " became leader in ", r.GroupID)
 			ReplicaStateChangeCallback(string(r.GroupID), rd.SoftState.RaftState.String())
 		}
 	}
@@ -488,6 +485,9 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 	}); err != nil {
 		return stats, expl, errors.Wrap(err, expl)
 	}
+
+	r.applyWait.Trigger(r.mu.state.RaftAppliedIndex)
+
 	return stats, "", nil
 }
 
@@ -542,7 +542,7 @@ func (r *Replica) processRaftCommand(
 
 	helper.Println(5, "GroupID:", r.GroupID, "processRaftCommand(): RaftAppliedIndex:", index)
 	r.mu.state.RaftAppliedIndex = index
-	r.applyWait.Trigger(index)
+	//r.applyWait.Trigger(index)
 
 	if proposedLocally {
 		proposal.finishRaftApplication(response)

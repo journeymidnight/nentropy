@@ -467,7 +467,6 @@ func (bq *baseQueue) processReplica(
 	ctx := repl.AnnotateCtx(queueCtx)
 	ctx, cancel := context.WithTimeout(ctx, bq.processTimeout)
 	defer cancel()
-	helper.Printf(5, "processing replica")
 
 	if !repl.IsInitialized() {
 		// We checked this when adding the replica, but we need to check it again
@@ -481,9 +480,6 @@ func (bq *baseQueue) processReplica(
 			return nil
 		}
 	*/
-
-	helper.Println(5, "processing")
-
 	if err := bq.impl.process(ctx, repl); err != nil {
 		return err
 	}
