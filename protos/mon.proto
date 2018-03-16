@@ -203,6 +203,7 @@ message PgConfigRequest {
     OpType op_type = 2;
     string pool = 3;
     int32 id = 4;
+    uint64 epoch  = 5;
 }
 
 message PgConfigReply {

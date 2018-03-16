@@ -462,7 +462,7 @@ func GetPoolIdByName(name string) (int32, error) {
 }
 
 func HandlePgList(req *protos.PgConfigRequest) (*protos.PgConfigReply, error) {
-	pgmaps, _ := GetCurrPgMaps()
+	pgmaps, _ := GetCurrPgMaps(req.Epoch)
 	statusMap := make(map[int32]protos.PgStatus)
 	if req.Pool != "" {
 		poolId, err := GetPoolIdByName(req.Pool)
@@ -485,7 +485,7 @@ func HandlePgList(req *protos.PgConfigRequest) (*protos.PgConfigReply, error) {
 		}
 		return &protos.PgConfigReply{0, pgmaps.Epoch, pgmaps.Pgmaps[poolId], nil, statusMap}, nil
 	} else {
-		return &protos.PgConfigReply{0, pgmaps.Epoch, nil, &pgmaps, nil}, nil
+		return &protos.PgConfigReply{0, pgmaps.Epoch, nil, pgmaps, nil}, nil
 	}
 }
 
