@@ -18,7 +18,7 @@ type KVOpt struct {
 	Dir string
 }
 
-func NewBadgerDB(opt *KVOpt) (*BadgerDB, error) {
+func NewBadgerDB(opt *KVOpt) (Engine, error) {
 	dbOpts := badger.DefaultOptions
 	dbOpts.SyncWrites = true
 	dbOpts.Dir = opt.Dir
@@ -91,7 +91,7 @@ type badgerDBSnapshot struct {
 }
 
 func (b *badgerDBSnapshot) Close() {
-
+	b.txn.Discard()
 }
 
 func (b *badgerDBSnapshot) Get(key []byte) ([]byte, error) {
@@ -133,18 +133,27 @@ func (b *BadgerDB) NewSnapshot() Reader {
 	}
 }
 
-func (b *BadgerDB) NewBatch() Batch {
-	return newBadgerDBBatch(b)
+func (b *BadgerDB) NewBatch(update bool) Batch {
+	return newBadgerDBBatch(b, update)
 }
 
-func newBadgerDBBatch(b *BadgerDB) *badgerDBBatch {
+func newBadgerDBBatch(b *BadgerDB, update bool) *badgerDBBatch {
 	r := &badgerDBBatch{b: b}
-	r.txn = b.db.NewTransaction(true)
+	r.txn = b.db.NewTransaction(update)
 	return r
 }
 
-func (r *badgerDBBatch) Close() {
+func (r *badgerDBBatch) NewIterator() Iterator {
+	opts := badger.DefaultIteratorOptions
+	opts.PrefetchSize = 10
+	bgIt := &badgerIterator{}
+	bgIt.iter = r.txn.NewIterator(opts)
+	return bgIt
+}
 
+func (r *badgerDBBatch) Close() {
+	// calling this multiple times doesn't cause any issues
+	r.txn.Discard()
 }
 
 func (r *badgerDBBatch) Put(key []byte, value []byte) error {
@@ -186,6 +195,7 @@ func (r *badgerDBBatch) Commit() error {
 	return nil
 }
 
+//-----------------------------------------------------
 type badgerIterator struct {
 	iter *badger.Iterator
 	txn  *badger.Txn
@@ -193,6 +203,10 @@ type badgerIterator struct {
 
 func (it *badgerIterator) Close() {
 	it.iter.Close()
+	if it.txn != nil {
+		// Close txn opened with read-only mode
+		it.txn.Discard()
+	}
 }
 
 func (it *badgerIterator) Seek(key []byte) {
@@ -201,6 +215,10 @@ func (it *badgerIterator) Seek(key []byte) {
 
 func (it *badgerIterator) Valid() bool {
 	return it.iter.Valid()
+}
+
+func (it *badgerIterator) ValidForPrefix(prefix []byte) bool {
+	return it.iter.ValidForPrefix(prefix)
 }
 
 func (it *badgerIterator) Next() {

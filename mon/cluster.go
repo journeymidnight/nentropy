@@ -25,12 +25,12 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/dgraph-io/badger"
 	"github.com/journeymidnight/nentropy/helper"
 	"github.com/journeymidnight/nentropy/memberlist"
 	"github.com/journeymidnight/nentropy/mon/raftwal"
 	"github.com/journeymidnight/nentropy/mon/transport"
 	"github.com/journeymidnight/nentropy/protos"
+	"github.com/journeymidnight/nentropy/storage/engine"
 	"google.golang.org/grpc"
 )
 
@@ -85,7 +85,7 @@ var (
 )
 
 func putOp(t *protos.Transaction, prefix string, epoch uint64, data []byte) error {
-	key := fmt.Sprintf("%v", epoch)
+	key := fmt.Sprintf("%s.%v", prefix, epoch)
 	t.Ops = append(t.Ops, &protos.Op{Type: protos.Op_OP_PUT, Prefix: prefix, Key: key, Data: data})
 	t.Keys++
 	t.Bytes += uint64(len(prefix) + len(key) + len(data))
@@ -184,11 +184,11 @@ func handleCommittedMsg(data []byte) error {
 // and either start or restart RAFT nodes.
 // This function triggers RAFT nodes to be created, and is the entrance to the RAFT
 // world from main.go.
-func StartRaftNodes(walStore *badger.DB, grpcSrv *grpc.Server, peers []string, myAddr string) {
+func StartRaftNodes(eng engine.Engine, grpcSrv *grpc.Server, peers []string, myAddr string) {
 	clus = new(cluster)
 	clus.ctx, clus.cancel = context.WithCancel(context.Background())
 
-	clus.wal = raftwal.Init(walStore, config.RaftId)
+	clus.wal = raftwal.Init(eng, config.RaftId)
 	clus.mapLock = &sync.Mutex{}
 	clus.internalMapLock = &sync.Mutex{}
 	clus.PgStatusMap = make(map[string]protos.PgStatus)

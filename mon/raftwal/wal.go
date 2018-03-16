@@ -20,21 +20,22 @@ package raftwal
 import (
 	"bytes"
 	"encoding/binary"
+	"github.com/dgraph-io/badger"
 
 	"github.com/coreos/etcd/raft"
 	"github.com/coreos/etcd/raft/raftpb"
-	"github.com/dgraph-io/badger"
 
 	"github.com/journeymidnight/nentropy/helper"
+	"github.com/journeymidnight/nentropy/storage/engine"
 )
 
 type Wal struct {
-	wals *badger.DB
-	id   uint64
+	eng engine.Engine
+	id  uint64
 }
 
-func Init(walStore *badger.DB, id uint64) *Wal {
-	return &Wal{wals: walStore, id: id}
+func Init(eng engine.Engine, id uint64) *Wal {
+	return &Wal{eng: eng, id: id}
 }
 
 func (w *Wal) snapshotKey(gid uint32) []byte {
@@ -77,10 +78,7 @@ func (w *Wal) StoreSnapshot(gid uint32, s raftpb.Snapshot) error {
 	if err != nil {
 		return helper.Wrapf(err, "wal.Store: While marshal snapshot")
 	}
-	if err := w.wals.Update(func(txn *badger.Txn) error {
-		err := txn.Set(w.snapshotKey(gid), data)
-		return err
-	}); err != nil {
+	if err := w.eng.Put(w.snapshotKey(gid), data); err != nil {
 		return err
 	}
 	helper.Printf(10, "Writing snapshot to WAL: %+v\n", s)
@@ -88,11 +86,10 @@ func (w *Wal) StoreSnapshot(gid uint32, s raftpb.Snapshot) error {
 	// Delete all entries before this snapshot to save disk space.
 	start := w.entryKey(gid, 0, 0)
 	last := w.entryKey(gid, s.Metadata.Term, s.Metadata.Index)
-	opt := badger.DefaultIteratorOptions
-	//opt.FetchValues = false
-	txn := w.wals.NewTransaction(true)
+	batch := w.eng.NewBatch(true)
+	defer batch.Close()
 
-	it := txn.NewIterator(opt)
+	it := batch.NewIterator()
 	//defer it.Close()
 	for it.Seek(start); it.Valid(); it.Next() {
 		item := it.Item()
@@ -100,7 +97,7 @@ func (w *Wal) StoreSnapshot(gid uint32, s raftpb.Snapshot) error {
 		if bytes.Compare(k, last) > 0 {
 			break
 		}
-		err = txn.Delete(k)
+		err = batch.Clear(k)
 		if err != nil {
 			break
 		}
@@ -108,12 +105,12 @@ func (w *Wal) StoreSnapshot(gid uint32, s raftpb.Snapshot) error {
 	it.Close()
 
 	if err != nil {
-		txn.Discard()
+		batch.Close()
 		return err
 	}
 
-	if err = txn.Commit(nil); err != nil {
-		txn.Discard()
+	if err = batch.Commit(); err != nil {
+		batch.Close()
 		return err
 	}
 
@@ -122,16 +119,16 @@ func (w *Wal) StoreSnapshot(gid uint32, s raftpb.Snapshot) error {
 
 // Store stores the snapshot, hardstate and entries for a given RAFT group.
 func (w *Wal) Store(gid uint32, h raftpb.HardState, es []raftpb.Entry) error {
-	txn := w.wals.NewTransaction(true)
+	batch := w.eng.NewBatch(true)
 
 	if !raft.IsEmptyHardState(h) {
 		data, err := h.Marshal()
 		if err != nil {
 			return helper.Wrapf(err, "wal.Store: While marshal hardstate")
 		}
-		err = txn.Set(w.hardStateKey(gid), data)
+		err = batch.Put(w.hardStateKey(gid), data)
 		if err != nil {
-			txn.Discard()
+			batch.Close()
 			return err
 		}
 
@@ -145,9 +142,9 @@ func (w *Wal) Store(gid uint32, h raftpb.HardState, es []raftpb.Entry) error {
 			return helper.Wrapf(err, "wal.Store: While marshal entry")
 		}
 		k := w.entryKey(gid, e.Term, e.Index)
-		err = txn.Set(k, data)
+		err = batch.Put(k, data)
 		if err != nil {
-			txn.Discard()
+			batch.Close()
 			return err
 		}
 	}
@@ -159,15 +156,13 @@ func (w *Wal) Store(gid uint32, h raftpb.HardState, es []raftpb.Entry) error {
 		// with Index >= i must be discarded.
 		start := w.entryKey(gid, t, i+1)
 		prefix := w.prefix(gid)
-		opt := badger.DefaultIteratorOptions
-		//opt.FetchValues = false
-		itr := txn.NewIterator(opt)
+		itr := batch.NewIterator()
 
 		for itr.Seek(start); itr.ValidForPrefix(prefix); itr.Next() {
 			key := itr.Item().Key()
 			newk := make([]byte, len(key))
 			copy(newk, key)
-			err := txn.Delete(newk)
+			err := batch.Clear(newk)
 			if err != nil {
 				break
 			}
@@ -175,8 +170,8 @@ func (w *Wal) Store(gid uint32, h raftpb.HardState, es []raftpb.Entry) error {
 		itr.Close()
 	}
 
-	if err := txn.Commit(nil); err != nil {
-		txn.Discard()
+	if err := batch.Commit(); err != nil {
+		batch.Close()
 		return err
 	}
 
@@ -184,72 +179,45 @@ func (w *Wal) Store(gid uint32, h raftpb.HardState, es []raftpb.Entry) error {
 }
 
 func (w *Wal) Snapshot(gid uint32) (snap raftpb.Snapshot, rerr error) {
-	var val []byte
-	if err := w.wals.View(func(tx *badger.Txn) error {
-		item, err := tx.Get(w.snapshotKey(gid))
-		if err != nil {
-			return err
-		}
-		val, err = item.Value()
-		if err != nil {
-			return err
-		}
-		return nil
-	}); err != nil {
+	val, err := w.eng.Get(w.snapshotKey(gid))
+	if err != nil && err != badger.ErrKeyNotFound {
+		rerr = helper.Wrapf(err, "While getting snapshot")
 		return
 	}
 
-	//val := item.Value()
-	// Originally, with RocksDB, this can return an error and a non-null rdb.Slice object with Data=nil.
-	// And for this case, we do NOT return.
 	rerr = helper.Wrapf(snap.Unmarshal(val), "While unmarshal snapshot")
 	return
 }
 
 func (w *Wal) HardState(gid uint32) (hd raftpb.HardState, rerr error) {
-	var val []byte
-	if err := w.wals.View(func(tx *badger.Txn) error {
-		item, err := tx.Get(w.hardStateKey(gid))
-		if err != nil {
-			return err
-		}
-		val, err = item.Value()
-		if err != nil {
-			return err
-		}
-		return nil
-	}); err != nil {
+	val, err := w.eng.Get(w.hardStateKey(gid))
+	if err != nil && err != badger.ErrKeyNotFound {
+		rerr = helper.Wrapf(err, "While getting hardstate")
 		return
 	}
-	//val := item.Value()
-	// Originally, with RocksDB, this can return an error and a non-null rdb.Slice object with Data=nil.
-	// And for this case, we do NOT return.
+
 	rerr = helper.Wrapf(hd.Unmarshal(val), "While unmarshal hardstate")
 	return
 }
 
 func (w *Wal) Entries(gid uint32, fromTerm, fromIndex uint64) (es []raftpb.Entry, rerr error) {
-	if err := w.wals.View(func(txn *badger.Txn) error {
-		opts := badger.DefaultIteratorOptions
-		opts.PrefetchSize = 10
-		prefix := w.prefix(gid)
-		start := w.entryKey(gid, fromTerm, fromIndex)
-		it := txn.NewIterator(opts)
-		for it.Seek(start); it.ValidForPrefix(prefix); it.Next() {
-			item := it.Item()
-			v, err := item.Value()
-			if err != nil {
-				return err
-			}
-			var e raftpb.Entry
-			if err := e.Unmarshal(v); err != nil {
-				return err
-			}
-			es = append(es, e)
+	it := w.eng.NewIterator()
+	defer it.Close()
+
+	prefix := w.prefix(gid)
+	start := w.entryKey(gid, fromTerm, fromIndex)
+	for it.Seek(start); it.ValidForPrefix(prefix); it.Next() {
+		item := it.Item()
+		v, err := item.Value()
+		if err != nil {
+			return es, helper.Wrapf(err, "While unmarshal raftpb.Entry")
 		}
-		return nil
-	}); err != nil {
-		return es, helper.Wrapf(err, "While unmarshal raftpb.Entry")
+		var e raftpb.Entry
+		if err := e.Unmarshal(v); err != nil {
+			return es, helper.Wrapf(err, "While unmarshal raftpb.Entry")
+		}
+		es = append(es, e)
 	}
+
 	return
 }
