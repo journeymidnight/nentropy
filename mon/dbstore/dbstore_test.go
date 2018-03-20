@@ -4,8 +4,8 @@ import (
 	"os"
 	"testing"
 
-	"github.com/dgraph-io/badger"
-	"github.com/dgraph-io/badger/options"
+	"github.com/journeymidnight/badger"
+	"github.com/journeymidnight/badger/options"
 )
 
 func Test_findByPk(t *testing.T) {
@@ -19,7 +19,7 @@ func Test_findByPk(t *testing.T) {
 	kvOpt.TableLoadingMode = options.MemoryMap
 
 	var err error
-	db, err := badger.NewKV(&kvOpt)
+	db, err := badger.Open(&kvOpt)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -4,7 +4,7 @@ import (
 	"golang.org/x/net/context"
 
 	"github.com/coreos/etcd/raft/raftpb"
-	"github.com/dgraph-io/badger"
+	"github.com/journeymidnight/badger"
 	"github.com/journeymidnight/nentropy/helper"
 	"github.com/journeymidnight/nentropy/osd/keys"
 	"github.com/journeymidnight/nentropy/osd/multiraftbase"

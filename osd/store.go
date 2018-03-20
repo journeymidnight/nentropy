@@ -18,6 +18,7 @@ import (
 	"golang.org/x/net/context"
 
 	"bytes"
+	"github.com/journeymidnight/badger"
 	"github.com/journeymidnight/nentropy/osd/client"
 	"github.com/journeymidnight/nentropy/util/shuffle"
 	"golang.org/x/time/rate"
@@ -1273,6 +1274,9 @@ func sendSnapshot(
 	//unreplicatedPrefix := keys.MakeGroupIDUnreplicatedPrefix(header.State.Desc.GroupID)
 	//var alloc bufalloc.ByteAllocator
 	//n := 0
+
+	_ := snap.Engine.(*engine.BadgerDB)
+
 	for snap.Iter.Rewind(); ; snap.Iter.Next() {
 		if ok := snap.Iter.Valid(); !ok {
 			break

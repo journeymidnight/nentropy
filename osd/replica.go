@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"github.com/coreos/etcd/raft"
 	"github.com/coreos/etcd/raft/raftpb"
-	"github.com/dgraph-io/badger"
+	"github.com/journeymidnight/badger"
 	"github.com/journeymidnight/nentropy/helper"
 	"github.com/journeymidnight/nentropy/log"
 	//"github.com/journeymidnight/nentropy/multiraft/keys"

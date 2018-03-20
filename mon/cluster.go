@@ -25,7 +25,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/dgraph-io/badger"
+	"github.com/journeymidnight/badger"
 	"github.com/journeymidnight/nentropy/helper"
 	"github.com/journeymidnight/nentropy/memberlist"
 	"github.com/journeymidnight/nentropy/mon/raftwal"

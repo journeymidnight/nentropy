@@ -8,7 +8,7 @@ import (
 	"github.com/pkg/errors"
 	"golang.org/x/net/context"
 
-	"github.com/dgraph-io/badger"
+	"github.com/journeymidnight/badger"
 	"github.com/journeymidnight/nentropy/helper"
 	"github.com/journeymidnight/nentropy/osd/keys"
 	"github.com/journeymidnight/nentropy/osd/multiraftbase"
@@ -304,6 +304,7 @@ func snapshot(
 	ctx context.Context,
 	desc multiraftbase.GroupDescriptor,
 	snapType string,
+	eng engine.Engine,
 	snap engine.Reader,
 	groupID multiraftbase.GroupID,
 	eCache *raftEntryCache,
@@ -346,6 +347,7 @@ func snapshot(
 	return OutgoingSnapshot{
 		RaftEntryCache: eCache,
 		EngineSnap:     snap,
+		Engine:         eng,
 		Iter:           iter,
 		State:          state,
 		SnapUUID:       snapUUID,
@@ -386,7 +388,7 @@ func (r *Replica) GetSnapshot(
 	groupID := r.GroupID
 
 	snapData, err := snapshot(
-		ctx, desc, snapType, snap, groupID, r.store.raftEntryCache,
+		ctx, desc, snapType, eng, snap, groupID, r.store.raftEntryCache,
 	)
 	if err != nil {
 		helper.Printf(5, "error generating snapshot: %s", err)
@@ -405,7 +407,8 @@ type OutgoingSnapshot struct {
 	// The RocksDB snapshot that will be streamed from.
 	EngineSnap engine.Reader
 	// The complete range iterator for the snapshot to stream.
-	Iter *ReplicaDataIterator
+	Iter   *ReplicaDataIterator
+	Engine engine.Engine
 	// The complete range iterator for the snapshot to stream.
 	//Iter *ReplicaDataIterator
 	// The replica state within the snapshot.

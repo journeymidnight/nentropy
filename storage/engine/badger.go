@@ -1,8 +1,9 @@
 package engine
 
 import (
-	"github.com/dgraph-io/badger"
-	"github.com/dgraph-io/badger/options"
+	"github.com/journeymidnight/badger"
+	"github.com/journeymidnight/badger/options"
+	"os"
 )
 
 type BadgerDB struct {
@@ -83,6 +84,14 @@ func (b *BadgerDB) NewIterator() Iterator {
 	opts.PrefetchSize = 10
 	bgIt.iter = bgIt.txn.NewIterator(opts)
 	return bgIt
+}
+
+func (b *BadgerDB) QuickBackupPrepare() ([]*os.File, error) {
+	return b.db.QuickBackupPrepare()
+}
+
+func (b *BadgerDB) QuickBackupDone() error {
+	return b.db.QuickBackupDone()
 }
 
 type badgerDBSnapshot struct {

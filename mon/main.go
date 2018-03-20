@@ -27,8 +27,8 @@ import (
 	"google.golang.org/grpc"
 
 	"fmt"
-	"github.com/dgraph-io/badger"
-	"github.com/dgraph-io/badger/options"
+	"github.com/journeymidnight/badger"
+	"github.com/journeymidnight/badger/options"
 	"github.com/journeymidnight/nentropy/helper"
 	"github.com/journeymidnight/nentropy/log"
 	"github.com/journeymidnight/nentropy/memberlist"
