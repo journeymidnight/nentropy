@@ -104,7 +104,7 @@ func stripeWrite(eng engine.Engine, oid, value []byte, offset, length uint64) er
 	// find the onode, onode also stores in the same collection
 	n := createOrGetOnonde(eng, oid)
 
-	batch := eng.NewBatch()
+	batch := eng.NewBatch(true)
 	valuelen := uint64(len(value))
 	stripeSize := n.StripeSize
 
@@ -297,7 +297,7 @@ func stripeRemove(eng engine.Engine, oid []byte) error {
 	stripeNum := size / stripeSize
 	stripeRem := size % stripeSize
 
-	bat := eng.NewBatch()
+	bat := eng.NewBatch(true)
 	var i uint64
 	for ; i < stripeNum; i++ {
 		clear(bat, i*stripeSize, &n)

@@ -19,3 +19,19 @@ func (m *PgMaps) GetPgParentId(pgId string) (string, error) {
 	}
 	return "", errors.New("pg not exist")
 }
+
+func (m *PgMaps) GetPgExpectedId(pgId string) (int32, error) {
+	array := strings.Split(pgId, ".")
+	pool, _ := strconv.Atoi(array[0])
+	id, _ := strconv.Atoi(array[1])
+	if pgmap, ok := m.Pgmaps[int32(pool)]; ok {
+		if pg, ok := pgmap.Pgmap[int32(id)]; ok {
+			for _, rep := range pg.Replicas {
+				if rep.OsdId == pg.ExpectedPrimaryId {
+					return rep.ReplicaIndex, nil
+				}
+			}
+		}
+	}
+	return 0, errors.New("pg not exist")
+}

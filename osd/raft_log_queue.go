@@ -121,6 +121,13 @@ func getTruncatableIndexes(ctx context.Context, r *Replica) (uint64, uint64, int
 	truncatableIndex := computeTruncatableIndex(
 		raftStatus, raftLogSize, targetSize, firstIndex, lastIndex, pendingSnapshotIndex)
 	// Return the number of truncatable indexes.
+	helper.Println(15, "getTruncatableIndexes():raftLogSize:", raftLogSize,
+		"targetSize:", targetSize,
+		"firstIndex:", firstIndex,
+		"lastIndex:", lastIndex,
+		"pendingSnapshotIndex:", pendingSnapshotIndex,
+		"truncatableIndex:", truncatableIndex,
+		"groupId:", r.GroupID)
 	return truncatableIndex - firstIndex, truncatableIndex, raftLogSize, nil
 }
 
@@ -176,7 +183,7 @@ func computeTruncatableIndex(
 	}
 	// Never truncate past the quorum commit index (this can only occur if
 	// firstIndex > quorumIndex).
-	if truncatableIndex > quorumIndex {
+	if truncatableIndex > quorumIndex && quorumIndex > firstIndex {
 		truncatableIndex = quorumIndex
 	}
 	// Never truncate past the last index. Naively, you would expect lastIndex to

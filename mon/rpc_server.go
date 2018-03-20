@@ -579,7 +579,7 @@ func allocateNewPgs(poolMap *protos.PoolMap, pgMaps *protos.PgMaps, osdMap *prot
 	startIndex := len(targetMap.Pgmap)
 	for i := 0; i < int(n)-startIndex; i++ {
 		id := int32(startIndex + i)
-		targetMap.Pgmap[id] = &protos.Pg{id, 0, make([]protos.PgReplica, 0), 1, 0, make([]int32, 0)}
+		targetMap.Pgmap[id] = &protos.Pg{id, 0, 0, make([]protos.PgReplica, 0), 1, 0, make([]int32, 0)}
 	}
 	hashRing := consistent.New(osdMap, poolMap.Pools[poolId].Policy)
 	err = updatePgMap(targetMap, poolMap, hashRing)
@@ -605,6 +605,7 @@ func updatePgMap(m *protos.PgMap, poolMap *protos.PoolMap, ring *consistent.Cons
 		oldReplicas := make([]protos.PgReplica, 0)
 		copy(oldReplicas, m.Pgmap[k].Replicas)
 		m.Pgmap[k].Replicas = m.Pgmap[k].Replicas[:0]
+		m.Pgmap[k].ExpectedPrimaryId = osds[0].Id
 		//		helper.Print(5, "osdids******************", m.Pgmap[k].OsdIds)
 
 		for _, value := range osds {

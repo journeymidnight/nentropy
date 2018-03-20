@@ -18,7 +18,6 @@ import (
 	"golang.org/x/net/context"
 
 	"bytes"
-	"github.com/journeymidnight/badger"
 	"github.com/journeymidnight/nentropy/osd/client"
 	"github.com/journeymidnight/nentropy/util/shuffle"
 	"golang.org/x/time/rate"
@@ -96,10 +95,11 @@ type Store struct {
 	//	raftRequestQueues map[multiraftbase.GroupID]*raftRequestQueue
 	scheduler *raftScheduler
 
-	raftLogQueue      *raftLogQueue      // Raft log truncation queue
-	raftSnapshotQueue *raftSnapshotQueue // Raft repair queue
-	scanner           *replicaScanner    // Replica scanner
-	coalescedMu       struct {
+	raftLogQueue        *raftLogQueue        // Raft log truncation queue
+	raftSnapshotQueue   *raftSnapshotQueue   // Raft repair queue
+	transferLeaderQueue *transferLeaderQueue // transfer leader queue
+	scanner             *replicaScanner      // Replica scanner
+	coalescedMu         struct {
 		syncutil.Mutex
 		heartbeats         map[multiraftbase.StoreIdent][]multiraftbase.RaftHeartbeat
 		heartbeatResponses map[multiraftbase.StoreIdent][]multiraftbase.RaftHeartbeat
@@ -974,6 +974,7 @@ func NewStore(cfg StoreConfig, eng engine.Engine, nodeDesc *multiraftbase.NodeDe
 	)
 	s.raftLogQueue = newRaftLogQueue(s, s.Db)
 	s.raftSnapshotQueue = newRaftSnapshotQueue(s)
+	//s.transferLeaderQueue = newTransferLeaderQueue(s, s.Db)
 	s.scanner.AddQueues(s.raftSnapshotQueue, s.raftLogQueue)
 	//}
 
@@ -1275,7 +1276,7 @@ func sendSnapshot(
 	//var alloc bufalloc.ByteAllocator
 	//n := 0
 
-	_ := snap.Engine.(*engine.BadgerDB)
+	//_ := snap.Engine.(*engine.BadgerDB)
 
 	for snap.Iter.Rewind(); ; snap.Iter.Next() {
 		if ok := snap.Iter.Valid(); !ok {

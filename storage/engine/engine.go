@@ -59,7 +59,7 @@ type Engine interface {
 	// NewBatch returns a new instance of a batched engine which wraps
 	// this engine. Batched engines accumulate all mutations and apply
 	// them atomically on a call to Commit().
-	NewBatch() Batch
+	NewBatch(update bool) Batch
 	// NewSnapshot returns a new instance of a read-only snapshot
 	// engine. Snapshots are instantaneous and, as long as they're
 	// released relatively quickly, inexpensive. Snapshots are released
@@ -70,12 +70,11 @@ type Engine interface {
 
 // Batch is the interface for batch specific operations.
 type Batch interface {
-	Writer
+	ReadWriter
 	// Commit atomically applies any batched updates to the underlying
 	// engine. This is a noop unless the engine was created via NewBatch(). If
 	// sync is true, the batch is synchronously committed to disk.
 	Commit() error
-	Close()
 }
 
 // SimpleIterator is an interface for iterating over key/value pairs in an
@@ -95,6 +94,7 @@ type SimpleIterator interface {
 	// range, or (false, err) if an error has occurred. Valid() will
 	// never return true with a non-nil error.
 	Valid() bool
+	ValidForPrefix(prefix []byte) bool
 	// Next advances the iterator to the next key/value in the
 	// iteration. After this call, Valid() will be true if the
 	// iterator was not positioned at the last key.
@@ -112,28 +112,4 @@ type Iterator interface {
 	SimpleIterator
 
 	Item() ItemIntf
-}
-
-// Stats is a set of RocksDB stats. These are all described in RocksDB
-//
-// Currently, we collect stats from the following sources:
-// 1. RocksDB's internal "tickers" (i.e. counters). They're defined in
-//    rocksdb/statistics.h
-// 2. DBEventListener, which implements RocksDB's EventListener interface.
-// 3. rocksdb::DB::GetProperty().
-//
-// This is a good resource describing RocksDB's memory-related stats:
-// https://github.com/facebook/rocksdb/wiki/Memory-usage-in-RocksDB
-type Stats struct {
-	BlockCacheHits                 int64
-	BlockCacheMisses               int64
-	BlockCacheUsage                int64
-	BlockCachePinnedUsage          int64
-	BloomFilterPrefixChecked       int64
-	BloomFilterPrefixUseful        int64
-	MemtableTotalSize              int64
-	Flushes                        int64
-	Compactions                    int64
-	TableReadersMemEstimate        int64
-	PendingCompactionBytesEstimate int64
 }

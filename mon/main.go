@@ -18,34 +18,27 @@
 package main
 
 import (
-	"math/rand"
-	"os"
-	"os/signal"
-	"syscall"
-	"time"
-
-	"google.golang.org/grpc"
-
 	"fmt"
-	"github.com/journeymidnight/badger"
-	"github.com/journeymidnight/badger/options"
 	"github.com/journeymidnight/nentropy/helper"
 	"github.com/journeymidnight/nentropy/log"
 	"github.com/journeymidnight/nentropy/memberlist"
+	"github.com/journeymidnight/nentropy/storage/engine"
+	"google.golang.org/grpc"
+	"math/rand"
 	"net"
+	"os"
+	"os/signal"
 	"strings"
+	"syscall"
+	"time"
 )
 
 var (
 	logger *log.Logger
 	cfg    *Config
 
-	WALstore *badger.DB
+	eng engine.Engine
 )
-
-type ServerState struct {
-	WALstore *badger.DB
-}
 
 func getMonDataDir() (string, error) {
 	dir, err := helper.GetDataDir(config.BaseDir, config.RaftId, true)
@@ -60,18 +53,13 @@ func initStorage() {
 	if err != nil {
 		helper.Fatal("Error creating data dir! err:", err)
 	}
-	dbOpts := badger.DefaultOptions
-	dbOpts.SyncWrites = true
-	dbOpts.Dir = dir
-	dbOpts.ValueDir = dir
-	dbOpts.TableLoadingMode = options.MemoryMap
-
-	WALstore, err = badger.Open(dbOpts)
+	opt := engine.KVOpt{Dir: dir}
+	eng, err = engine.NewBadgerDB(&opt)
 	helper.Checkf(err, "Error while creating badger KV WAL store")
 }
 
 func disposeStorage() {
-	WALstore.Close()
+	eng.Close()
 }
 
 func newGrpcServer() *grpc.Server {
@@ -112,7 +100,7 @@ func main() {
 
 	grpcSrv := newGrpcServer()
 
-	go StartRaftNodes(WALstore, grpcSrv, peers, ip+":"+port)
+	go StartRaftNodes(eng, grpcSrv, peers, ip+":"+port)
 
 	helper.Println(5, "raftid, advertiseaddr", cfg.RaftId, cfg.AdvertiseAddr)
 	memberlist.Init(true, false, cfg.RaftId, cfg.AdvertiseAddr, cfg.MemberBindPort, logger.Logger, cfg.JoinMemberAddr)

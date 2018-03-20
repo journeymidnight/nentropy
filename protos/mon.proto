@@ -161,10 +161,11 @@ message PgReplica {
 message Pg {
     int32 id = 1;
     int32 primary_id = 2;
-    repeated PgReplica replicas = 3 [(gogoproto.nullable) = false];
-    int32 next_replica_id = 4;
-    int32 parent_id = 5;
-    repeated int32 clildren = 6;
+    int32 expected_primary_id = 3;
+    repeated PgReplica replicas = 4 [(gogoproto.nullable) = false];
+    int32 next_replica_id = 5;
+    int32 parent_id = 6;
+    repeated int32 clildren = 7;
 }
 
 message PgStatus {
