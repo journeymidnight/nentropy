@@ -122,13 +122,14 @@ message SnapshotRequest {
     bytes kv_batch = 2 [(gogoproto.customname) = "KVBatch"];
     bytes key = 3;
     bytes val = 4;
+    int32 index = 5;
 
     // These are really raftpb.Entry, but we model them as raw bytes to avoid
     // roundtripping through memory. They are separate from the kv_batch to
     // allow flexibility in log implementations.
-    repeated bytes log_entries = 5;
+    repeated bytes log_entries = 6;
 
-    bool final = 6;
+    bool final = 7;
 }
 
 message SnapshotResponse {

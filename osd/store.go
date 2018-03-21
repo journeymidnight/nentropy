@@ -18,11 +18,13 @@ import (
 	"golang.org/x/net/context"
 
 	"bytes"
+	"github.com/coreos/etcd/snap"
 	"github.com/journeymidnight/nentropy/osd/client"
 	"github.com/journeymidnight/nentropy/util/shuffle"
 	"golang.org/x/time/rate"
 	"io"
 	"math"
+	"os"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -30,6 +32,7 @@ import (
 
 const (
 	storeDrainingMsg = "store is draining"
+	SNAP_CHUNK_SIZE  = 1 << 22
 )
 
 var storeSchedulerConcurrency = envutil.EnvOrDefaultInt(
@@ -128,6 +131,20 @@ func (s *Store) LoadGroupEngine(groupID multiraftbase.GroupID) engine.Engine {
 		helper.Fatal("Cannot convert to db handle when write data. Group:", string(groupID))
 	}
 	return eng
+}
+
+func (s *Store) ShutdownGroupEngine(groupID multiraftbase.GroupID) {
+	value, ok := s.engines.Load(groupID)
+	if !ok {
+		helper.Fatal("Cannot find db handle when write data. Group:", string(groupID))
+	}
+	eng, ok := value.(engine.Engine)
+	if !ok {
+		helper.Fatal("Cannot convert to db handle when write data. Group:", string(groupID))
+	}
+	eng.Close()
+	s.engines.Delete(groupID)
+	return
 }
 
 func (s *Store) processReady(ctx context.Context, id multiraftbase.GroupID) {
@@ -1010,6 +1027,14 @@ func (s *Store) getReplicaWorkDir(groupID multiraftbase.GroupID) (string, error)
 	return dir + "/" + string(groupID), nil
 }
 
+func (s *Store) getReplicaSnapDir(groupID multiraftbase.GroupID) (string, error) {
+	dir, err := helper.GetDataDir(s.cfg.BaseDir, uint64(s.cfg.NodeID), false)
+	if err != nil {
+		helper.Fatal("Error creating data dir! err:", err)
+	}
+	return dir + "/" + string(groupID) + ".snap", nil
+}
+
 func (s *Store) BootstrapGroup(initialValues []multiraftbase.KeyValue, group *multiraftbase.GroupDescriptor) error {
 	desc := *group
 	if err := desc.Validate(); err != nil {
@@ -1145,6 +1170,23 @@ func (s *Store) HandleSnapshot(
 
 	var batches [][]byte
 	var logEntries [][]byte
+	//eng := s.LoadGroupEngine(header.RaftMessageRequest.GroupID)
+	snapDir, err := s.getReplicaSnapDir(header.RaftMessageRequest.GroupID)
+	if err != nil {
+		helper.Panicln(5, "Error get ReplicaSnapDir path, err:", err)
+	}
+	_, err = os.Stat(snapDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			err := os.MkdirAll(snapDir, os.ModePerm)
+			if err != nil {
+				helper.Panicln(0, "Cannot create snap dir! err:", err)
+			}
+		} else {
+			helper.Panicln(5, "Error stat ReplicaSnapDir, err:", err)
+		}
+	}
+
 	for {
 		req, err := stream.Recv()
 		if err != nil {
@@ -1157,17 +1199,50 @@ func (s *Store) HandleSnapshot(
 		if req.KVBatch != nil {
 			batches = append(batches, req.KVBatch)
 		}
-		//helper.Println(5, "Receive key:", req.Key)
-		eng := s.LoadGroupEngine(header.RaftMessageRequest.GroupID)
-		err = stripeWrite(eng, req.Key, req.Val, 0, uint64(len(req.Val)))
+		helper.Println(5, "Receive key:", req.Key)
+
+		//err = stripeWrite(eng, req.Key, req.Val, 0, uint64(len(req.Val)))
+		//if err != nil {
+		//	helper.Panicln(5, "Error putting data to db, err:", err)
+		//}
+		filePath := snapDir + "/" + string(req.Key)
+		fd, err := os.OpenFile(filePath, os.O_CREATE|os.O_RDWR|os.O_APPEND, 644)
 		if err != nil {
-			helper.Panicln(5, "Error putting data to db, err:", err)
+			helper.Panicln(5, "Error open new badger file, err:", err, req.Key)
 		}
+		_, err = fd.Write(req.Val)
+		if err != nil {
+			helper.Panicln(5, "Error write badger file, err:", err, req.Key)
+		}
+		fd.Close()
 
 		if req.LogEntries != nil {
 			logEntries = append(logEntries, req.LogEntries...)
 		}
+
 		if req.Final {
+			s.ShutdownGroupEngine(header.RaftMessageRequest.GroupID)
+			replicaDir, err := s.getReplicaWorkDir(header.RaftMessageRequest.GroupID)
+			if err != nil {
+				helper.Panicln(5, "Error get ReplicaSnapDir path, err:", err)
+			}
+			err = os.RemoveAll(replicaDir)
+			if err != nil {
+				helper.Panicln(5, "Error RemoveAll replicaDir, err:", err, replicaDir)
+			}
+			os.Rename(snapDir, replicaDir)
+			if err != nil {
+				helper.Panicln(5, "Error Rename snapDir, err:", err, snapDir, replicaDir)
+			}
+
+			opt := engine.KVOpt{Dir: replicaDir}
+			eng, err := engine.NewBadgerDB(&opt)
+			if err != nil {
+				helper.Println(5, "Can not new a badger db.")
+				return err
+			}
+			s.engines.Store(header.RaftMessageRequest.GroupID, eng)
+
 			snapUUID, err := uuid.FromBytes(header.RaftMessageRequest.Message.Snapshot.Data)
 			if err != nil {
 				return sendSnapError(errors.Wrap(err, "invalid snapshot"))
@@ -1212,8 +1287,8 @@ func snapshotRateLimit(priority multiraftbase.SnapshotRequest_Priority,
 	}
 }
 
-func sendBatch(stream OutgoingSnapshotStream, key, val []byte) error {
-	return stream.Send(&multiraftbase.SnapshotRequest{Key: key, Val: val})
+func sendBatch(stream OutgoingSnapshotStream, key, val []byte, index int32) error {
+	return stream.Send(&multiraftbase.SnapshotRequest{Key: key, Val: val, Index: index})
 }
 
 // sendSnapshot sends an outgoing snapshot via a pre-opened GRPC stream.
@@ -1276,30 +1351,65 @@ func sendSnapshot(
 	//var alloc bufalloc.ByteAllocator
 	//n := 0
 
-	//_ := snap.Engine.(*engine.BadgerDB)
-
-	for snap.Iter.Rewind(); ; snap.Iter.Next() {
-		if ok := snap.Iter.Valid(); !ok {
-			break
-		}
-		item := snap.Iter.Item()
-		key := item.Key()
-		if !bytes.HasPrefix(key, []byte{'\x02'}) {
-			continue
-		}
-		oid := bytes.TrimPrefix(key, []byte{'\x02'})
-		val, err := StripeRead(snap.EngineSnap, oid, 0, math.MaxUint32)
-		if err != nil {
-			helper.Println(5, "Error reading data when snapshot", oid, "err:", err)
-			return errors.Wrapf(err, "Error reading data when  snapshot.")
-		}
-
-		helper.Println(5, "Send snapshot key:", key)
-		//helper.Println(5, "Send snapshot val:", val)
-		if err := sendBatch(stream, key, val); err != nil {
-			return err
-		}
+	db, ok := snap.Engine.(*engine.BadgerDB)
+	if !ok {
+		return errors.Wrapf(err, "Error assertion snap engine when snapshot.")
 	}
+	fds, err := db.QuickBackupPrepare()
+	if err != nil {
+		return errors.Wrapf(err, "Error Quick Backup Prepare when snapshot.")
+	}
+
+	for _, fd := range fds {
+		key := fd.Name()
+		state, err := fd.Stat()
+		if err != nil {
+			return errors.Wrapf(err, "file stat failed when snapshot.")
+		}
+		length := state.Size()
+		loop := int(length / SNAP_CHUNK_SIZE)
+		buf := make([]byte, 0, SNAP_CHUNK_SIZE)
+		for i := 0; i <= loop; i++ {
+			offset := SNAP_CHUNK_SIZE * i
+			n, err := fd.ReadAt(buf, int64(offset))
+			if n < SNAP_CHUNK_SIZE && err != io.EOF {
+				return errors.Wrapf(err, "read file %s failed at offset %d when snapshot.", key, i*SNAP_CHUNK_SIZE)
+			}
+			if err := sendBatch(stream, []byte(key), buf, int32(i)); err != nil {
+				return err
+			}
+			if err == io.EOF {
+				break
+			}
+		}
+
+	}
+	err = db.QuickBackupDone()
+	if err != nil {
+		errors.Wrapf(err, "Error Quick Backup Done when snapshot.")
+	}
+	//for snap.Iter.Rewind(); ; snap.Iter.Next() {
+	//	if ok := snap.Iter.Valid(); !ok {
+	//		break
+	//	}
+	//	item := snap.Iter.Item()
+	//	key := item.Key()
+	//	if !bytes.HasPrefix(key, []byte{'\x02'}) {
+	//		continue
+	//	}
+	//	oid := bytes.TrimPrefix(key, []byte{'\x02'})
+	//	val, err := StripeRead(snap.EngineSnap, oid, 0, math.MaxUint32)
+	//	if err != nil {
+	//		helper.Println(5, "Error reading data when snapshot", oid, "err:", err)
+	//		return errors.Wrapf(err, "Error reading data when  snapshot.")
+	//	}
+	//
+	//	helper.Println(5, "Send snapshot key:", key)
+	//	//helper.Println(5, "Send snapshot val:", val)
+	//	if err := sendBatch(stream, key, val); err != nil {
+	//		return err
+	//	}
+	//}
 
 	firstIndex := header.State.TruncatedState.Index + 1
 	endIndex := snap.RaftSnap.Metadata.Index + 1
@@ -1318,7 +1428,8 @@ func sendSnapshot(
 	if err := iterateEntries(ctx, snap.EngineSnap, groupID, firstIndex, endIndex, scanFunc); err != nil {
 		return err
 	}
-	helper.Println(5, "sendsnapshot, firstIndex:", firstIndex, " endIndex:", endIndex, " len(logEntries):", len(logEntries))
+
+	helper.Println(5, "sendsnapshot final")
 	req := &multiraftbase.SnapshotRequest{
 		LogEntries: logEntries,
 		Final:      true,

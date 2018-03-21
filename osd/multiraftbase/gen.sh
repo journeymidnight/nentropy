@@ -1,6 +1,6 @@
 #!/usr/local/bin/bash
 REPO_ROOT=`git rev-parse --show-toplevel`
-PROTO_DIR=${REPO_ROOT}/multiraft/multiraftbase
+PROTO_DIR=${REPO_ROOT}/osd/multiraftbase
 rm -rf *.pb.go
 
 GOGO_PROTOBUF_PACKAGE=github.com/gogo/protobuf
