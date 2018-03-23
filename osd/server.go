@@ -229,7 +229,6 @@ func (s *OsdServer) fetchAndStoreObjectFromParent(ctx context.Context, ba multir
 
 	}
 	defer conn.Close()
-	helper.Println(5, "migrate get start 1", child, st.parent)
 	client_mon := protos.NewMonitorClient(conn)
 	req := protos.GetPgStatusRequest{}
 	req.PgId = st.parent
@@ -239,7 +238,6 @@ func (s *OsdServer) fetchAndStoreObjectFromParent(ctx context.Context, ba multir
 		return errors.New("Error send rpc request! when fetchAndStoreObjectFromParent")
 
 	}
-	helper.Println(5, "migrate get start 2", child)
 	nodeId := res.Status.LeaderNodeId
 	member := memberlist.GetMemberByName(fmt.Sprintf("osd.%d", nodeId))
 	if member == nil {
@@ -247,7 +245,6 @@ func (s *OsdServer) fetchAndStoreObjectFromParent(ctx context.Context, ba multir
 		return errors.New("Exec GetMemberByName failed! when fetchAndStoreObjectFromParent")
 
 	}
-	helper.Println(5, "migrate get start 3", child)
 	conn_osd, err := grpc.Dial(member.Addr, grpc.WithInsecure())
 	if err != nil {
 		helper.Println(5, "fail to dial: %v, when try connect to member", err)
@@ -255,7 +252,6 @@ func (s *OsdServer) fetchAndStoreObjectFromParent(ctx context.Context, ba multir
 
 	}
 	defer conn_osd.Close()
-	helper.Println(5, "migrate get start 4", child)
 	client_osd := protos.NewOsdRpcClient(conn_osd)
 
 	oid := []byte{}

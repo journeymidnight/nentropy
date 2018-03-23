@@ -1,6 +1,7 @@
 package badger
 
 import (
+	"fmt"
 	"github.com/journeymidnight/badger/table"
 	"github.com/pkg/errors"
 	"io"
@@ -51,23 +52,34 @@ func closeAllFiles(files []*os.File) {
 func (db *DB) getAliveFiles() ([]*os.File, error) {
 	retFiles := make([]*os.File, 0)
 
-	//copy manifest file and open it
-	newPath := filepath.Join(db.opt.Dir, manifestBackupFilename)
-	mfd, err := os.OpenFile(newPath, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 644)
+	manifest := filepath.Join(db.opt.Dir, ManifestFilename)
+	fd, err := os.OpenFile(manifest, os.O_RDONLY, 0666)
 	if err != nil {
+		fmt.Printf("can not create new manifest")
 		db.elog.Errorf("open new manifest file failed")
 		return nil, err
 	}
-	retFiles = append(retFiles, mfd)
+	defer fd.Close()
+	//copy manifest file and open it
+	newPath := filepath.Join(db.opt.Dir, ManifestBackupFilename)
+	bfd, err := os.OpenFile(newPath, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0666)
+	if err != nil {
+		fmt.Printf("can not create new manifest")
+		db.elog.Errorf("open new manifest file failed")
+		return nil, err
+	}
 	db.manifest.appendLock.Lock()
-	_, copy_err := io.Copy(mfd, db.manifest.fp)
+
+	_, copy_err := io.Copy(bfd, fd)
 	if copy_err != nil {
 		db.manifest.appendLock.Unlock()
-		db.elog.Errorf("copy manifest file content failed")
+		db.elog.Errorf("getAliveFiles copy manifest file content failed")
 		closeAllFiles(retFiles)
 		return nil, err
 	}
+	bfd.Sync()
 	db.manifest.appendLock.Unlock()
+	retFiles = append(retFiles, bfd)
 
 	//get all sst fds
 	idMap := getIDMap(db.opt.Dir)
@@ -105,7 +117,6 @@ func (db *DB) getAliveFiles() ([]*os.File, error) {
 		}
 		found[fid] = struct{}{}
 	}
-
 	for fid := range found {
 		vpath := db.vlog.fpath(uint32(fid))
 		vfd, err := os.OpenFile(vpath, os.O_RDONLY, 0666)
@@ -115,7 +126,6 @@ func (db *DB) getAliveFiles() ([]*os.File, error) {
 		}
 		retFiles = append(retFiles, vfd)
 	}
-
 	return retFiles, nil
 }
 
@@ -126,6 +136,8 @@ func (db *DB) QuickBackupPrepare() ([]*os.File, error) {
 }
 
 func (db *DB) QuickBackupDone() error {
+	newPath := filepath.Join(db.opt.Dir, ManifestBackupFilename)
+	os.Remove(newPath)
 	db.enableVlogGc()
 	return db.enableDeleteFile()
 }

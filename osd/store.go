@@ -4,27 +4,26 @@ import (
 	"fmt"
 	"github.com/coreos/etcd/raft"
 	"github.com/coreos/etcd/raft/raftpb"
+	"github.com/journeymidnight/badger"
 	"github.com/journeymidnight/nentropy/helper"
 	"github.com/journeymidnight/nentropy/log"
+	"github.com/journeymidnight/nentropy/osd/client"
 	"github.com/journeymidnight/nentropy/osd/multiraftbase"
 	"github.com/journeymidnight/nentropy/rpc"
 	"github.com/journeymidnight/nentropy/storage/engine"
 	"github.com/journeymidnight/nentropy/util/envutil"
+	"github.com/journeymidnight/nentropy/util/shuffle"
 	"github.com/journeymidnight/nentropy/util/stop"
 	"github.com/journeymidnight/nentropy/util/syncutil"
 	"github.com/journeymidnight/nentropy/util/timeutil"
 	"github.com/journeymidnight/nentropy/util/uuid"
 	"github.com/pkg/errors"
 	"golang.org/x/net/context"
-
-	"bytes"
-	"github.com/coreos/etcd/snap"
-	"github.com/journeymidnight/nentropy/osd/client"
-	"github.com/journeymidnight/nentropy/util/shuffle"
 	"golang.org/x/time/rate"
 	"io"
 	"math"
 	"os"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -686,7 +685,6 @@ func (s *Store) processRaftRequest(
 	ctx context.Context, req *multiraftbase.RaftMessageRequest, inSnap IncomingSnapshot,
 ) (pErr *multiraftbase.Error) {
 	// Lazily create the replica.
-	helper.Printf(20, "Enter processRaftRequest() ")
 	r, _, err := s.getOrCreateReplica(
 		ctx,
 		req.GroupID,
@@ -1186,7 +1184,7 @@ func (s *Store) HandleSnapshot(
 			helper.Panicln(5, "Error stat ReplicaSnapDir, err:", err)
 		}
 	}
-
+	helper.Printf(5, "start receive kvs r%s", header.State.Desc.GroupID)
 	for {
 		req, err := stream.Recv()
 		if err != nil {
@@ -1195,28 +1193,29 @@ func (s *Store) HandleSnapshot(
 		if req.Header != nil {
 			return sendSnapError(errors.New("client error: provided a header mid-stream"))
 		}
-
 		if req.KVBatch != nil {
 			batches = append(batches, req.KVBatch)
 		}
-		helper.Println(5, "Receive key:", req.Key)
 
 		//err = stripeWrite(eng, req.Key, req.Val, 0, uint64(len(req.Val)))
 		//if err != nil {
 		//	helper.Panicln(5, "Error putting data to db, err:", err)
 		//}
-		filePath := snapDir + "/" + string(req.Key)
-		fd, err := os.OpenFile(filePath, os.O_CREATE|os.O_RDWR|os.O_APPEND, 644)
-		if err != nil {
-			helper.Panicln(5, "Error open new badger file, err:", err, req.Key)
+		if req.Key != nil {
+			filePath := snapDir + "/" + string(req.Key)
+			fd, err := os.OpenFile(filePath, os.O_CREATE|os.O_RDWR|os.O_APPEND, 0666)
+			if err != nil {
+				helper.Panicln(5, "Error open new badger file, err:", err, string(req.Key))
+			}
+			_, err = fd.Write(req.Val)
+			if err != nil {
+				helper.Panicln(5, "Error write badger file, err:", err, string(req.Key))
+			}
+			fd.Close()
 		}
-		_, err = fd.Write(req.Val)
-		if err != nil {
-			helper.Panicln(5, "Error write badger file, err:", err, req.Key)
-		}
-		fd.Close()
 
 		if req.LogEntries != nil {
+			helper.Printf(5, "receive log entrys r%s", header.State.Desc.GroupID)
 			logEntries = append(logEntries, req.LogEntries...)
 		}
 
@@ -1234,7 +1233,6 @@ func (s *Store) HandleSnapshot(
 			if err != nil {
 				helper.Panicln(5, "Error Rename snapDir, err:", err, snapDir, replicaDir)
 			}
-
 			opt := engine.KVOpt{Dir: replicaDir}
 			eng, err := engine.NewBadgerDB(&opt)
 			if err != nil {
@@ -1258,7 +1256,6 @@ func (s *Store) HandleSnapshot(
 			if header.RaftMessageRequest.ToReplica.ReplicaID == 0 {
 				inSnap.snapType = snapTypePreemptive
 			}
-
 			if err := s.processRaftRequest(ctx, &header.RaftMessageRequest, inSnap); err != nil {
 				return sendSnapError(errors.Wrap(err.GoError(), "failed to apply snapshot"))
 			}
@@ -1359,21 +1356,36 @@ func sendSnapshot(
 	if err != nil {
 		return errors.Wrapf(err, "Error Quick Backup Prepare when snapshot.")
 	}
-
+	helper.Printf(5, "QuickBackupPrepare returned, with opened fds %d", len(fds))
 	for _, fd := range fds {
-		key := fd.Name()
+		path := fd.Name()
+		key := filepath.Base(path)
+		if key == badger.ManifestBackupFilename {
+			key = badger.ManifestFilename
+		}
 		state, err := fd.Stat()
 		if err != nil {
 			return errors.Wrapf(err, "file stat failed when snapshot.")
 		}
 		length := state.Size()
 		loop := int(length / SNAP_CHUNK_SIZE)
-		buf := make([]byte, 0, SNAP_CHUNK_SIZE)
+		buf := make([]byte, SNAP_CHUNK_SIZE)
+		helper.Printf(5, "will send bach, key:%s, length:%d, looptime:%d", key, length, loop)
 		for i := 0; i <= loop; i++ {
 			offset := SNAP_CHUNK_SIZE * i
+			if length >= SNAP_CHUNK_SIZE {
+				buf = buf[:]
+			} else {
+				buf = buf[:length]
+			}
 			n, err := fd.ReadAt(buf, int64(offset))
-			if n < SNAP_CHUNK_SIZE && err != io.EOF {
+			if err != io.EOF && err != nil {
+				helper.Printf(5, "enter error case, key:%s, bytes:%d, offset:%d, err:%v", key, n, offset, err)
 				return errors.Wrapf(err, "read file %s failed at offset %d when snapshot.", key, i*SNAP_CHUNK_SIZE)
+			}
+			helper.Printf(5, "real send bach, key:%s, bytes:%d, offset:%d", key, n, offset)
+			if n <= 0 {
+				break
 			}
 			if err := sendBatch(stream, []byte(key), buf, int32(i)); err != nil {
 				return err
@@ -1381,13 +1393,16 @@ func sendSnapshot(
 			if err == io.EOF {
 				break
 			}
+			length = length - SNAP_CHUNK_SIZE
 		}
 
 	}
+	helper.Println(5, "exec QuickBackupDone")
 	err = db.QuickBackupDone()
 	if err != nil {
 		errors.Wrapf(err, "Error Quick Backup Done when snapshot.")
 	}
+	helper.Println(5, "exec QuickBackupDone return")
 	//for snap.Iter.Rewind(); ; snap.Iter.Next() {
 	//	if ok := snap.Iter.Valid(); !ok {
 	//		break
@@ -1424,7 +1439,7 @@ func sendSnapshot(
 	}
 
 	groupID := header.State.Desc.GroupID
-
+	helper.Println(5, "exec iterateEntries")
 	if err := iterateEntries(ctx, snap.EngineSnap, groupID, firstIndex, endIndex, scanFunc); err != nil {
 		return err
 	}

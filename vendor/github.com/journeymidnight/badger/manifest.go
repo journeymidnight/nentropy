@@ -89,7 +89,7 @@ const (
 	// ManifestFilename is the filename for the manifest file.
 	ManifestFilename                  = "MANIFEST"
 	manifestRewriteFilename           = "MANIFEST-REWRITE"
-	manifestBackupFilename            = "MANIFEST-BACKUP"
+	ManifestBackupFilename            = "MANIFEST-BACKUP"
 	manifestDeletionsRewriteThreshold = 10000
 	manifestDeletionsRatio            = 10
 )
