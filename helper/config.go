@@ -129,7 +129,7 @@ func (c *Config) parseCmdArgs() {
 	flag.Uint64Var(&c.RaftId, "idx", DefaultConfig.RaftId,
 		"RAFT ID that this server will use to join RAFT cluster.")
 	flag.StringVar(&c.BaseDir, "baseDir", "./basedir",
-		"RAFT ID that this server will use to join RAFT cluster.")
+		"Base directory where nentropy stores data")
 
 	flag.Parse()
 	if !flag.Parsed() {
