@@ -48,7 +48,7 @@ func getOSDDataDir(baseDir string, id int) string {
 func getOsdMap() (*protos.OsdMap, error) {
 	mon := memberlist.GetLeaderMon()
 	helper.Println(5, "Connect to mon ", mon.Addr)
-	conn, err := grpc.Dial(mon.Addr, grpc.WithInsecure())
+	conn, err := grpc.Dial(mon.Addr, grpc.WithInsecure(), grpc.WithBlock())
 	if err != nil {
 		helper.Printf(5, "fail to dial: %v", err)
 		return nil, err
@@ -70,7 +70,7 @@ func getPgWorkDir(string multiraftbase.GroupID) (string, error) {
 
 func getPgMaps() (*protos.PgMaps, error) {
 	mon := memberlist.GetLeaderMon()
-	conn, err := grpc.Dial(mon.Addr, grpc.WithInsecure())
+	conn, err := grpc.Dial(mon.Addr, grpc.WithInsecure(), grpc.WithBlock())
 	if err != nil {
 		helper.Printf(5, "fail to dial: %v", err)
 		return nil, err
@@ -134,7 +134,7 @@ func NewOsdServer(ctx context.Context, cfg Config, stopper *stop.Stopper) (*OsdS
 	if err != nil {
 		return nil, err
 	}
-
+	helper.Println(5, "get osd map at startup")
 	//check if osd not existed in osd map
 	found := false
 	for k, _ := range osdmap.MemberList {
@@ -154,7 +154,7 @@ func NewOsdServer(ctx context.Context, cfg Config, stopper *stop.Stopper) (*OsdS
 		return nil, err
 	}
 	s.pgMaps = pgmaps
-
+	helper.Println(5, "get pg maps at startup")
 	//TODO: load existed pgs
 
 	//i := 1
@@ -222,7 +222,7 @@ func (s *OsdServer) fetchAndStoreObjectFromParent(ctx context.Context, ba multir
 		helper.Println(5, "can not get primary mon addr yet!")
 		return errors.New("can not get primary mon addr yet! when fetchAndStoreObjectFromParent")
 	}
-	conn, err := grpc.Dial(mon.Addr, grpc.WithInsecure())
+	conn, err := grpc.Dial(mon.Addr, grpc.WithInsecure(), grpc.WithBlock())
 	if err != nil {
 		helper.Println(5, "fail to dial: %v, when try connect to mon", err)
 		return errors.New("fail to dial: when try connect to mon! when fetchAndStoreObjectFromParent")

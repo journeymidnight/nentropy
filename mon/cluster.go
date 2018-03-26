@@ -91,7 +91,7 @@ func putOp(t *protos.Transaction, prefix string, epoch uint64, data []byte) erro
 
 func syncPgMapsToEachOsd(addr string) {
 	pgmaps := clus.pgMaps
-	conn, err := grpc.Dial(addr, grpc.WithInsecure())
+	conn, err := grpc.Dial(addr, grpc.WithInsecure(), grpc.WithBlock())
 	if err != nil {
 		helper.Println(5, "fail to dial: %v", err)
 	}

@@ -44,7 +44,7 @@ func (m *migrateCenter) processMigrateTask(child string) {
 		helper.Println(5, "can not get primary mon addr yet!")
 		return
 	}
-	conn, err := grpc.Dial(mon.Addr, grpc.WithInsecure())
+	conn, err := grpc.Dial(mon.Addr, grpc.WithInsecure(), grpc.WithBlock())
 	if err != nil {
 		helper.Println(5, "fail to dial: %v, when try connect to mon", err)
 		return
@@ -68,7 +68,7 @@ func (m *migrateCenter) processMigrateTask(child string) {
 		return
 	}
 	helper.Println(5, "migrate start 3", child)
-	conn_osd, err := grpc.Dial(member.Addr, grpc.WithInsecure())
+	conn_osd, err := grpc.Dial(member.Addr, grpc.WithInsecure(), grpc.WithBlock())
 	if err != nil {
 		helper.Println(5, "fail to dial: %v, when try connect to mon", err)
 		return

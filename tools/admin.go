@@ -254,7 +254,7 @@ func putObject(pgname string, osd string, oid []byte, filename string) error {
 		return err
 	}
 
-	conn, err := grpc.Dial(osd, grpc.WithInsecure())
+	conn, err := grpc.Dial(osd, grpc.WithInsecure(), grpc.WithBlock())
 	if err != nil {
 		log.Fatalf("fail to dial: %v", err)
 	}
@@ -285,7 +285,7 @@ func getObject(pgname string, osd string, oid []byte, filename string) error {
 	if *length == 0 {
 		*length = MAX_SIZE
 	}
-	conn, err := grpc.Dial(osd, grpc.WithInsecure())
+	conn, err := grpc.Dial(osd, grpc.WithInsecure(), grpc.WithBlock())
 	if err != nil {
 		log.Fatalf("Fail to dial: %v", err)
 	}
@@ -328,7 +328,7 @@ func deleteObject(pgname string, osd string, oid []byte) error {
 	if *length == 0 {
 		*length = MAX_SIZE
 	}
-	conn, err := grpc.Dial(osd, grpc.WithInsecure())
+	conn, err := grpc.Dial(osd, grpc.WithInsecure(), grpc.WithBlock())
 	if err != nil {
 		log.Fatalf("Fail to dial: %v", err)
 	}
@@ -428,7 +428,7 @@ func objectHandle() {
 
 func getMonMap(addr string) *pb.MonConfigReply {
 	var opts []grpc.DialOption
-	opts = append(opts, grpc.WithInsecure())
+	opts = append(opts, grpc.WithInsecure(), grpc.WithBlock())
 	conn, err := grpc.Dial(addr, opts...)
 	if err != nil {
 		log.Fatalf("fail to dial: %v", err)
@@ -458,7 +458,7 @@ func main() {
 	}
 	fmt.Println("leader is ", monLeader)
 	var opts []grpc.DialOption
-	opts = append(opts, grpc.WithInsecure())
+	opts = append(opts, grpc.WithInsecure(), grpc.WithBlock())
 	conn, err := grpc.Dial(monLeader, opts...)
 	if err != nil {
 		log.Fatalf("fail to dial: %v", err)
