@@ -14,8 +14,8 @@ import (
 	"github.com/pkg/errors"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
+	"math"
 	"net"
-	"strconv"
 	"sync"
 	"time"
 )
@@ -30,13 +30,18 @@ type OsdServer struct {
 	store             *Store
 	engine            engine.Engine
 	pgMaps            *protos.PgMaps
-	pgState           sync.Map
+	poolMap           *protos.PoolMap
 	leaderPgStatusMap sync.Map //map[string]protos.PgStatus
-	mapLock           *sync.Mutex
+	pgStatusLock      *sync.Mutex
 	confChangeLock    *sync.Mutex
 	mc                *migrateCenter
 	lastPgMapsEpoch   uint64
 	storeCfg          StoreConfig // Config to use and pass to stores
+
+	// used to create pgmap
+	pgMapChan chan *protos.PgMaps
+	waitChan  chan struct{}
+	stopping  chan struct{}
 }
 
 const OSD_STATUS_REPORT_PERIOD = 2 * time.Second
@@ -68,7 +73,7 @@ func getPgWorkDir(string multiraftbase.GroupID) (string, error) {
 	return "", nil
 }
 
-func getPgMaps() (*protos.PgMaps, error) {
+func getPgMaps(epoch uint64) (*protos.PgMaps, error) {
 	mon := memberlist.GetLeaderMon()
 	conn, err := grpc.Dial(mon.Addr, grpc.WithInsecure(), grpc.WithBlock())
 	if err != nil {
@@ -77,7 +82,7 @@ func getPgMaps() (*protos.PgMaps, error) {
 	}
 	defer conn.Close()
 	client := protos.NewMonitorClient(conn)
-	req := protos.PgConfigRequest{"", protos.PgConfigRequest_LIST, "", 0}
+	req := protos.PgConfigRequest{"", protos.PgConfigRequest_LIST, "", 0, epoch}
 	reply, err := client.PgConfig(context.Background(), &req)
 	if err != nil {
 		fmt.Println("list osds error: ", err)
@@ -87,7 +92,7 @@ func getPgMaps() (*protos.PgMaps, error) {
 }
 
 func getOsdSysDataDir() (string, error) {
-	dir, err := helper.GetDataDir(config.BaseDir, uint64(config.NodeID), false)
+	dir, err := helper.GetDataDir(config.BaseDir, uint64(config.NodeID), false, true)
 	if err != nil {
 		helper.Fatal("Error creating data dir! err:", err)
 	}
@@ -105,7 +110,7 @@ func NewOsdServer(ctx context.Context, cfg Config, stopper *stop.Stopper) (*OsdS
 		cfg:            cfg,
 		nodeID:         fmt.Sprintf("%d.%d", cfg.NodeType, cfg.NodeID),
 		confChangeLock: &sync.Mutex{},
-		mapLock:        &sync.Mutex{},
+		pgStatusLock:   &sync.Mutex{},
 		mc:             &migrateCenter{},
 	}
 
@@ -148,13 +153,6 @@ func NewOsdServer(ctx context.Context, cfg Config, stopper *stop.Stopper) (*OsdS
 		return nil, errors.New(fmt.Sprintf("Invaid osd id %d, should create osd first", cfg.NodeID))
 	}
 
-	//get pgsmap
-	pgmaps, err := getPgMaps()
-	if err != nil {
-		return nil, err
-	}
-	s.pgMaps = pgmaps
-	helper.Println(5, "get pg maps at startup")
 	//TODO: load existed pgs
 
 	//i := 1
@@ -205,6 +203,11 @@ func NewOsdServer(ctx context.Context, cfg Config, stopper *stop.Stopper) (*OsdS
 	if err := s.store.Start(ctx, stopper); err != nil {
 		return nil, err
 	}
+
+	s.waitChan = make(chan struct{}, 4096)
+	s.stopping = make(chan struct{})
+	s.pgMapChan = make(chan *protos.PgMaps, 4096)
+	go s.createReplicaLoop()
 
 	return s, nil
 }
@@ -382,7 +385,11 @@ func (s *OsdServer) sendOsdStatusToMon(addr string) error {
 			helper.Println(5, "find pgid in map", v, req.LeaderPgsStatus[v])
 		} else {
 			helper.Println(5, "not find pgid in map", v)
-			req.LeaderPgsStatus[v] = protos.PgStatus{int32(s.cfg.NodeID), protos.PG_STATE_UNINITIAL, 0}
+			req.LeaderPgsStatus[v] = protos.PgStatus{
+				LeaderNodeId: int32(s.cfg.NodeID),
+				Status:       protos.PG_STATE_UNINITIAL,
+				MigratedCnt:  0,
+			}
 		}
 	}
 	ctx := context.Background()
@@ -407,6 +414,60 @@ func (s *OsdServer) SentOsdStatus() error {
 	return s.sendOsdStatusToMon(mon.Addr)
 }
 
+func (s *OsdServer) getPGStatusFromMon(addr string, groupId multiraftbase.GroupID) (*protos.PgStatus, error) {
+	conn, err := grpc.Dial(addr, grpc.WithInsecure())
+	if err != nil {
+		helper.Println(5, "fail to dial: %v", err)
+		return nil, err
+	}
+	defer conn.Close()
+	client := protos.NewMonitorClient(conn)
+	ctx := context.Background()
+	req := protos.GetPgStatusRequest{}
+	req.PgId = string(groupId)
+	res, err := client.GetPgStatus(ctx, &req)
+	if err != nil {
+		helper.Println(5, "Error send rpc request!")
+		return nil, err
+	}
+	status := res.GetStatus()
+
+	return status, nil
+
+}
+
+func (s *OsdServer) GetPGStatus(groupId multiraftbase.GroupID) (*protos.PgStatus, error) {
+	mon := memberlist.GetLeaderMon()
+	if mon == nil {
+		helper.Println(5, "can not get primary mon addr yet!")
+		return nil, errors.New("can not get primary mon addr yet!")
+	}
+	return s.getPGStatusFromMon(mon.Addr, groupId)
+}
+
+func (s *OsdServer) GetPoolMap() (*protos.PoolMap, error) {
+	mon := memberlist.GetLeaderMon()
+	if mon == nil {
+		helper.Println(5, "can not get primary mon addr yet!")
+		return nil, errors.New("can not get primary mon addr yet!")
+	}
+
+	conn, err := grpc.Dial(mon.Addr, grpc.WithInsecure())
+	if err != nil {
+		helper.Println(5, "fail to dial: %v", err)
+		return nil, err
+	}
+	defer conn.Close()
+	client := protos.NewMonitorClient(conn)
+	req := protos.PoolConfigRequest{"", protos.PoolConfigRequest_LIST, "", 0, 0, 0}
+	reply, err := client.PoolConfig(context.Background(), &req)
+	if err != nil {
+		fmt.Println("get pools error: ", err)
+		return nil, err
+	}
+	return reply.GetMap(), nil
+}
+
 // Start starts the server on the specified port, starts gossip and initializes
 // the node using the engines from the server's context.
 //
@@ -423,7 +484,19 @@ func (s *OsdServer) Start(ctx context.Context) error {
 	//	s.grpc.Stop()
 	//})
 
+	//s.pgMaps
+	pgmaps, err := getPgMaps(0)
+	if err != nil {
+		return err
+	}
+	s.pgMaps = pgmaps
+	helper.Println(5, "pgmaps.epoch:", pgmaps.Epoch, " pool count:", len(pgmaps.Pgmaps))
+
+	s.initPGState(pgmaps)
+	s.createOrRemoveReplica(pgmaps)
+
 	s.stopper.RunWorker(workersCtx, func(context.Context) {
+		time.Sleep(1 * time.Second)
 		s.grpc.Serve(Listener)
 	})
 
@@ -445,19 +518,204 @@ func (s *OsdServer) Start(ctx context.Context) error {
 		}
 
 	})
-	//s.pgMaps
-
-	s.createOrRemoveReplica()
 
 	return nil
 }
 
-func UpdatePgStatusMap(pgId string, status int32, cnt int64) {
-	Server.mapLock.Lock()
-	defer Server.mapLock.Unlock()
-	Server.leaderPgStatusMap.Store(pgId, &protos.PgStatus{int32(Server.cfg.NodeID), status, cnt})
+func (s *OsdServer) delReplicasToPGState(reps []protos.PgReplica, groupID multiraftbase.GroupID) ([]protos.PgReplica, error) {
+	Server.pgStatusLock.Lock()
+	defer Server.pgStatusLock.Unlock()
+
+	var pgStatus *protos.PgStatus
+	if value, ok := Server.leaderPgStatusMap.Load(string(groupID)); ok {
+		pgStatus = value.(*protos.PgStatus)
+	} else {
+		pgStatus = &protos.PgStatus{}
+	}
+	replicas := make([]protos.PgReplica, 0)
+	for _, replica := range pgStatus.Members {
+		var exist bool
+		for _, rep := range reps {
+			if replica.ReplicaIndex == rep.ReplicaIndex && replica.OsdId == rep.OsdId {
+				exist = true
+			}
+		}
+		if !exist {
+			replicas = append(replicas, replica)
+		}
+	}
+	pgStatus.Members = replicas
+	s.leaderPgStatusMap.Store(string(groupID), pgStatus)
+	s.WritePgStatusMap(string(groupID), pgStatus)
+	return nil, nil
 }
 
+func (s *OsdServer) addReplicasToPGState(reps []protos.PgReplica, groupID multiraftbase.GroupID) ([]protos.PgReplica, error) {
+	Server.pgStatusLock.Lock()
+	defer Server.pgStatusLock.Unlock()
+
+	var pgStatus *protos.PgStatus
+	if value, ok := Server.leaderPgStatusMap.Load(string(groupID)); ok {
+		pgStatus = value.(*protos.PgStatus)
+	} else {
+		pgStatus = &protos.PgStatus{}
+	}
+	replicas := make([]protos.PgReplica, 0)
+	for _, replica := range pgStatus.Members {
+		replicas = append(replicas, replica)
+	}
+
+	var newReplica []protos.PgReplica
+	for _, rep := range reps {
+		var exist bool
+		for _, replica := range pgStatus.Members {
+			if replica.ReplicaIndex == rep.ReplicaIndex && replica.OsdId == rep.OsdId {
+				exist = true
+			}
+		}
+		if !exist {
+			replicas = append(replicas, rep)
+			newReplica = append(newReplica, rep)
+		}
+	}
+	pgStatus.Members = replicas
+	s.leaderPgStatusMap.Store(string(groupID), pgStatus)
+	s.WritePgStatusMap(string(groupID), pgStatus)
+	return newReplica, nil
+}
+
+func PrintPgStatusMap() {
+	Server.pgStatusLock.Lock()
+	defer Server.pgStatusLock.Unlock()
+	helper.Println(5, "--------pg state---------")
+	f := func(key, value interface{}) bool {
+		pgId := key.(string)
+		pgStatus := value.(*protos.PgStatus)
+
+		helper.Printf(5, " GroupID: %s ", pgId)
+		helper.Printf(5, "Member replica ")
+		for _, rep := range pgStatus.Members {
+			helper.Printf(5, " %d:%d ", rep.OsdId, rep.ReplicaIndex)
+		}
+		helper.Printf(5, "\n")
+		return true
+	}
+	Server.leaderPgStatusMap.Range(f)
+}
+
+func GetPgMember(pgId string) ([]protos.PgReplica, error) {
+	Server.pgStatusLock.Lock()
+	defer Server.pgStatusLock.Unlock()
+	var pgStatus *protos.PgStatus
+	if value, ok := Server.leaderPgStatusMap.Load(pgId); ok {
+		pgStatus = value.(*protos.PgStatus)
+	} else {
+		pgStatus = &protos.PgStatus{}
+	}
+	member := pgStatus.Members
+	return member, nil
+}
+
+func UpdatePgMemberMap(pgId string, member []protos.PgReplica) {
+	Server.pgStatusLock.Lock()
+	defer Server.pgStatusLock.Unlock()
+	var pgStatus *protos.PgStatus
+	if value, ok := Server.leaderPgStatusMap.Load(pgId); ok {
+		pgStatus = value.(*protos.PgStatus)
+	} else {
+		pgStatus = &protos.PgStatus{}
+	}
+	pgStatus.Members = member
+	Server.leaderPgStatusMap.Store(pgId, pgStatus)
+}
+
+func UpdatePgStatusMap(pgId string, status int32, cnt int64) {
+	Server.pgStatusLock.Lock()
+	defer Server.pgStatusLock.Unlock()
+	var pgStatus *protos.PgStatus
+	if value, ok := Server.leaderPgStatusMap.Load(pgId); ok {
+		pgStatus = value.(*protos.PgStatus)
+	} else {
+		pgStatus = &protos.PgStatus{}
+	}
+	pgStatus.LeaderNodeId = int32(Server.cfg.NodeID)
+	pgStatus.Status = status
+	pgStatus.MigratedCnt = cnt
+
+	Server.leaderPgStatusMap.Store(pgId, pgStatus)
+}
+
+func (s *OsdServer) InitPgStatusMap(pgId string) (*protos.PgStatus, error) {
+	ok := s.store.isExistReplicaWorkDir(multiraftbase.GroupID(pgId))
+	if !ok {
+		return nil, nil
+	}
+	eng, err := s.store.GetGroupStore(multiraftbase.GroupID(pgId))
+	if err != nil {
+		helper.Fatalln("Can not new a badger db.")
+	}
+
+	data, err := StripeRead(eng, []byte("system_pg_state"), 0, math.MaxUint32)
+	if err != nil {
+		helper.Check(err)
+	}
+	pgStatus := &protos.PgStatus{}
+	err = pgStatus.Unmarshal(data)
+	if err != nil {
+		helper.Check(err)
+	}
+
+	return pgStatus, nil
+}
+
+func (s *OsdServer) WritePgStatusMap(pgId string, pgStatus *protos.PgStatus) error {
+
+	eng, err := s.store.GetGroupStore(multiraftbase.GroupID(pgId))
+	if err != nil {
+		helper.Fatalln("Can not new a badger db.")
+	}
+
+	data, err := pgStatus.Marshal()
+	if err != nil {
+		helper.Check(err)
+	}
+
+	err = stripeWrite(eng, []byte("system_pg_state"), data, 0, uint64(len(data)))
+	if err != nil {
+		helper.Check(err)
+	}
+	return nil
+}
+
+func (s *OsdServer) SetPgState(pgId string, pgState int32) error {
+	Server.pgStatusLock.Lock()
+	defer Server.pgStatusLock.Unlock()
+	var pgStatus *protos.PgStatus
+	if value, ok := Server.leaderPgStatusMap.Load(pgId); ok {
+		pgStatus = value.(*protos.PgStatus)
+	} else {
+		pgStatus = &protos.PgStatus{}
+	}
+	pgStatus.Status = pgState
+	data, err := pgStatus.Marshal()
+	if err != nil {
+		return err
+	}
+
+	b := &client.Batch{}
+	b.Header.GroupID = multiraftbase.GroupID(pgId)
+	b.AddRawRequest(&multiraftbase.PutRequest{
+		Key:   multiraftbase.Key([]byte("system_pg_state")),
+		Value: multiraftbase.Value{Offset: 0, Len: uint64(len(data)), RawBytes: data},
+	})
+	if err := s.store.Db.Run(context.Background(), b); err != nil {
+		helper.Printf(5, "Error run batch! %s", err)
+		return err
+	}
+	return nil
+}
+
+/*
 func (s *OsdServer) SetPgState(pgId string, pgState int32) error {
 	b := &client.Batch{}
 	b.Header.GroupID = multiraftbase.GroupID(pgId)
@@ -472,7 +730,20 @@ func (s *OsdServer) SetPgState(pgId string, pgState int32) error {
 	}
 	return nil
 }
+*/
+func (s *OsdServer) GetPgState(pgId string) (int32, error) {
+	Server.pgStatusLock.Lock()
+	defer Server.pgStatusLock.Unlock()
+	var pgStatus *protos.PgStatus
+	if value, ok := Server.leaderPgStatusMap.Load(pgId); ok {
+		pgStatus = value.(*protos.PgStatus)
+	} else {
+		pgStatus = &protos.PgStatus{}
+	}
+	return pgStatus.Status, nil
+}
 
+/*
 func (s *OsdServer) GetPgState(pgId string) (int32, error) {
 	b := &client.Batch{}
 	b.Header.GroupID = multiraftbase.GroupID(pgId)
@@ -487,7 +758,7 @@ func (s *OsdServer) GetPgState(pgId string) (int32, error) {
 	ret, _ := strconv.Atoi(string(state))
 	return int32(ret), nil
 }
-
+*/
 func (s *OsdServer) GetPgStateFromMap(pgId string) (int32, error) {
 	value, ok := Server.leaderPgStatusMap.Load(pgId)
 	if !ok {
@@ -500,6 +771,10 @@ func GetPgState(pgId string) (int32, error) {
 	return Server.GetPgState(pgId)
 }
 
+func GetPoolSize(pgId string) (int32, error) {
+	return Server.poolMap.GetPoolSize(pgId)
+}
+
 func GetExpectedReplicaId(pgId string) (int32, bool) {
 	id, err := Server.pgMaps.GetPgExpectedId(pgId)
 	if err != nil {
@@ -509,13 +784,27 @@ func GetExpectedReplicaId(pgId string) (int32, bool) {
 	return id, true
 }
 
+func GetPgReplicas(pgId string) ([]protos.PgReplica, bool) {
+	reps, err := Server.pgMaps.GetPgReplicas(pgId)
+	if err != nil {
+		helper.Printf(5, "GetExpectedPrimaryId failed:%d", pgId)
+		return nil, false
+	}
+	return reps, true
+}
+
+func ReplicaDelReplicaCallback(reps []protos.PgReplica, groupID multiraftbase.GroupID) {
+	helper.Println(5, "group:", groupID, "del rep:", reps)
+	go Server.delReplicasToPGState(reps, groupID)
+}
+
 func ReplicaStateChangeCallback(pgId string, replicaState string) {
 	helper.Logger.Println(5, fmt.Sprintf("enter ReplicaStateChangeCallback %s, %s", pgId, replicaState))
 	if replicaState == raft.StateLeader.String() {
 		go func() {
 			state, err := Server.GetPgState(pgId)
 			helper.Logger.Println(5, fmt.Sprintf("try load old pg state, state=%d, error=%v", state, err))
-			if _, ok := err.(*multiraftbase.KeyNonExistent); ok {
+			if state == 0 {
 
 				parent, err := Server.pgMaps.GetPgParentId(pgId)
 				if err != nil {

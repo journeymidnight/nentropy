@@ -41,7 +41,7 @@ var (
 )
 
 func getMonDataDir() (string, error) {
-	dir, err := helper.GetDataDir(config.BaseDir, config.RaftId, true)
+	dir, err := helper.GetDataDir(config.BaseDir, config.RaftId, true, true)
 	if err != nil {
 		return "", err
 	}

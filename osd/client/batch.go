@@ -177,6 +177,7 @@ func (b *Batch) fillResults() error {
 				row := &result.Rows[k]
 				row.Key = []byte(req.Key)
 			case *multiraftbase.TruncateLogRequest:
+			case *multiraftbase.ChangeConfRequest:
 			default:
 				if result.Err == nil {
 					result.Err = errors.Errorf("unsupported reply: %T for %T",

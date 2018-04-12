@@ -13,13 +13,13 @@ func NewRaftLogger(log *Logger) *RaftLogger {
 }
 
 func (r *RaftLogger) Debug(v ...interface{}) {
-	if r.log.GetLevel() >= 20 {
+	if r.log.GetLevel() >= 10 {
 		r.log.Logger.Output(2, header("raft:", fmt.Sprintln(v...)))
 	}
 }
 
 func (r *RaftLogger) Debugf(format string, v ...interface{}) {
-	if r.log.GetLevel() >= 20 {
+	if r.log.GetLevel() >= 10 {
 		r.log.Logger.Output(2, header("raft:", fmt.Sprintf(format, v...)))
 	}
 }

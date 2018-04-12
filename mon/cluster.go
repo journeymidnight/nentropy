@@ -143,13 +143,44 @@ func syncPgMapsToEachOsd(addr string) {
 }
 
 func syncPgMaps() {
-	osdmap := clus.osdMap
-	for _, v := range osdmap.MemberList {
-		if v.Up == false || v.In == false {
-			continue
-		}
+	members := memberlist.GetOsdMembers()
+	for _, v := range members {
 		helper.Println(5, "call syncPgMaps to :", v.Addr)
 		go syncPgMapsToEachOsd(v.Addr)
+	}
+}
+
+func syncPoolMapsToEachOsd(addr string) {
+	poolmaps := clus.poolMap
+	conn, err := grpc.Dial(addr, grpc.WithInsecure())
+	if err != nil {
+		helper.Println(5, "fail to dial: %v", err)
+	}
+	defer conn.Close()
+	client := protos.NewOsdRpcClient(conn)
+	req := protos.SyncMapRequest{}
+	req.MapType = protos.POOLMAP
+	req.UnionMap.Reset()
+	setSuccess := req.UnionMap.SetValue(&poolmaps)
+	if setSuccess != true {
+		helper.Println(5, "Error send SyncMap rpc request, internal error")
+		return
+	}
+
+	ctx := context.Background()
+	res, err := client.SyncMap(ctx, &req)
+	if err != nil {
+		helper.Println(5, "Error send SyncMap rpc request", err)
+		return
+	}
+	helper.Println(5, "Finished! The syncPgMaps response is %s!", res)
+
+}
+func syncPoolMaps() {
+	members := memberlist.GetOsdMembers()
+	for _, v := range members {
+		helper.Println(5, "call syncPgMaps to :", v.Addr)
+		go syncPoolMapsToEachOsd(v.Addr)
 	}
 }
 
@@ -193,6 +224,9 @@ func handleCommittedMsg(data []byte) error {
 				helper.Printf(5, "Put data %s\n", v.Key)
 				if err != nil {
 					helper.Check(err)
+				}
+				if clus.node.AmLeader() {
+					go syncPoolMaps()
 				}
 
 			} else if v.Prefix == "pgmap" {
@@ -339,7 +373,7 @@ func GetCurrPoolMap() (protos.PoolMap, error) {
 	return clus.poolMap, nil
 }
 
-func GetCurrPgMaps(epoch uint64) (*protos.PgMaps, error) {
+func GetPgMaps(epoch uint64) (*protos.PgMaps, error) {
 	if epoch == 0 {
 		return &clus.pgMaps, nil
 	}

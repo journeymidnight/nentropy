@@ -154,7 +154,6 @@ func (rsl replicaStateLoader) load(
 		return multiraftbase.ReplicaState{}, err
 	}
 	s.TruncatedState = &truncState
-
 	helper.Println(5, "replicaStateLoader load RaftAppliedIndex:", s.RaftAppliedIndex)
 	helper.Println(5, "replicaStateLoader load TruncatedState Index:", s.TruncatedState.Index, " Term:", s.TruncatedState.Term)
 

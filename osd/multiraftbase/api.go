@@ -23,6 +23,8 @@ const (
 	HasKey
 	// Delete removes the value for the specified key.
 	Delete
+	// change raft conf
+	ChangeConf
 )
 
 // Request is an interface for RPC requests.
@@ -77,6 +79,19 @@ func (tr *TruncateLogRequest) ShallowCopy() Request {
 	return &shallowCopy
 }
 
+func (*TruncateLogRequest) flags() int { return 0 }
+
+// Method implements the Request interface.
+func (*ChangeConfRequest) Method() Method { return ChangeConf }
+
+// ShallowCopy implements the Request interface.
+func (tr *ChangeConfRequest) ShallowCopy() Request {
+	shallowCopy := *tr
+	return &shallowCopy
+}
+
+func (*ChangeConfRequest) flags() int { return 0 }
+
 func (*HasKeyRequest) flags() int { return 0 }
 
 // Method implements the Request interface.
@@ -87,8 +102,6 @@ func (tr *HasKeyRequest) ShallowCopy() Request {
 	shallowCopy := *tr
 	return &shallowCopy
 }
-
-func (*TruncateLogRequest) flags() int { return 0 }
 
 // NewGet returns a Request initialized to get the value at key.
 func NewGet(key Key, offset int64, len uint64) Request {
@@ -161,6 +174,9 @@ func (*DeleteResponse) Method() Method { return Delete }
 
 // Method implements the Request interface.
 func (*TruncateLogResponse) Method() Method { return TruncateLog }
+
+// Method implements the Request interface.
+func (*ChangeConfResponse) Method() Method { return ChangeConf }
 
 // Header implements the Response interface for ResponseHeader.
 func (rh ResponseHeader) Header() ResponseHeader {

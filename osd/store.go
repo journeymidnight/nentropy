@@ -19,6 +19,8 @@ import (
 	"github.com/journeymidnight/nentropy/util/uuid"
 	"github.com/pkg/errors"
 	"golang.org/x/net/context"
+
+	"github.com/journeymidnight/nentropy/protos"
 	"golang.org/x/time/rate"
 	"io"
 	"math"
@@ -202,7 +204,7 @@ func (s *Store) processRequestQueue(ctx context.Context, id multiraftbase.GroupI
 			// targeted to a removed range. This is also racy and could cause us to
 			// drop messages to the deleted range occasionally (#18355), but raft
 			// will just retry.
-			helper.Printf(5, "Failed to call processRaftRequest")
+			helper.Println(5, "Failed to call processRaftRequest, err:", pErr)
 			q.Lock()
 			if len(q.infos) == 0 {
 				s.replicaQueues.Delete(id)
@@ -385,7 +387,9 @@ func (s *Store) raftTickLoop(ctx context.Context) {
 					if !ok {
 						return false
 					}
-					groupIDs = append(groupIDs, val)
+					if replica.mu.destroyed == nil {
+						groupIDs = append(groupIDs, val)
+					}
 				}
 				return true
 			})
@@ -611,6 +615,7 @@ func (s *Store) tryGetOrCreateReplica(
 		if !ok {
 			return nil, false, multiraftbase.NewReplicaTooOldError(creatingReplica.ReplicaID)
 		}
+
 		if creatingReplica != nil {
 			// Drop messages that come from a node that we believe was once a member of
 			// the group but has been removed.
@@ -621,6 +626,7 @@ func (s *Store) tryGetOrCreateReplica(
 				return nil, false, multiraftbase.NewReplicaTooOldError(creatingReplica.ReplicaID)
 			}
 		}
+
 		repl.raftMu.Lock()
 		repl.mu.Lock()
 		if err := repl.setReplicaIDRaftMuLockedMuLocked(replicaID); err != nil {
@@ -631,7 +637,7 @@ func (s *Store) tryGetOrCreateReplica(
 		repl.mu.Unlock()
 		return repl, false, nil
 	}
-	helper.Printf(10, "Create a replica.")
+	helper.Println(10, "Create a replica for group ", groupID)
 	// Create a new replica and lock it for raft processing.
 	repl := newReplica(groupID, s)
 	repl.creatingReplica = creatingReplica
@@ -989,8 +995,8 @@ func NewStore(cfg StoreConfig, eng engine.Engine, nodeDesc *multiraftbase.NodeDe
 	)
 	s.raftLogQueue = newRaftLogQueue(s, s.Db)
 	s.raftSnapshotQueue = newRaftSnapshotQueue(s)
-	//s.transferLeaderQueue = newTransferLeaderQueue(s, s.Db)
-	s.scanner.AddQueues(s.raftSnapshotQueue, s.raftLogQueue)
+	s.transferLeaderQueue = newTransferLeaderQueue(s, s.Db)
+	s.scanner.AddQueues(s.raftSnapshotQueue, s.raftLogQueue, s.transferLeaderQueue)
 	//}
 
 	s.mu.Lock()
@@ -1017,8 +1023,23 @@ func (s *Store) addReplicaInternalLocked(repl *Replica) error {
 	return nil
 }
 
+func (s *Store) isExistReplicaWorkDir(groupID multiraftbase.GroupID) bool {
+	dir, err := helper.GetDataDir(s.cfg.BaseDir, uint64(s.cfg.NodeID), false, false)
+	if err != nil {
+		helper.Fatal("Error creating data dir! err:", err)
+	}
+	_, err = os.Stat(dir)
+	if err != nil && !os.IsNotExist(err) {
+		helper.Check(err)
+	}
+	if os.IsNotExist(err) {
+		return false
+	}
+	return true
+}
+
 func (s *Store) getReplicaWorkDir(groupID multiraftbase.GroupID) (string, error) {
-	dir, err := helper.GetDataDir(s.cfg.BaseDir, uint64(s.cfg.NodeID), false)
+	dir, err := helper.GetDataDir(s.cfg.BaseDir, uint64(s.cfg.NodeID), false, true)
 	if err != nil {
 		helper.Fatal("Error creating data dir! err:", err)
 	}
@@ -1026,14 +1047,38 @@ func (s *Store) getReplicaWorkDir(groupID multiraftbase.GroupID) (string, error)
 }
 
 func (s *Store) getReplicaSnapDir(groupID multiraftbase.GroupID) (string, error) {
-	dir, err := helper.GetDataDir(s.cfg.BaseDir, uint64(s.cfg.NodeID), false)
+	dir, err := helper.GetDataDir(s.cfg.BaseDir, uint64(s.cfg.NodeID), false, true)
 	if err != nil {
 		helper.Fatal("Error creating data dir! err:", err)
 	}
 	return dir + "/" + string(groupID) + ".snap", nil
 }
 
-func (s *Store) BootstrapGroup(initialValues []multiraftbase.KeyValue, group *multiraftbase.GroupDescriptor) error {
+func (s *Store) GetGroupStore(groupId multiraftbase.GroupID) (engine.Engine, error) {
+	value, exist := s.engines.Load(groupId)
+	if exist {
+		eng, ok := value.(engine.Engine)
+		if ok {
+			return eng, nil
+		}
+	}
+
+	dir, err := s.getReplicaWorkDir(groupId)
+	if err != nil {
+		helper.Fatalln("Can not get replica data dir. group:", string(groupId))
+	}
+	helper.Println(10, "Create pg group data dir:", dir)
+	opt := engine.KVOpt{Dir: dir}
+	eng, err := engine.NewBadgerDB(&opt)
+	if err != nil {
+		helper.Println(5, "Can not new a badger db.")
+		return nil, err
+	}
+	s.engines.Store(groupId, eng)
+	return eng, nil
+}
+
+func (s *Store) BootstrapGroup(join bool, group *multiraftbase.GroupDescriptor) error {
 	desc := *group
 	if err := desc.Validate(); err != nil {
 		helper.Println(5, "BootstrapGroup quit 0 ", err.Error())
@@ -1057,18 +1102,10 @@ func (s *Store) BootstrapGroup(initialValues []multiraftbase.KeyValue, group *mu
 		}
 	*/
 
-	dir, err := s.getReplicaWorkDir(desc.GroupID)
+	_, err := s.GetGroupStore(desc.GroupID)
 	if err != nil {
-		helper.Fatalln("Can not get replica data dir. group:", string(desc.GroupID))
+		helper.Check(err)
 	}
-	helper.Println(10, "Create pg group data dir:", dir)
-	opt := engine.KVOpt{Dir: dir}
-	eng, err := engine.NewBadgerDB(&opt)
-	if err != nil {
-		helper.Println(5, "Can not new a badger db.")
-		return err
-	}
-	s.engines.Store(desc.GroupID, eng)
 	_, found := group.GetReplicaDescriptor(s.nodeDesc.NodeID)
 	if !found {
 		helper.Println(5, "BootstrapGroup quit 1 ")
@@ -1090,12 +1127,21 @@ func (s *Store) BootstrapGroup(initialValues []multiraftbase.KeyValue, group *mu
 		// We are no longer a member of the range, but we didn't GC the replica
 		// before shutting down. Add the replica to the GC queue.
 	}
-	peers := []raft.Peer{}
-	replicaDescs := group.GetReplicas()
-	for _, desc := range replicaDescs {
-		peers = append(peers, raft.Peer{ID: uint64(desc.ReplicaID)})
-	}
 
+	replicaDescs := desc.GetReplicas()
+	peers := []raft.Peer{}
+	for _, desc := range replicaDescs {
+		var ccCtx multiraftbase.ConfChangeContext
+		ccCtx.Replica = desc
+		data, err := ccCtx.Marshal()
+		if err != nil {
+			helper.Check(err)
+		}
+		peers = append(peers, raft.Peer{
+			ID:      uint64(desc.ReplicaID),
+			Context: data,
+		})
+	}
 	r.raftMu.Lock()
 	r.mu.Lock()
 	if r.mu.internalRaftGroup == nil {
@@ -1105,7 +1151,7 @@ func (s *Store) BootstrapGroup(initialValues []multiraftbase.KeyValue, group *mu
 			r.mu.state.RaftAppliedIndex,
 			r.store.cfg,
 			log.NewRaftLogger(helper.Logger),
-		), peers)
+		), nil)
 		if err != nil {
 			r.mu.Unlock()
 			r.raftMu.Unlock()
@@ -1116,7 +1162,7 @@ func (s *Store) BootstrapGroup(initialValues []multiraftbase.KeyValue, group *mu
 	}
 	r.mu.Unlock()
 	r.raftMu.Unlock()
-	helper.Println(5, "BootstrapGroup quit 5 ")
+	helper.Println(5, "BootstrapGroup quit 5, groupId:", group.GroupID)
 	return nil
 }
 
@@ -1480,5 +1526,13 @@ func sendSnapshot(
 			to, resp.Status)
 	}
 
+	return nil
+}
+
+func (s *Store) GetMergedPGState() (*protos.MergedPGState, error) {
+	return &protos.MergedPGState{}, nil
+}
+
+func (s *Store) SetMergedPGState(state protos.MergedPGState) error {
 	return nil
 }

@@ -462,7 +462,10 @@ func GetPoolIdByName(name string) (int32, error) {
 }
 
 func HandlePgList(req *protos.PgConfigRequest) (*protos.PgConfigReply, error) {
-	pgmaps, _ := GetCurrPgMaps(req.Epoch)
+	pgmaps, err := GetPgMaps(req.Epoch)
+	if err != nil {
+		helper.Check(err)
+	}
 	statusMap := make(map[int32]protos.PgStatus)
 	if req.Pool != "" {
 		poolId, err := GetPoolIdByName(req.Pool)
@@ -602,7 +605,7 @@ func updatePgMap(m *protos.PgMap, poolMap *protos.PoolMap, ring *consistent.Cons
 			return err
 		}
 		//		helper.Print(5, "osds******************", osds)
-		oldReplicas := make([]protos.PgReplica, 0)
+		oldReplicas := make([]protos.PgReplica, len(m.Pgmap[k].Replicas))
 		copy(oldReplicas, m.Pgmap[k].Replicas)
 		m.Pgmap[k].Replicas = m.Pgmap[k].Replicas[:0]
 		m.Pgmap[k].ExpectedPrimaryId = osds[0].Id

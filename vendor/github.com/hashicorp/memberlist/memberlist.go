@@ -127,7 +127,7 @@ func newMemberlist(conf *Config) (*Memberlist, error) {
 					return nt, nil
 				}
 				if strings.Contains(err.Error(), "address already in use") {
-					logger.Printf("[DEBUG] Got bind error: %v", err)
+					logger.Printf("[DEBUG] memberlist: Got bind error: %v", err)
 					continue
 				}
 			}
@@ -154,7 +154,7 @@ func newMemberlist(conf *Config) (*Memberlist, error) {
 			port := nt.GetAutoBindPort()
 			conf.BindPort = port
 			conf.AdvertisePort = port
-			logger.Printf("[DEBUG] Using dynamic bind port %d", port)
+			logger.Printf("[DEBUG] memberlist: Using dynamic bind port %d", port)
 		}
 		transport = nt
 	}
@@ -308,23 +308,17 @@ func (m *Memberlist) tcpLookupIP(host string, defaultPort uint16) ([]ipPort, err
 // resolveAddr is used to resolve the address into an address,
 // port, and error. If no port is given, use the default
 func (m *Memberlist) resolveAddr(hostStr string) ([]ipPort, error) {
-	// Normalize the incoming string to host:port so we can apply Go's
-	// parser to it.
-	port := uint16(0)
-	if !hasPort(hostStr) {
-		hostStr += ":" + strconv.Itoa(m.config.BindPort)
-	}
+	// This captures the supplied port, or the default one.
+	hostStr = ensurePort(hostStr, m.config.BindPort)
 	host, sport, err := net.SplitHostPort(hostStr)
 	if err != nil {
 		return nil, err
 	}
-
-	// This will capture the supplied port, or the default one added above.
 	lport, err := strconv.ParseUint(sport, 10, 16)
 	if err != nil {
 		return nil, err
 	}
-	port = uint16(lport)
+	port := uint16(lport)
 
 	// If it looks like an IP address we are done. The SplitHostPort() above
 	// will make sure the host part is in good shape for parsing, even for
@@ -645,7 +639,9 @@ func (m *Memberlist) Shutdown() error {
 	// Shut down the transport first, which should block until it's
 	// completely torn down. If we kill the memberlist-side handlers
 	// those I/O handlers might get stuck.
-	m.transport.Shutdown()
+	if err := m.transport.Shutdown(); err != nil {
+		m.logger.Printf("[ERR] Failed to shutdown transport: %v", err)
+	}
 
 	// Now tear down everything else.
 	atomic.StoreInt32(&m.shutdown, 1)

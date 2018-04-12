@@ -233,6 +233,20 @@ func GetMemberByName(name string) *Member {
 	return nil
 }
 
+func GetOsdMembers() (members []Member) {
+	nodes := List.Members()
+	for _, node := range nodes {
+		member := Member{}
+		if err := json.Unmarshal(node.Meta, &member); err != nil {
+			helper.Fatal("Failed to unmarshal meta data. err:", err)
+		}
+		if !member.IsMon {
+			members = append(members, member)
+		}
+	}
+	return
+}
+
 func GetLeaderMon() *Member {
 	for _, v := range GetMembers() {
 		//helper.Println(5, "member", v)
