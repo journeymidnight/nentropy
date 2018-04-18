@@ -637,54 +637,58 @@ func (s *Store) tryGetOrCreateReplica(
 		repl.mu.Unlock()
 		return repl, false, nil
 	}
-	helper.Println(10, "Create a replica for group ", groupID)
-	// Create a new replica and lock it for raft processing.
-	repl := newReplica(groupID, s)
-	repl.creatingReplica = creatingReplica
-	repl.raftMu.Lock()
 
-	// Install the replica in the store's replica map. The replica is in an
-	// inconsistent state, but nobody will be accessing it while we hold its
-	// locks.
-	s.mu.Lock()
-	// Grab the internal Replica state lock to ensure nobody mucks with our
-	// replica even outside of raft processing. Have to do this after grabbing
-	// Store.mu to maintain lock ordering invariant.
-	repl.mu.Lock()
-	// Add the range to range map, but not replicasByKey since the range's start
-	// key is unknown. The range will be added to replicasByKey later when a
-	// snapshot is applied. After unlocking Store.mu above, another goroutine
-	// might have snuck in and created the replica, so we retry on error.
-	if err := s.addReplicaToGroupMapLocked(repl); err != nil {
-		repl.mu.Unlock()
-		s.mu.Unlock()
-		repl.raftMu.Unlock()
-		return nil, false, errRetry
-	}
-	s.mu.uninitReplicas[repl.GroupID] = repl
-	s.mu.Unlock()
+	return nil, false, errors.New("Not found replica")
+	/*
+		helper.Println(10, "Create a replica for group ", groupID)
+		// Create a new replica and lock it for raft processing.
+		repl := newReplica(groupID, s)
+		repl.creatingReplica = creatingReplica
+		repl.raftMu.Lock()
 
-	desc := &multiraftbase.GroupDescriptor{
-		GroupID: groupID,
-		// TODO(bdarnell): other fields are unknown; need to populate them from
-		// snapshot.
-	}
-	if err := repl.initRaftMuLockedReplicaMuLocked(desc, replicaID); err != nil {
-		// Mark the replica as destroyed and remove it from the replicas maps to
-		// ensure nobody tries to use it
-		repl.mu.destroyed = errors.New("failed to initialize")
-		repl.mu.Unlock()
+		// Install the replica in the store's replica map. The replica is in an
+		// inconsistent state, but nobody will be accessing it while we hold its
+		// locks.
 		s.mu.Lock()
-		s.mu.replicas.Delete(groupID)
-		delete(s.mu.uninitReplicas, groupID)
-		s.replicaQueues.Delete(groupID)
+		// Grab the internal Replica state lock to ensure nobody mucks with our
+		// replica even outside of raft processing. Have to do this after grabbing
+		// Store.mu to maintain lock ordering invariant.
+		repl.mu.Lock()
+		// Add the range to range map, but not replicasByKey since the range's start
+		// key is unknown. The range will be added to replicasByKey later when a
+		// snapshot is applied. After unlocking Store.mu above, another goroutine
+		// might have snuck in and created the replica, so we retry on error.
+		if err := s.addReplicaToGroupMapLocked(repl); err != nil {
+			repl.mu.Unlock()
+			s.mu.Unlock()
+			repl.raftMu.Unlock()
+			return nil, false, errRetry
+		}
+		s.mu.uninitReplicas[repl.GroupID] = repl
 		s.mu.Unlock()
-		repl.raftMu.Unlock()
-		helper.Printf(0, "Error initRaftMuLockedReplicaMuLocked(), err:", err)
-		return nil, false, err
-	}
-	repl.mu.Unlock()
-	return repl, true, nil
+
+		desc := &multiraftbase.GroupDescriptor{
+			GroupID: groupID,
+			// TODO(bdarnell): other fields are unknown; need to populate them from
+			// snapshot.
+		}
+		if err := repl.initRaftMuLockedReplicaMuLocked(desc, replicaID); err != nil {
+			// Mark the replica as destroyed and remove it from the replicas maps to
+			// ensure nobody tries to use it
+			repl.mu.destroyed = errors.New("failed to initialize")
+			repl.mu.Unlock()
+			s.mu.Lock()
+			s.mu.replicas.Delete(groupID)
+			delete(s.mu.uninitReplicas, groupID)
+			s.replicaQueues.Delete(groupID)
+			s.mu.Unlock()
+			repl.raftMu.Unlock()
+			helper.Printf(0, "Error initRaftMuLockedReplicaMuLocked(), err:", err)
+			return nil, false, err
+		}
+		repl.mu.Unlock()
+		return repl, true, nil
+	*/
 }
 
 func (s *Store) processRaftRequest(
