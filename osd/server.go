@@ -706,7 +706,7 @@ func (s *OsdServer) SetPgState(pgId string, pgState int32) error {
 	b.Header.GroupID = multiraftbase.GroupID(pgId)
 	b.AddRawRequest(&multiraftbase.PutRequest{
 		Key:   multiraftbase.Key([]byte("system_pg_state")),
-		Value: multiraftbase.Value{Offset: 0, Len: uint64(len(data)), RawBytes: data},
+		Value: data,
 	})
 	if err := s.store.Db.Run(context.Background(), b); err != nil {
 		helper.Printf(5, "Error run batch! %s", err)

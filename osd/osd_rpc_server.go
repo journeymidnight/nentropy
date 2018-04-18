@@ -78,6 +78,15 @@ func (s *OsdServer) initPGState(pgMaps *protos.PgMaps) {
 	s.poolMap = poolMap
 }
 
+func isExist(osdId int32, replicas []protos.PgReplica) bool {
+	for _, replica := range replicas {
+		if replica.OsdId == int32(osdId) {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *OsdServer) createOrRemoveReplica(pgMaps *protos.PgMaps) {
 	s.confChangeLock.Lock()
 	defer s.confChangeLock.Unlock()
@@ -89,24 +98,11 @@ func (s *OsdServer) createOrRemoveReplica(pgMaps *protos.PgMaps) {
 	for poolId, pgMap := range s.pgMaps.Pgmaps {
 		for pgId, pg := range pgMap.Pgmap {
 			groupID := multiraftbase.GroupID(fmt.Sprintf("%d.%d", poolId, pgId))
-			var total []protos.PgReplica
-			for _, replica := range pg.Replicas {
-				total = append(total, replica)
-			}
 			replicas, err := GetPgMember(string(groupID))
 			if err != nil {
 				helper.Check(err)
 			}
-			for _, replica := range replicas {
-				total = append(total, replica)
-			}
-			var exist bool
-			for _, replica := range total {
-				if replica.OsdId == int32(s.cfg.NodeID) {
-					exist = true
-				}
-			}
-			if !exist {
+			if !isExist(int32(s.cfg.NodeID), pg.Replicas) && !isExist(int32(s.cfg.NodeID), replicas) {
 				continue
 			}
 
@@ -115,7 +111,7 @@ func (s *OsdServer) createOrRemoveReplica(pgMaps *protos.PgMaps) {
 				helper.Check(err)
 			}
 
-			total, err = GetPgMember(string(groupID))
+			total, err := GetPgMember(string(groupID))
 			if err != nil {
 				helper.Check(err)
 			}

@@ -73,7 +73,7 @@ type DB struct {
 	vptr      valuePointer // less than or equal to a pointer to the last vlog value put into mt
 	writeCh   chan *request
 	flushChan chan flushTask // For flushing memtables.
-	gcTables []*table.Table
+	gcTables  []*table.Table
 	vlogGcIng bool
 
 	orc *oracle
