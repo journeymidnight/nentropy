@@ -19,16 +19,24 @@ package main
 
 import (
 	"fmt"
+	"time"
+
+	"bytes"
+	"encoding/binary"
+	"errors"
+	"github.com/coreos/etcd/raft"
 	"github.com/journeymidnight/nentropy/helper"
 	"github.com/journeymidnight/nentropy/memberlist"
 	"github.com/journeymidnight/nentropy/mon/raftwal"
 	"github.com/journeymidnight/nentropy/mon/transport"
 	"github.com/journeymidnight/nentropy/protos"
 	"github.com/journeymidnight/nentropy/storage/engine"
+	"github.com/journeymidnight/nentropy/util/idutil"
+	"github.com/journeymidnight/nentropy/util/syncutil"
+	"github.com/journeymidnight/nentropy/util/wait"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 	"sync"
-	"time"
 )
 
 const (
@@ -51,6 +59,24 @@ type cluster struct {
 	pgMaps          protos.PgMaps
 	monMap          protos.MonMap
 	mapLock         *sync.Mutex
+
+	eng engine.Engine
+
+	reqIDGen  *idutil.Generator
+	readwaitc chan struct{}
+	// stopping is closed by run goroutine on shutdown.
+	stopping chan struct{}
+
+	readMu syncutil.RWMutex
+	// readNotifier is used to notify the read routine that it can process the request
+	// when there is no error
+	readNotifier *helper.Notifier
+
+	// a chan to send out readState
+	readStateC chan raft.ReadState
+	applyWait  wait.WaitTime
+	// done is closed when all goroutines from start() complete.
+	done chan struct{}
 }
 
 var clus *cluster
@@ -117,13 +143,44 @@ func syncPgMapsToEachOsd(addr string) {
 }
 
 func syncPgMaps() {
-	osdmap := clus.osdMap
-	for _, v := range osdmap.MemberList {
-		if v.Up == false || v.In == false {
-			continue
-		}
+	members := memberlist.GetOsdMembers()
+	for _, v := range members {
 		helper.Println(5, "call syncPgMaps to :", v.Addr)
 		go syncPgMapsToEachOsd(v.Addr)
+	}
+}
+
+func syncPoolMapsToEachOsd(addr string) {
+	poolmaps := clus.poolMap
+	conn, err := grpc.Dial(addr, grpc.WithInsecure())
+	if err != nil {
+		helper.Println(5, "fail to dial: %v", err)
+	}
+	defer conn.Close()
+	client := protos.NewOsdRpcClient(conn)
+	req := protos.SyncMapRequest{}
+	req.MapType = protos.POOLMAP
+	req.UnionMap.Reset()
+	setSuccess := req.UnionMap.SetValue(&poolmaps)
+	if setSuccess != true {
+		helper.Println(5, "Error send SyncMap rpc request, internal error")
+		return
+	}
+
+	ctx := context.Background()
+	res, err := client.SyncMap(ctx, &req)
+	if err != nil {
+		helper.Println(5, "Error send SyncMap rpc request", err)
+		return
+	}
+	helper.Println(5, "Finished! The syncPgMaps response is %s!", res)
+
+}
+func syncPoolMaps() {
+	members := memberlist.GetOsdMembers()
+	for _, v := range members {
+		helper.Println(5, "call syncPgMaps to :", v.Addr)
+		go syncPoolMapsToEachOsd(v.Addr)
 	}
 }
 
@@ -135,6 +192,8 @@ func handleCommittedMsg(data []byte) error {
 	if err := trans.Unmarshal(data); err != nil {
 		helper.Check(err)
 	}
+	batch := clus.eng.NewBatch(true)
+	defer batch.Close()
 	for _, v := range trans.Ops {
 		if v.Type == protos.Op_OP_PUT {
 			if v.Prefix == "osdmap" {
@@ -149,6 +208,11 @@ func handleCommittedMsg(data []byte) error {
 						helper.Println(5, "OSD Member Id:", id)
 					}
 				}
+				err := batch.Put([]byte(v.Key), v.Data)
+				helper.Printf(5, "Put data %s\n", v.Key)
+				if err != nil {
+					helper.Check(err)
+				}
 
 			} else if v.Prefix == "poolmap" {
 				var poolMap protos.PoolMap
@@ -156,6 +220,14 @@ func handleCommittedMsg(data []byte) error {
 					helper.Check(err)
 				}
 				clus.poolMap = poolMap
+				err := batch.Put([]byte(v.Key), v.Data)
+				helper.Printf(5, "Put data %s\n", v.Key)
+				if err != nil {
+					helper.Check(err)
+				}
+				if clus.node.AmLeader() {
+					go syncPoolMaps()
+				}
 
 			} else if v.Prefix == "pgmap" {
 				var pgMaps protos.PgMaps
@@ -166,13 +238,19 @@ func handleCommittedMsg(data []byte) error {
 				if clus.node.AmLeader() {
 					go syncPgMaps()
 				}
+				err := batch.Put([]byte(v.Key), v.Data)
+				helper.Printf(5, "Put data %s\n", v.Key)
+				if err != nil {
+					helper.Check(err)
+				}
 			} else {
-				helper.Errorf("Unknown data type!")
+				helper.Check(errors.New("Unknown data type!"))
 			}
 		} else {
-			helper.Errorf("UnSupport data type!")
+			helper.Check(errors.New("Unknown data type!"))
 		}
 	}
+	batch.Commit()
 
 	return nil
 }
@@ -183,6 +261,7 @@ func handleCommittedMsg(data []byte) error {
 // world from main.go.
 func StartRaftNodes(eng engine.Engine, grpcSrv *grpc.Server, peers []string, myAddr string) {
 	clus = new(cluster)
+	clus.eng = eng
 	clus.ctx, clus.cancel = context.WithCancel(context.Background())
 
 	clus.wal = raftwal.Init(eng, config.RaftId)
@@ -210,6 +289,14 @@ func StartRaftNodes(eng engine.Engine, grpcSrv *grpc.Server, peers []string, myA
 	}()
 
 	wg.Wait()
+
+	clus.reqIDGen = idutil.NewGenerator(0, time.Now())
+	clus.applyWait = wait.NewTimeList()
+	clus.readStateC = make(chan raft.ReadState, 1)
+	clus.readNotifier = helper.NewNotifier()
+	clus.readwaitc = make(chan struct{}, 1)
+
+	//go clus.linearizableReadLoop()
 }
 
 // BlockingStop stops all the nodes, server between other workers and syncs all marks.
@@ -221,9 +308,8 @@ func BlockingStop() {
 	defer cancel()
 }
 
-type ProposedData struct {
-	Type uint32
-	Data []byte
+func readData(key []byte) ([]byte, error) {
+	return clus.eng.Get(key)
 }
 
 func proposeData(t *protos.Transaction) error {
@@ -251,6 +337,7 @@ func GetCurrOsdMap() (protos.OsdMap, error) {
 }
 
 func PreparePoolMap(trans *protos.Transaction, poolMap *protos.PoolMap) error {
+	poolMap.Epoch++
 	data, err := poolMap.Marshal()
 	helper.Check(err)
 	err = putOp(trans, "poolmap", poolMap.Epoch, data)
@@ -261,6 +348,7 @@ func PreparePoolMap(trans *protos.Transaction, poolMap *protos.PoolMap) error {
 }
 
 func PreparePgMap(trans *protos.Transaction, pgMaps *protos.PgMaps) error {
+	pgMaps.Epoch++
 	data, err := pgMaps.Marshal()
 	helper.Check(err)
 	err = putOp(trans, "pgmap", pgMaps.Epoch, data)
@@ -271,6 +359,7 @@ func PreparePgMap(trans *protos.Transaction, pgMaps *protos.PgMaps) error {
 }
 
 func PrepareOsdMap(trans *protos.Transaction, osdMap *protos.OsdMap) error {
+	osdMap.Epoch++
 	data, err := osdMap.Marshal()
 	helper.Check(err)
 	err = putOp(trans, "osdmap", osdMap.Epoch, data)
@@ -280,36 +369,26 @@ func PrepareOsdMap(trans *protos.Transaction, osdMap *protos.OsdMap) error {
 	return nil
 }
 
-func ProposePoolMap(poolMap *protos.PoolMap) error {
-	data, err := poolMap.Marshal()
-	helper.Check(err)
-	trans := protos.Transaction{}
-	err = putOp(&trans, "poolmap", poolMap.Epoch, data)
-	if err != nil {
-		return err
-	}
-	proposeData(&trans)
-	return nil
-}
-
 func GetCurrPoolMap() (protos.PoolMap, error) {
 	return clus.poolMap, nil
 }
 
-func ProposePgMaps(pgMaps *protos.PgMaps) error {
-	data, err := pgMaps.Marshal()
-	helper.Check(err)
-	trans := protos.Transaction{}
-	err = putOp(&trans, "pgmap", pgMaps.Epoch, data)
-	if err != nil {
-		return err
+func GetPgMaps(epoch uint64) (*protos.PgMaps, error) {
+	if epoch == 0 {
+		return &clus.pgMaps, nil
 	}
-	proposeData(&trans)
-	return nil
-}
 
-func GetCurrPgMaps() (protos.PgMaps, error) {
-	return clus.pgMaps, nil
+	key := fmt.Sprintf("pgmap.%d", epoch)
+	data, err := readData([]byte(key))
+	if err != nil {
+		return nil, err
+	}
+	pgmaps := protos.PgMaps{}
+	err = pgmaps.Unmarshal(data)
+	if err != nil {
+		return nil, err
+	}
+	return &pgmaps, nil
 }
 
 func NotifyMemberEvent(eventType memberlist.MemberEventType, member memberlist.Member) error {
@@ -374,4 +453,85 @@ func NotifyMemberEvent(eventType memberlist.MemberEventType, member memberlist.M
 
 	}
 	return nil
+}
+
+func (c *cluster) linearizableReadLoop(ctx context.Context) {
+	var rs raft.ReadState
+
+	for {
+		rctx := make([]byte, 8)
+		binary.BigEndian.PutUint64(rctx, c.reqIDGen.Next())
+
+		select {
+		case <-c.readwaitc:
+		case <-c.stopping:
+			return
+		}
+		nextnr := helper.NewNotifier()
+
+		c.readMu.Lock()
+		nr := c.readNotifier
+		c.readNotifier = nextnr
+		c.readMu.Unlock()
+
+		c.node._raft.ReadIndex(ctx, rctx)
+
+		var (
+			timeout bool
+			done    bool
+		)
+		for !timeout && !done {
+			select {
+			case rs = <-c.readStateC:
+				done = bytes.Equal(rs.RequestCtx, rctx)
+				if !done {
+					// a previous request might time out. now we should ignore the response of it and
+					// continue waiting for the response of the current requests.
+					helper.Printf(5, "ignored out-of-date read index response (want %v, got %v)", rs.RequestCtx, ctx)
+				}
+			case <-time.After(5 * time.Second):
+				helper.Printf(5, "timed out waiting for read index response")
+				nr.Notify(errors.New("netropy: request timed out"))
+				timeout = true
+			case <-c.stopping:
+				return
+			}
+		}
+		if !done {
+			continue
+		}
+		/*
+			if ai := c.mu.state.RaftAppliedIndex; ai < rs.Index {
+				select {
+				case <-c.applyWait.Wait(rs.Index):
+				case <-c.stopping:
+					return
+				}
+			}
+		*/
+		// unblock all l-reads requested at indices before rs.Index
+		nr.Notify(nil)
+	}
+}
+
+func (c *cluster) linearizableReadNotify(ctx context.Context) error {
+	c.readMu.RLock()
+	nc := c.readNotifier
+	c.readMu.RUnlock()
+
+	// signal linearizable loop for current notify if it hasn't been already
+	select {
+	case c.readwaitc <- struct{}{}:
+	default:
+	}
+
+	// wait for read state notification
+	select {
+	case <-nc.GetChan():
+		return nc.GetErr()
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-c.done:
+		return errors.New("netropy: server stopped")
+	}
 }

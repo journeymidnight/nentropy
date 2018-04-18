@@ -196,6 +196,7 @@ func (db *DB) send(
 	case multiraftbase.Put:
 	case multiraftbase.Delete:
 	case multiraftbase.TruncateLog:
+	case multiraftbase.ChangeConf:
 	default:
 		return nil, multiraftbase.NewErrorf("method %s not allowed with INCONSISTENT batch", m)
 	}

@@ -15,7 +15,7 @@ import (
 )
 
 func (s *OsdServer) CreatePg(ctx context.Context, in *protos.CreatePgRequest) (*protos.CreatePgReply, error) {
-	err := s.store.BootstrapGroup(nil, in.GroupDescriptor)
+	err := s.store.BootstrapGroup(false, in.GroupDescriptor)
 	return &protos.CreatePgReply{}, err
 }
 
@@ -23,59 +23,154 @@ func (s *OsdServer) DeletePg(ctx context.Context, in *protos.DeletePgRequest) (*
 	return &protos.DeletePgReply{}, nil
 }
 
-func (s *OsdServer) createOrRemoveReplica() {
+func proposeConfChange(confType multiraftbase.ConfType, groupId multiraftbase.GroupID, reps []protos.PgReplica) error {
+	for _, rep := range reps {
+		b := &client.Batch{}
+		b.Header.GroupID = groupId
+		b.AddRawRequest(&multiraftbase.ChangeConfRequest{
+			ConfType:  confType,
+			OsdId:     rep.OsdId,
+			ReplicaId: rep.ReplicaIndex})
+		if err := Server.store.Db.Run(context.Background(), b); err != nil {
+			helper.Println(5, "Error run batch! failed to propose ChangeConfRequest", err)
+			return err
+		}
+		helper.Println(5, "proposeConfChange() groupId:", string(groupId), " add replica ", rep.ReplicaIndex, " osd ", rep.OsdId, " ConfType:", int32(confType))
+	}
+	return nil
+}
+
+func (s *OsdServer) initPGState(pgMaps *protos.PgMaps) {
+	s.confChangeLock.Lock()
+	defer s.confChangeLock.Unlock()
+
+	for poolId, pgMap := range pgMaps.Pgmaps {
+		for pgId, _ := range pgMap.Pgmap {
+			groupID := multiraftbase.GroupID(fmt.Sprintf("%d.%d", poolId, pgId))
+			pgStatus, err := s.GetPGStatus(groupID)
+			if err == nil {
+				for _, replica := range pgStatus.Members {
+					if replica.OsdId == int32(s.cfg.NodeID) {
+						s.leaderPgStatusMap.Store(string(groupID), pgStatus)
+					}
+				}
+				continue
+			}
+
+			pgStatus, err = s.InitPgStatusMap(string(groupID))
+			if err != nil {
+				helper.Check(err)
+			}
+			if pgStatus == nil {
+				continue
+			}
+			s.leaderPgStatusMap.Store(string(groupID), pgStatus)
+		}
+	}
+
+	poolMap, err := s.GetPoolMap()
+	if err != nil {
+		helper.Check(err)
+	}
+	for _, pool := range poolMap.Pools {
+		helper.Println(5, "pool name:", pool.Name, " size:", pool.Size_)
+	}
+	s.poolMap = poolMap
+}
+
+func (s *OsdServer) createOrRemoveReplica(pgMaps *protos.PgMaps) {
 	s.confChangeLock.Lock()
 	defer s.confChangeLock.Unlock()
 	if s.pgMaps.Epoch <= s.lastPgMapsEpoch {
 		return
 	}
-	//TODO: gc/remove replicas
 
-	//add new replicas
+	PrintPgStatusMap()
 	for poolId, pgMap := range s.pgMaps.Pgmaps {
 		for pgId, pg := range pgMap.Pgmap {
+			groupID := multiraftbase.GroupID(fmt.Sprintf("%d.%d", poolId, pgId))
+			var total []protos.PgReplica
 			for _, replica := range pg.Replicas {
-				if replica.OsdId != int32(s.cfg.NodeID) {
-					continue
-				}
-				_, err := s.store.GetReplica(multiraftbase.GroupID(fmt.Sprintf("%d.%d", poolId, pgId)))
-				if err == nil {
-					//replica already existed
-					break
-				}
-				groupDes := multiraftbase.GroupDescriptor{}
-				groupDes.PoolId = int64(poolId)
-				groupDes.PgId = int64(pgId)
-				groupDes.GroupID = multiraftbase.GroupID(fmt.Sprintf("%d.%d", poolId, pgId))
-				for _, subReplica := range pg.Replicas {
-					groupDes.Replicas = append(groupDes.Replicas, multiraftbase.ReplicaDescriptor{multiraftbase.NodeID(fmt.Sprintf("osd.%d", subReplica.OsdId)), 0, multiraftbase.ReplicaID(subReplica.ReplicaIndex)})
-				}
-				groupDes.NextReplicaID = multiraftbase.ReplicaID(pg.NextReplicaId)
-				go s.store.BootstrapGroup(nil, &groupDes)
-				helper.Println(5, fmt.Sprintf("try start a new replica :%d.%d", poolId, pgId))
-				break
+				total = append(total, replica)
 			}
-		}
+			replicas, err := GetPgMember(string(groupID))
+			if err != nil {
+				helper.Check(err)
+			}
+			for _, replica := range replicas {
+				total = append(total, replica)
+			}
+			var exist bool
+			for _, replica := range total {
+				if replica.OsdId == int32(s.cfg.NodeID) {
+					exist = true
+				}
+			}
+			if !exist {
+				continue
+			}
 
+			newReps, err := s.addReplicasToPGState(pg.Replicas, groupID)
+			if err != nil {
+				helper.Check(err)
+			}
+
+			total, err = GetPgMember(string(groupID))
+			if err != nil {
+				helper.Check(err)
+			}
+
+			rep, err := s.store.GetReplica(multiraftbase.GroupID(fmt.Sprintf("%d.%d", poolId, pgId)))
+			if err == nil {
+				//replica already existed
+				if rep.amLeader() {
+					err := proposeConfChange(multiraftbase.ConfType_ADD_REPLICA, groupID, newReps)
+					if err != nil {
+						helper.Check(err)
+					}
+				}
+				continue
+			}
+
+			groupDes := multiraftbase.GroupDescriptor{}
+			groupDes.PoolId = int64(poolId)
+			groupDes.PgId = int64(pgId)
+			groupDes.GroupID = groupID
+			for _, subReplica := range total {
+				helper.Println(5, " osdId:", subReplica.OsdId, " replica:", subReplica.ReplicaIndex)
+				nodeId := fmt.Sprintf("osd.%d", subReplica.OsdId)
+				groupDes.Replicas = append(groupDes.Replicas, multiraftbase.ReplicaDescriptor{multiraftbase.NodeID(nodeId), 0, multiraftbase.ReplicaID(subReplica.ReplicaIndex)})
+			}
+			groupDes.NextReplicaID = multiraftbase.ReplicaID(pg.NextReplicaId)
+			go s.store.BootstrapGroup(false, &groupDes)
+			helper.Println(5, fmt.Sprintf("try start a new replica :%d.%d", poolId, pgId))
+		}
 	}
+	PrintPgStatusMap()
+
 	s.lastPgMapsEpoch = s.pgMaps.Epoch
 	return
-
 }
 
 func (s *OsdServer) SyncMap(ctx context.Context, in *protos.SyncMapRequest) (*protos.SyncMapReply, error) {
-	s.mapLock.Lock()
-	defer s.mapLock.Unlock()
 	switch in.MapType {
 	case protos.PGMAP:
 		newPgMaps := in.UnionMap.GetPgmap()
 		helper.Println(5, "unionmap0", in.UnionMap)
 		helper.Println(5, "unionmap1", newPgMaps)
 		helper.Println(5, "wich one will panic 0", newPgMaps.Epoch)
+		for pool, pgMap := range newPgMaps.Pgmaps {
+			helper.Println(5, "pool:", pool, " poolId:", pgMap.PoolId)
+			for pgId, pg := range pgMap.Pgmap {
+				helper.Println(5, "pgId:", pgId, " pg:", pg)
+			}
+		}
 
 		if newPgMaps.Epoch > s.pgMaps.Epoch {
-			s.pgMaps = newPgMaps
-			go s.createOrRemoveReplica()
+			s.pgMapChan <- newPgMaps
+			// signal create replica loop for current notify if it hasn't been already
+			s.waitChan <- struct{}{}
+			//go s.createOrRemoveReplica(newPgMaps)
 			helper.Println(5, "recevie sync map request, epoch:", newPgMaps.Epoch)
 		} else {
 			helper.Println(5, "recevie expire sync map request, epoch:", newPgMaps.Epoch)
@@ -85,7 +180,11 @@ func (s *OsdServer) SyncMap(ctx context.Context, in *protos.SyncMapRequest) (*pr
 	case protos.OSDMAP:
 		return &protos.SyncMapReply{}, errors.New(fmt.Sprintf("recevie unsupport sync map request which type is %v", protos.OSDMAP))
 	case protos.POOLMAP:
-		return &protos.SyncMapReply{}, errors.New(fmt.Sprintf("recevie unsupport sync map request which type is %v", protos.POOLMAP))
+		s.poolMap = in.UnionMap.GetPoolmap()
+		for _, pool := range s.poolMap.Pools {
+			helper.Println(5, "pool name:", pool.Name, " size:", pool.Size_)
+		}
+		//return &protos.SyncMapReply{}, errors.New(fmt.Sprintf("recevie unsupport sync map request which type is %v", protos.POOLMAP))
 	}
 
 	return &protos.SyncMapReply{}, nil
@@ -163,6 +262,38 @@ func (s *OsdServer) MigrateGet(ctx context.Context, in *protos.MigrateGetRequest
 		}
 	}
 	return &protos.MigrateGetReply{}, nil
+}
+
+func (s *OsdServer) createReplicaLoop() {
+	for {
+		var pgMaps *protos.PgMaps
+
+		select {
+		case <-s.waitChan:
+		case <-s.stopping:
+			return
+		}
+
+		pgMaps = nil
+		var exist bool
+		for !exist {
+			select {
+			case tmpPgMaps := <-s.pgMapChan:
+				if pgMaps == nil || pgMaps.Epoch < tmpPgMaps.Epoch {
+					pgMaps = tmpPgMaps
+				}
+			default:
+				exist = true
+			}
+		}
+
+		if pgMaps == nil {
+			continue
+		}
+
+		s.pgMaps = pgMaps
+		s.createOrRemoveReplica(pgMaps)
+	}
 }
 
 //func newServer() *osdRpcServer {

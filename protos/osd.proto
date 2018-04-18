@@ -89,3 +89,7 @@ message DeletePgRequest {
 message DeletePgReply {
     int32 ret_code = 1;
 }
+
+message MergedPGState {
+    repeated PgReplica members = 1 [(gogoproto.nullable) = false];
+}

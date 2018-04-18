@@ -291,6 +291,10 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 		}
 		lastTerm = invalidLastTerm
 
+		for _, rep := range inSnap.State.Desc.Replicas {
+			helper.Println(5, "-----inSnap: replica id:", rep.ReplicaID, " osdid:", rep.NodeID)
+		}
+
 	}
 
 	// Use a more efficient write-only batch because we don't need to do any
@@ -474,8 +478,49 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 				// If we did not apply the config change, tell raft that the config change was aborted.
 				cc = raftpb.ConfChange{}
 			}
-			stats.processed++
 
+			if cc.Type == raftpb.ConfChangeAddNode {
+				var exist bool
+				for _, rep := range r.mu.state.Desc.Replicas {
+					if rep.ReplicaID == ccCtx.Replica.ReplicaID &&
+						rep.NodeID == ccCtx.Replica.NodeID {
+						exist = true
+					}
+				}
+				if !exist {
+					r.mu.state.Desc.Replicas = append(r.mu.state.Desc.Replicas, multiraftbase.ReplicaDescriptor{
+						NodeID:    ccCtx.Replica.NodeID,
+						ReplicaID: ccCtx.Replica.ReplicaID,
+					})
+				}
+			} else {
+				var replicas []multiraftbase.ReplicaDescriptor
+				for _, rep := range r.mu.state.Desc.Replicas {
+					if rep.ReplicaID != ccCtx.Replica.ReplicaID ||
+						rep.NodeID != ccCtx.Replica.NodeID {
+						replicas = append(replicas, rep)
+					}
+				}
+				r.mu.state.Desc.Replicas = replicas
+				if r.mu.replicaID == ccCtx.Replica.ReplicaID {
+					r.mu.destroyed = errors.New("Exit...")
+				}
+				helper.Println(5, "received msg ConfChangeRemoveNode, group:", r.GroupID, " total members:")
+				for _, rep := range r.mu.state.Desc.Replicas {
+					helper.Println(5, "rep.ReplicaID:", rep.ReplicaID, " NodeID:", rep.NodeID)
+				}
+				var reps []protos.PgReplica
+				var osdId int32
+				fmt.Sscanf(string(ccCtx.Replica.NodeID), "osd.%d", &osdId)
+				reps = append(reps, protos.PgReplica{
+					OsdId:        osdId,
+					ReplicaIndex: int32(ccCtx.Replica.ReplicaID),
+				})
+				ReplicaDelReplicaCallback(reps, r.GroupID)
+			}
+
+			stats.processed++
+			helper.Println(5, "-------conf change node group", r.GroupID, ccCtx.Replica.NodeID, " replica id:", ccCtx.Replica.ReplicaID)
 			if err := r.withRaftGroup(func(raftGroup *raft.RawNode) (bool, error) {
 				raftGroup.ApplyConfChange(cc)
 				return true, nil
@@ -760,6 +805,29 @@ func (r *Replica) applyRaftCommand(
 			helper.Println(5, "Failed to remove key:", deleteReq.Key, err)
 		}
 		helper.Println(5, "Finished to delete key! key:", deleteReq.Key)
+		resp = &multiraftbase.DeleteResponse{}
+
+	} else if method == multiraftbase.ChangeConf {
+		changeConfReq := multiraftbase.ChangeConfRequest{}
+		err := changeConfReq.Unmarshal(writeBatch.Data)
+		if err != nil {
+			Err = multiraftbase.NewError(err)
+			helper.Printf(5, "Cannot unmarshal data to kv")
+		}
+		var exist bool
+		nodeId := fmt.Sprintf("osd.%d", changeConfReq.OsdId)
+		for _, rep := range r.mu.state.Desc.Replicas {
+			if rep.ReplicaID == multiraftbase.ReplicaID(changeConfReq.ReplicaId) &&
+				rep.NodeID == multiraftbase.NodeID(nodeId) {
+				exist = true
+			}
+		}
+		if !exist {
+			r.mu.state.Desc.Replicas = append(r.mu.state.Desc.Replicas, multiraftbase.ReplicaDescriptor{multiraftbase.NodeID(nodeId), 0, multiraftbase.ReplicaID(changeConfReq.ReplicaId)})
+		}
+
+		helper.Println(5, "Finished to changeconf command!")
+		resp = &multiraftbase.ChangeConfResponse{}
 	} else {
 		helper.Fatalln("Unexpected raft command method.")
 	}
@@ -1391,7 +1459,7 @@ func (r *Replica) Send(
 	switch req.Method() {
 	case multiraftbase.Get:
 		br, pErr = r.executeReadOnlyBatch(ctx, ba)
-	case multiraftbase.Put, multiraftbase.TruncateLog, multiraftbase.Delete:
+	case multiraftbase.Put, multiraftbase.TruncateLog, multiraftbase.Delete, multiraftbase.ChangeConf:
 		br, pErr = r.executeWriteBatch(ctx, ba)
 	default:
 		helper.Fatalf("don't know how to handle command %s", ba)
@@ -1431,6 +1499,34 @@ func defaultSubmitProposalLocked(r *Replica, p *ProposalData) error {
 	//
 	// TODO(tschottdorf): can we mark them so lightstep can group them?
 
+	if p.ChangeReplica != 0 {
+		var confType raftpb.ConfChangeType
+		if p.ChangeRepType == multiraftbase.ConfType_ADD_REPLICA {
+			confType = raftpb.ConfChangeAddNode
+		} else {
+			confType = raftpb.ConfChangeRemoveNode
+		}
+		confChangeCtx := multiraftbase.ConfChangeContext{
+			CommandID: string(p.idKey),
+			Payload:   data,
+			Replica:   p.RepDes,
+		}
+		encodedCtx, err := protoutil.Marshal(&confChangeCtx)
+		if err != nil {
+			return err
+		}
+
+		return r.withRaftGroupLocked(true, func(raftGroup *raft.RawNode) (bool, error) {
+
+			return false, /* !unquiesceAndWakeLeader */
+				raftGroup.ProposeConfChange(raftpb.ConfChange{
+					Type:    confType,
+					NodeID:  p.ChangeReplica,
+					Context: encodedCtx,
+				})
+		})
+	}
+
 	return r.withRaftGroupLocked(true, func(raftGroup *raft.RawNode) (bool, error) {
 		var encode func(multiraftbase.CmdIDKey, []byte) []byte
 		if p.command.Method == multiraftbase.Put {
@@ -1450,7 +1546,6 @@ func defaultSubmitProposalLocked(r *Replica, p *ProposalData) error {
 func (r *Replica) submitProposalLocked(p *ProposalData) error {
 	p.proposedAtTicks = r.mu.ticks
 
-	helper.Println(5, "enter submitProposalLocked()")
 	return defaultSubmitProposalLocked(r, p)
 }
 
@@ -1491,6 +1586,18 @@ func (r *Replica) requestToProposal(
 		data, err = deleteReq.Marshal()
 		if err != nil {
 			helper.Printf(5, "Error marshal delete request.")
+		}
+	} else if req.Method() == multiraftbase.ChangeConf {
+		changeConfReq := req.(*multiraftbase.ChangeConfRequest)
+		data, err = changeConfReq.Marshal()
+		if err != nil {
+			helper.Printf(5, "Error marshal delete request.")
+		}
+		proposal.ChangeReplica = uint64(changeConfReq.ReplicaId)
+		proposal.ChangeRepType = changeConfReq.ConfType
+		proposal.RepDes = multiraftbase.ReplicaDescriptor{
+			NodeID:    multiraftbase.NodeID(fmt.Sprintf("osd.%d", changeConfReq.OsdId)),
+			ReplicaID: multiraftbase.ReplicaID(changeConfReq.ReplicaId),
 		}
 	} else {
 		helper.Panicln(0, "Unsupported req type.")

@@ -172,6 +172,7 @@ message PgStatus {
     int32 leader_node_id = 1;
     int32 status = 2;
     int64 migrated_cnt = 3;
+    repeated PgReplica members = 4 [(gogoproto.nullable) = false];
 }
 
 message Op {
@@ -203,6 +204,7 @@ message PgConfigRequest {
     OpType op_type = 2;
     string pool = 3;
     int32 id = 4;
+    uint64 epoch  = 5;
 }
 
 message PgConfigReply {

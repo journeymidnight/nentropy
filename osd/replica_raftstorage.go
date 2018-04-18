@@ -39,15 +39,16 @@ var _ raft.Storage = (*replicaRaftStorage)(nil)
 // InitialState requires that r.mu is held.
 func (r *replicaRaftStorage) InitialState() (raftpb.HardState, raftpb.ConfState, error) {
 	ctx := r.AnnotateCtx(context.TODO())
+	var cs raftpb.ConfState
+	for _, rep := range r.mu.state.Desc.Replicas {
+		cs.Nodes = append(cs.Nodes, uint64(rep.ReplicaID))
+	}
+
 	eng := r.store.LoadGroupEngine(r.mu.state.Desc.GroupID)
 	hs, err := r.mu.stateLoader.loadHardState(ctx, eng)
 	// For uninitialized ranges, membership is unknown at this point.
 	if raft.IsEmptyHardState(hs) || err != nil {
-		return raftpb.HardState{}, raftpb.ConfState{}, err
-	}
-	var cs raftpb.ConfState
-	for _, rep := range r.mu.state.Desc.Replicas {
-		cs.Nodes = append(cs.Nodes, uint64(rep.ReplicaID))
+		return raftpb.HardState{}, cs, err
 	}
 
 	return hs, cs, nil

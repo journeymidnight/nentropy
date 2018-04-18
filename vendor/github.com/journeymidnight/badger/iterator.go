@@ -24,8 +24,8 @@ import (
 
 	"github.com/journeymidnight/badger/options"
 
-	farm "github.com/dgryski/go-farm"
 	"github.com/journeymidnight/badger/y"
+	farm "github.com/dgryski/go-farm"
 )
 
 type prefetchStatus uint8

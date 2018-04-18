@@ -350,8 +350,6 @@ func (bq *baseQueue) addInternal(
 		return false, nil
 	}
 
-	helper.Printf(5, "adding: priority=%0.3f", priority)
-
 	item = &replicaItem{value: desc.GroupID, priority: priority}
 	bq.add(item)
 
@@ -483,7 +481,6 @@ func (bq *baseQueue) processReplica(
 	if err := bq.impl.process(ctx, repl); err != nil {
 		return err
 	}
-	helper.Println(5, "done")
 	return nil
 }
 

@@ -172,7 +172,7 @@ func osdHandle() {
 }
 
 func listPgs() {
-	req := pb.PgConfigRequest{"", pb.PgConfigRequest_LIST, *pool, 0}
+	req := pb.PgConfigRequest{"", pb.PgConfigRequest_LIST, *pool, 0, 0}
 	reply, err := client.PgConfig(context.Background(), &req)
 	if err != nil {
 		fmt.Println("list osds error: ", err)

@@ -77,6 +77,10 @@ message TruncateLogResponse {
     ResponseHeader header = 1 [(gogoproto.nullable) = false, (gogoproto.embed) = true];
 }
 
+message ChangeConfResponse {
+    ResponseHeader header = 1 [(gogoproto.nullable) = false, (gogoproto.embed) = true];
+}
+
 // A RequestUnion contains exactly one of the requests.
 // The values added here must match those in ResponseUnion.
 //
@@ -95,6 +99,7 @@ message RequestUnion {
     HasKeyRequest hasKey = 3;
     TruncateLogRequest truncate = 4;
     DeleteRequest delete = 5;
+    ChangeConfRequest change = 6;
 }
 
 // A ResponseUnion contains exactly one of the responses.
@@ -112,6 +117,7 @@ message ResponseUnion {
     HasKeyResponse hasKey = 3;
     TruncateLogResponse truncate = 4;
     DeleteResponse delete = 5;
+    ChangeConfResponse change = 6;
 }
 
 // A Header is attached to a BatchRequest, encapsulating routing and auxiliary
@@ -184,6 +190,18 @@ message TruncateLogRequest {
     // itself. The range may have changed from the one specified in the header
     // in the case of a merge.
     string group_id = 3 [(gogoproto.customname) = "GroupID", (gogoproto.casttype) = "GroupID"];
+}
+
+enum ConfType {
+    ADD_REPLICA = 0;
+    REMOVE_REPLICA = 1;
+}
+
+message ChangeConfRequest {
+    option (gogoproto.equal) = true;
+    ConfType conf_type = 1;
+    int32 osd_id = 2;
+    int32 replica_id = 3;
 }
 
 // WriteBatch is the serialized representation of a RocksDB write

@@ -24,6 +24,8 @@ var (
 	// LocalRaftAppliedIndexSuffix is the suffix for the raft applied index.
 	LocalRaftAppliedIndexSuffix = []byte("rfta")
 
+	LocalGroupReplicaMembersSuffix = []byte("g")
+
 	localGroupIDUnreplicatedInfix = []byte("u")
 
 	LocalGroupReplicaDestroyedErrorSuffix = []byte("rrde")
@@ -119,6 +121,10 @@ func MakeGroupIDPrefix(groupID multiraftbase.GroupID) multiraftbase.Key {
 // RaftAppliedIndexKey returns a system-local key for a raft applied index.
 func (b GroupIDPrefixBuf) RaftAppliedIndexKey() multiraftbase.Key {
 	return append(b.replicatedPrefix(), LocalRaftAppliedIndexSuffix...)
+}
+
+func GroupStatusKey(groupID multiraftbase.GroupID) multiraftbase.Key {
+	return append(MakeGroupIDPrefixBuf(groupID).unreplicatedPrefix(), LocalGroupReplicaMembersSuffix...)
 }
 
 func (b GroupIDPrefixBuf) unreplicatedPrefix() multiraftbase.Key {

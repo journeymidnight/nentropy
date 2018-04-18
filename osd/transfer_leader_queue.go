@@ -21,17 +21,19 @@ import (
 	"github.com/pkg/errors"
 	"golang.org/x/net/context"
 
+	"fmt"
 	"github.com/journeymidnight/nentropy/helper"
 	"github.com/journeymidnight/nentropy/osd/client"
 	"github.com/journeymidnight/nentropy/osd/multiraftbase"
 	"github.com/journeymidnight/nentropy/protos"
+	"sort"
 )
 
 const (
 	// TransferLeaderQueueTimerDuration is the duration between truncations. This needs
 	// to be relatively short so that truncations can keep up with raft log entry
 	// creation.
-	TransferLeaderQueueTimerDuration = 50 * time.Millisecond
+	TransferLeaderQueueTimerDuration = 1000 * time.Millisecond
 	// TransferLeaderQueueStaleThreshold is the minimum threshold for stale raft log
 	// entries. A stale entry is one which all replicas of the range have
 	// progressed past and thus is no longer needed and can be truncated.
@@ -68,6 +70,16 @@ func newTransferLeaderQueue(store *Store, db *client.DB) *transferLeaderQueue {
 	return rlq
 }
 
+func getIndex(raftStatus *raft.Status) uint64 {
+	match := make([]uint64, 0, len(raftStatus.Progress)+1)
+	for _, progress := range raftStatus.Progress {
+		match = append(match, progress.Match)
+	}
+	sort.Sort(uint64Slice(match))
+	quorum := computeQuorum(len(match))
+	return match[len(match)-quorum]
+}
+
 // shouldQueue determines whether a range should be queued for truncating. This
 // is true only if the replica is the raft leader and if the total number of
 // the range's raft log's stale entries exceeds TransferLeaderQueueStaleThreshold.
@@ -92,6 +104,7 @@ func (rlq *transferLeaderQueue) shouldQueue(
 		return false, 0
 	}
 	if state != (protos.PG_STATE_ACTIVE | protos.PG_STATE_CLEAN) {
+		helper.Println(5, "shouldQueue pg ", string(r.GroupID), " state ", state)
 		return false, 0
 	}
 
@@ -100,7 +113,12 @@ func (rlq *transferLeaderQueue) shouldQueue(
 	if id, ok = GetExpectedReplicaId(string(r.GroupID)); !ok {
 		return false, 0
 	}
-	if multiraftbase.ReplicaID(id) == r.mu.replicaID {
+	poolSize, err := GetPoolSize(string(r.GroupID))
+	if err != nil {
+		helper.Println(5, "Error getting pool size")
+		return false, 0
+	}
+	if multiraftbase.ReplicaID(id) == r.mu.replicaID && len(raftStatus.Progress) == int(poolSize) {
 		return false, 0
 	}
 
@@ -117,14 +135,52 @@ func (rlq *transferLeaderQueue) process(ctx context.Context, r *Replica) error {
 		return errors.New("")
 	}
 	r.mu.Lock()
-	defer r.mu.Unlock()
-	if multiraftbase.ReplicaID(id) == r.mu.replicaID {
-		return errors.New("")
+	if multiraftbase.ReplicaID(id) != r.mu.replicaID {
+		helper.Printf(5, "Transfer leader id from %d to %d", r.mu.replicaID, id)
+		r.mu.internalRaftGroup.TransferLeader(uint64(id))
+		r.mu.Unlock()
+		return nil
 	}
+	poolSize, err := GetPoolSize(string(r.GroupID))
+	if err != nil {
+		helper.Println(5, "Error getting pool size")
+		r.mu.Unlock()
+		return nil
+	}
+	desc := r.mu.state.Desc
+	if len(desc.Replicas) <= int(poolSize) {
+		r.mu.Unlock()
+		return nil
+	}
+	var reps []protos.PgReplica
+	replicas, ok := GetPgReplicas(string(r.GroupID))
+	if !ok {
+		helper.Println(5, "Error getting pg replicas")
+		r.mu.Unlock()
+		return nil
+	}
+	for _, rep := range desc.Replicas {
+		var exist bool
+		for _, sub := range replicas {
+			replicaID := multiraftbase.ReplicaID(sub.ReplicaIndex)
+			nodeID := multiraftbase.NodeID(fmt.Sprintf("osd.%d", sub.OsdId))
+			if replicaID == rep.ReplicaID && nodeID == rep.NodeID {
+				exist = true
+			}
+		}
+		if !exist {
+			var osdId int32
+			fmt.Sscanf(string(rep.NodeID), "osd.%d", &osdId)
+			reps = append(reps, protos.PgReplica{
+				OsdId:        osdId,
+				ReplicaIndex: int32(rep.ReplicaID),
+			})
+		}
+	}
+	r.mu.Unlock()
+	helper.Println(5, "groupId:", r.GroupID, " remove:", reps, " replicaId:", r.mu.replicaID)
+	proposeConfChange(multiraftbase.ConfType_REMOVE_REPLICA, r.GroupID, reps)
 
-	helper.Printf(5, "Transfer leader id from %d to %d", r.mu.replicaID, id)
-
-	r.mu.internalRaftGroup.TransferLeader(uint64(id))
 	return nil
 }
 

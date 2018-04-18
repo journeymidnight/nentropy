@@ -20,6 +20,15 @@ func (m *PgMaps) GetPgParentId(pgId string) (string, error) {
 	return "", errors.New("pg not exist")
 }
 
+func (m *PoolMap) GetPoolSize(pgId string) (int32, error) {
+	array := strings.Split(pgId, ".")
+	pool, _ := strconv.Atoi(array[0])
+	if poolMap, ok := m.Pools[int32(pool)]; ok {
+		return poolMap.Size_, nil
+	}
+	return 0, errors.New("pool not exist")
+}
+
 func (m *PgMaps) GetPgExpectedId(pgId string) (int32, error) {
 	array := strings.Split(pgId, ".")
 	pool, _ := strconv.Atoi(array[0])
@@ -34,4 +43,16 @@ func (m *PgMaps) GetPgExpectedId(pgId string) (int32, error) {
 		}
 	}
 	return 0, errors.New("pg not exist")
+}
+
+func (m *PgMaps) GetPgReplicas(pgId string) ([]PgReplica, error) {
+	array := strings.Split(pgId, ".")
+	pool, _ := strconv.Atoi(array[0])
+	id, _ := strconv.Atoi(array[1])
+	if pgmap, ok := m.Pgmaps[int32(pool)]; ok {
+		if pg, ok := pgmap.Pgmap[int32(id)]; ok {
+			return pg.Replicas, nil
+		}
+	}
+	return nil, errors.New("pg not exist")
 }
