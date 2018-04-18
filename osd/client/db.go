@@ -45,29 +45,21 @@ func (kv *KeyValue) PrettyValue() string {
 	if kv.Value == nil {
 		return "nil"
 	}
-	switch kv.Value.GetTag() {
-	case multiraftbase.ValueType_INT:
-		v, err := kv.Value.GetInt()
-		if err != nil {
-			return fmt.Sprintf("%v", err)
-		}
-		return fmt.Sprintf("%d", v)
-	}
-	return fmt.Sprintf("%x", kv.Value.RawBytes)
+	return fmt.Sprintf("%v", kv.Value)
 }
 
 // ValueInt returns the value decoded as an int64. This method will panic if
 // the value cannot be decoded as an int64.
-func (kv *KeyValue) ValueInt() int64 {
-	if kv.Value == nil {
-		return 0
-	}
-	i, err := kv.Value.GetInt()
-	if err != nil {
-		panic(err)
-	}
-	return i
-}
+//func (kv *KeyValue) ValueInt() int64 {
+//	if kv.Value == nil {
+//		return 0
+//	}
+//	i, err := kv.Value.GetInt()
+//	if err != nil {
+//		panic(err)
+//	}
+//	return i
+//}
 
 // Result holds the result for a single DB or Txn operation (e.g. Get, Put,
 // etc).

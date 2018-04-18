@@ -24,6 +24,10 @@ var Interceptor = func(_ proto.Message) {}
 // some tests to intercept calls to proto.Marshal.
 func Marshal(pb proto.Message) ([]byte, error) {
 	Interceptor(pb)
-
 	return proto.Marshal(pb)
+}
+
+func Unmarshal(data []byte, pb proto.Message) error {
+	pb.Reset()
+	return proto.Unmarshal(data, pb)
 }

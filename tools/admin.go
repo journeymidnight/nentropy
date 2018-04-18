@@ -223,7 +223,7 @@ func getObjectLayout(poolName string, objectName string) (*pb.LayoutReply, error
 	return reply, nil
 }
 
-const MAX_SIZE = 1024 * 2048
+const MAX_SIZE = 1024 * 1024 * 4
 
 func putObject(pgname string, osd string, oid []byte, filename string) error {
 	fmt.Println("put object to server ", osd)
@@ -236,7 +236,7 @@ func putObject(pgname string, osd string, oid []byte, filename string) error {
 			return errors.New(fmt.Sprintf("Error stat file, err %s", err))
 		}
 		if info.Size() > MAX_SIZE {
-			return errors.New(fmt.Sprintf("Error stat file, err %s", err))
+			return errors.New(fmt.Sprintf("file size exceed limit %d", MAX_SIZE))
 		} else {
 			*length = uint64(info.Size())
 		}
@@ -248,7 +248,7 @@ func putObject(pgname string, osd string, oid []byte, filename string) error {
 	}
 	defer file.Close()
 	data := make([]byte, *length)
-	n, err := file.ReadAt(data, 0)
+	_, err = file.ReadAt(data, 0)
 	if err != nil && err != io.EOF {
 		fmt.Println("Cannot read file. err:", err)
 		return err
@@ -264,8 +264,7 @@ func putObject(pgname string, osd string, oid []byte, filename string) error {
 	dumy := multiraftbase.BatchRequest{}
 	dumy.GroupID = multiraftbase.GroupID(pgname)
 
-	value := multiraftbase.Value{RawBytes: data, Offset: *offset, Len: uint64(n)}
-	putReq := multiraftbase.NewPut(oid, value)
+	putReq := multiraftbase.NewPut(oid, data)
 	dumy.Request.MustSetInner(putReq)
 
 	ctx := context.Background()
@@ -295,7 +294,7 @@ func getObject(pgname string, osd string, oid []byte, filename string) error {
 	dumy := multiraftbase.BatchRequest{}
 	dumy.GroupID = multiraftbase.GroupID(pgname)
 
-	getReq := multiraftbase.NewGet(oid, *offset, uint64(*length))
+	getReq := multiraftbase.NewGet(oid)
 	dumy.Request.MustSetInner(getReq)
 
 	ctx := context.Background()
@@ -312,7 +311,7 @@ func getObject(pgname string, osd string, oid []byte, filename string) error {
 		return err
 	}
 	defer file.Close()
-	_, err = file.WriteAt(getRes.Value.RawBytes, 0)
+	_, err = file.WriteAt(getRes.Value, 0)
 	if err != nil {
 		fmt.Println("Cannot write data to file. err:", err)
 		return err

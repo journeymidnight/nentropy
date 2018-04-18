@@ -38,8 +38,7 @@ message ResponseHeader {
 message GetRequest {
     option (gogoproto.equal) = true;
     bytes key = 1 [(gogoproto.casttype) = "Key"];
-    Value value = 2 [(gogoproto.nullable) = false];
-
+    bytes value = 2 [(gogoproto.casttype) = "Value"];
 }
 
 // A GetRequest is the argument for the Get() method.
@@ -52,15 +51,15 @@ message DeleteRequest {
 // If the key doesn't exist, returns nil for Value.Bytes.
 message GetResponse {
     ResponseHeader header = 1 [(gogoproto.nullable) = false, (gogoproto.embed) = true];
-    Value value = 2;
+    bytes value = 2 [(gogoproto.casttype) = "Value"];
 }
 
 // A PutRequest is the argument to the Put() method.
 message PutRequest {
     option (gogoproto.equal) = true;
-
     bytes key = 1 [(gogoproto.casttype) = "Key"];
-    Value value = 2 [(gogoproto.nullable) = false];
+    bytes value = 2 [(gogoproto.casttype) = "Value"];
+    uint64 size = 3;
 }
 
 // A PutResponse is the return value from the Put() method.

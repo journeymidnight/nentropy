@@ -279,7 +279,7 @@ func (s *OsdServer) fetchAndStoreObjectFromParent(ctx context.Context, ba multir
 		b.Header.GroupID = multiraftbase.GroupID(child)
 		b.AddRawRequest(&multiraftbase.PutRequest{
 			Key:   multiraftbase.Key(getRes.Key),
-			Value: multiraftbase.Value{Offset: 0, Len: uint64(len(getRes.Value)), RawBytes: getRes.Value},
+			Value: getRes.Value,
 		})
 		if err := Server.store.Db.Run(context.Background(), b); err != nil {
 			helper.Printf(5, "Error run batch! try put migrated get kv failed")
@@ -464,7 +464,7 @@ func (s *OsdServer) SetPgState(pgId string, pgState int32) error {
 	state := []byte(strconv.Itoa(int(pgState)))
 	b.AddRawRequest(&multiraftbase.PutRequest{
 		Key:   multiraftbase.Key([]byte("system_pg_state")),
-		Value: multiraftbase.Value{Offset: 0, Len: uint64(len(state)), RawBytes: state},
+		Value: state,
 	})
 	if err := s.store.Db.Run(context.Background(), b); err != nil {
 		helper.Printf(5, "Error run batch! %s", err)
@@ -478,13 +478,13 @@ func (s *OsdServer) GetPgState(pgId string) (int32, error) {
 	b.Header.GroupID = multiraftbase.GroupID(pgId)
 	b.AddRawRequest(&multiraftbase.GetRequest{
 		Key:   multiraftbase.Key([]byte("system_pg_state")),
-		Value: multiraftbase.Value{Offset: 0, Len: 1024},
+		Value: multiraftbase.Value{},
 	})
 	if err := s.store.Db.Run(context.Background(), b); err != nil {
 		return 0, err
 	}
-	state := b.Results[0].Rows[0].Value.RawBytes
-	ret, _ := strconv.Atoi(string(state))
+	state := b.Results[0].Rows[0].Value
+	ret, _ := strconv.Atoi(string(*state))
 	return int32(ret), nil
 }
 

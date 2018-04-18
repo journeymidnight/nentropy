@@ -93,18 +93,14 @@ message StoreDeadReplicas {
     repeated ReplicaIdent replicas = 2;
 }
 
-message Value {
-    option (gogoproto.equal) = true;
-
-    // raw_bytes contains the encoded value and checksum.
-    int64 offset = 1;
-    uint64 len = 2;
-    bytes raw_bytes = 3;
-}
-
 message KeyValue {
     bytes key = 1 [(gogoproto.casttype) = "Key"];
-    Value value = 2 [(gogoproto.nullable) = false];
+    bytes value = 2 [(gogoproto.casttype) = "Value"];
+}
+
+message Onode {
+    bytes key = 1 [(gogoproto.casttype) = "Key"];
+    int32 size = 2;
 }
 
 // A StoreIdent uniquely identifies a store in the cluster. The

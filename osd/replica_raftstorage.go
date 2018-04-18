@@ -5,15 +5,14 @@ import (
 
 	"github.com/coreos/etcd/raft"
 	"github.com/coreos/etcd/raft/raftpb"
-	"github.com/pkg/errors"
-	"golang.org/x/net/context"
-
 	"github.com/journeymidnight/badger"
 	"github.com/journeymidnight/nentropy/helper"
 	"github.com/journeymidnight/nentropy/osd/keys"
 	"github.com/journeymidnight/nentropy/osd/multiraftbase"
 	"github.com/journeymidnight/nentropy/storage/engine"
 	"github.com/journeymidnight/nentropy/util/uuid"
+	"github.com/pkg/errors"
+	"golang.org/x/net/context"
 )
 
 // replicaRaftStorage implements the raft.Storage interface.
@@ -113,6 +112,19 @@ func entries(
 		if err != nil {
 			return nil, err
 		}
+
+		if sniffSideloadedRaftCommand(ent.Data) {
+			newEnt, err := maybeInlineSideloadedRaftCommand(
+				ctx, groupID, ent, e, eCache,
+			)
+			if err != nil {
+				return nil, err
+			}
+			if newEnt != nil {
+				ent = *newEnt
+			}
+		}
+
 		// Note that we track the size of proposals with payloads inlined.
 		size += uint64(ent.Size())
 		ents = append(ents, ent)
@@ -636,6 +648,10 @@ func encodeRaftCommandV1(commandID multiraftbase.CmdIDKey, command []byte) []byt
 	return encodeRaftCommand(raftVersionStandard, commandID, command)
 }
 
+func encodeRaftCommandV2(commandID multiraftbase.CmdIDKey, command []byte) []byte {
+	return encodeRaftCommand(raftVersionSideloaded, commandID, command)
+}
+
 // encode a command ID, an encoded RaftCommand, and
 // whether the command contains a split.
 func encodeRaftCommand(
@@ -680,7 +696,7 @@ func iterateEntries(
 			return err
 		}
 		kv := multiraftbase.KeyValue{Key: key}
-		kv.Value = multiraftbase.Value{RawBytes: val}
+		kv.Value = val
 		_, err = scanFunc(kv)
 		if err != nil {
 			helper.Println(5, "Error calling scanFunc, err:", err)

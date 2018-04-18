@@ -260,7 +260,8 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 		leaderID = multiraftbase.ReplicaID(rd.SoftState.Lead)
 
 	}
-	eng := r.store.LoadGroupEngine(r.mu.state.Desc.GroupID)
+	//eng := r.store.LoadGroupEngine(r.mu.state.Desc.GroupID)
+	eng := r.engine
 	if !raft.IsEmptySnap(rd.Snapshot) {
 		snapUUID, err := uuid.FromBytes(rd.Snapshot.Data)
 		if err != nil {
@@ -298,12 +299,19 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 	batch := eng.NewBatch(true)
 	defer batch.Close()
 
-	//prevLastIndex := lastIndex
+	prevLastIndex := lastIndex
 	if len(rd.Entries) > 0 {
 		// All of the entries are appended to distinct keys, returning a new
 		// last index.
+		thinEntries, sideLoadedEntriesSize, err := r.maybeSideloadEntriesRaftMuLocked(ctx, rd.Entries)
+		if err != nil {
+			const expl = "during sideloading"
+			return stats, expl, errors.Wrap(err, expl)
+		}
+
+		raftLogSize += sideLoadedEntriesSize
 		if lastIndex, lastTerm, raftLogSize, err = r.append(
-			ctx, batch, lastIndex, lastTerm, raftLogSize, rd.Entries,
+			ctx, batch, lastIndex, lastTerm, raftLogSize, thinEntries,
 		); err != nil {
 			helper.Println(10, "Failed to append entries! err:", err)
 			const expl = "during append"
@@ -348,16 +356,24 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 		return stats, expl, errors.Wrap(err, expl)
 	}
 
-	//if len(rd.Entries) > 0 {
-	//	// We may have just overwritten parts of the log which contain
-	//	// sideloaded SSTables from a previous term (and perhaps discarded some
-	//	// entries that we didn't overwrite). Remove any such leftover on-disk
-	//	// payloads (we can do that now because we've committed the deletion
-	//	// just above).
-	//	firstPurge := rd.Entries[0].Index // first new entry written
-	//	purgeTerm := rd.Entries[0].Term - 1
-	//	lastPurge := prevLastIndex // old end of the log, include in deletion
-	//}
+	if len(rd.Entries) > 0 {
+		// We may have just overwritten parts of the log which contain
+		// sideloaded SSTables from a previous term (and perhaps discarded some
+		// entries that we didn't overwrite). Remove any such leftover on-disk
+		// payloads (we can do that now because we've committed the deletion
+		// just above).
+		firstPurge := rd.Entries[0].Index // first new entry written
+		purgeTerm := rd.Entries[0].Term - 1
+		lastPurge := prevLastIndex // old end of the log, include in deletion
+		for i := firstPurge; i <= lastPurge; i++ {
+			key := keys.DataKey(purgeTerm, i)
+			err := r.engine.Clear(key)
+			if err != nil {
+				const expl = "while purging index %d"
+				return stats, expl, errors.Wrapf(err, expl, i)
+			}
+		}
+	}
 
 	// Update protected state (last index, last term, raft log size and raft
 	// leader ID) and set raft log entry cache. We clear any older, uncommitted
@@ -391,6 +407,14 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 		helper.Println(5, "raft commit index:", e.Index, " term:", e.Term)
 		switch e.Type {
 		case raftpb.EntryNormal:
+			if newEnt, err := maybeInlineSideloadedRaftCommand(
+				ctx, r.GroupID, e, r.engine, r.store.raftEntryCache,
+			); err != nil {
+				const expl = "maybeInlineSideloadedRaftCommand"
+				return stats, expl, errors.Wrap(err, expl)
+			} else if newEnt != nil {
+				e = *newEnt
+			}
 			var commandID multiraftbase.CmdIDKey
 			var command multiraftbase.RaftCommand
 
@@ -535,7 +559,7 @@ func (r *Replica) processRaftCommand(
 			writeBatch = raftCmd.WriteBatch
 		}
 		response.Reply = &multiraftbase.BatchResponse{}
-		resp, err := r.applyRaftCommand(ctx, idKey, raftCmd.Method, writeBatch)
+		resp, err := r.applyRaftCommand(ctx, idKey, term, index, raftCmd.Method, writeBatch)
 		response.Reply.Responses.MustSetInner(resp)
 		response.Err = err
 	}
@@ -607,6 +631,7 @@ func (r *Replica) init(
 func (r *Replica) applyRaftCommand(
 	ctx context.Context,
 	idKey multiraftbase.CmdIDKey,
+	term, index uint64,
 	method multiraftbase.Method,
 	writeBatch *multiraftbase.WriteBatch,
 ) (resp multiraftbase.Response, Err *multiraftbase.Error) {
@@ -615,65 +640,126 @@ func (r *Replica) applyRaftCommand(
 		return nil, nil
 	}
 
-	if method == multiraftbase.Get {
-		getReq := multiraftbase.GetRequest{}
-		err := getReq.Unmarshal(writeBatch.Data)
-		if err != nil {
-			Err = multiraftbase.NewError(err)
-			helper.Printf(5, "Cannot unmarshal data to kv")
-		}
-	} else if method == multiraftbase.Put {
+	if method == multiraftbase.Put {
+		resp = &multiraftbase.PutResponse{}
 		putReq := multiraftbase.PutRequest{}
 		err := putReq.Unmarshal(writeBatch.Data)
 		if err != nil {
 			Err = multiraftbase.NewError(err)
 			helper.Printf(5, "Cannot unmarshal data to kv")
+			return
 		}
-		eng := r.store.LoadGroupEngine(r.Desc().GroupID)
-		err = stripeWrite(eng, []byte(putReq.Key), []byte(putReq.Value.RawBytes), uint64(putReq.Value.Offset), putReq.Value.Len)
-		helper.Println(5, "write kv ***************", r.GroupID, putReq.Key)
-		if err != nil {
+		data, err := r.engine.Get(putReq.Key)
+		onode := multiraftbase.Onode{}
+		if err != nil && err != badger.ErrKeyNotFound {
 			Err = multiraftbase.NewError(err)
-			helper.Println(5, "Error putting data to db, err:", err)
+		} else if err == badger.ErrKeyNotFound {
+			onode.Key = keys.DataKey(term, index)
+			onode.Size_ = int32(len(putReq.Value))
+			data, err = onode.Marshal()
+			err = r.engine.Put(putReq.Key, data)
+			helper.Println(5, "write kv onode ***************", r.GroupID, putReq.Key, onode.Key, onode.Size_, term, index)
+			if err != nil {
+				Err = multiraftbase.NewError(err)
+				helper.Println(5, "Error putting data to db, err:", err)
+			}
+		} else {
+			err = onode.Unmarshal(data)
+			if err != nil {
+				Err = multiraftbase.NewError(err)
+				return
+			}
+			err = r.engine.Clear(onode.Key)
+			if err != nil && err != badger.ErrKeyNotFound {
+				Err = multiraftbase.NewError(err)
+				helper.Println(5, "Error clear expired data, err:", err)
+			} else {
+				onode.Key = keys.DataKey(term, index)
+				onode.Size_ = int32(len(putReq.Value))
+				data, err = onode.Marshal()
+				err = r.engine.Put(putReq.Key, data)
+				helper.Println(5, "update kv onode ***************", r.GroupID, putReq.Key, onode.Key, onode.Size_)
+				if err != nil {
+					Err = multiraftbase.NewError(err)
+					helper.Println(5, "Error putting data to db, err:", err)
+				}
+			}
 		}
-		resp = &multiraftbase.PutResponse{}
-
 	} else if method == multiraftbase.TruncateLog {
 		truncateReq := multiraftbase.TruncateLogRequest{}
+		resp = &multiraftbase.TruncateLogResponse{}
 		err := truncateReq.Unmarshal(writeBatch.Data)
 		if err != nil {
 			Err = multiraftbase.NewError(err)
 			helper.Printf(5, "Cannot unmarshal data to kv")
 		}
 		eng := r.store.LoadGroupEngine(r.Desc().GroupID)
-		for i := uint64(1); i < truncateReq.Index; i++ {
-			err := eng.Clear(keys.RaftLogKey(truncateReq.GroupID, i))
-			if err != nil {
+		deltSize := int32(0)
+		for i := uint64(r.mu.state.TruncatedState.Index); i < truncateReq.Index; i++ {
+			raftLogKey := keys.RaftLogKey(truncateReq.GroupID, i)
+			value, err := eng.Get(raftLogKey)
+			if err != nil && err != badger.ErrKeyNotFound {
 				Err = multiraftbase.NewError(err)
-				helper.Println(5, "Failed to remove raft log, index:", i)
+				helper.Println(5, "Failed to remove raft log, index:", i, err)
+				continue
+			} else if err != badger.ErrKeyNotFound {
+				helper.Println(5, "Failed to remove raft log, index:", i, err)
+				continue
+			} else {
+				var onode multiraftbase.Onode
+				err = onode.Unmarshal(value)
+				if err != nil {
+					helper.Println(5, "Failed to remove raft log, index:", i, err)
+					continue
+				}
+				err := eng.Clear(raftLogKey)
+				if err != nil {
+					Err = multiraftbase.NewError(err)
+					helper.Println(5, "Failed to remove raft log, index:", i)
+					continue
+				}
+				deltSize += onode.Size_
 			}
 		}
+		r.mu.Lock()
 		r.mu.state.TruncatedState.Index = truncateReq.Index
 		r.mu.state.TruncatedState.Term = truncateReq.Term
-		resp = &multiraftbase.TruncateLogResponse{}
+		r.mu.raftLogSize = r.mu.raftLogSize - int64(deltSize)
+		r.mu.Unlock()
+
 		helper.Println(5, "Finished to truncate log! GroupID:", truncateReq.GroupID, " index:", truncateReq.Index)
 
 	} else if method == multiraftbase.Delete {
 		deleteReq := multiraftbase.DeleteRequest{}
+		resp = &multiraftbase.DeleteResponse{}
 		err := deleteReq.Unmarshal(writeBatch.Data)
 		if err != nil {
 			Err = multiraftbase.NewError(err)
 			helper.Printf(5, "Cannot unmarshal data to kv")
 		}
 		eng := r.store.LoadGroupEngine(r.Desc().GroupID)
-		err = stripeRemove(eng, deleteReq.Key)
+		onode := multiraftbase.Onode{}
+		value, err := eng.Get(deleteReq.Key)
 		if err != nil {
 			Err = multiraftbase.NewError(err)
-			helper.Println(5, "Failed to remove key:", deleteReq.Key)
+			return
+		}
+		err = onode.Unmarshal(value)
+		if err != nil {
+			Err = multiraftbase.NewError(err)
+			return
+		}
+		err = eng.Clear(onode.Key)
+		if err != nil {
+			Err = multiraftbase.NewError(err)
+			helper.Println(5, "Failed to remove data:", onode.Key, deleteReq.Key, err)
+		}
+		err = eng.Clear(deleteReq.Key)
+		if err != nil {
+			Err = multiraftbase.NewError(err)
+			helper.Println(5, "Failed to remove key:", deleteReq.Key, err)
 		}
 		helper.Println(5, "Finished to delete key! key:", deleteReq.Key)
-		resp = &multiraftbase.DeleteResponse{}
-
 	} else {
 		helper.Fatalln("Unexpected raft command method.")
 	}
@@ -1036,7 +1122,7 @@ func (r *Replica) initRaftMuLockedReplicaMuLocked(
 	if r.mu.state, err = r.mu.stateLoader.load(ctx, eng, desc); err != nil {
 		return err
 	}
-
+	r.engine = eng
 	r.mu.lastIndex, err = r.mu.stateLoader.loadLastIndex(ctx, eng)
 	if err != nil {
 		return err
@@ -1183,6 +1269,34 @@ func (r *Replica) maybeCanBeReadFromParent(oid []byte, offset, length uint64) ([
 	return nil, nil
 }
 
+func (r *Replica) readKV(key []byte) (value []byte, pErr *multiraftbase.Error) {
+	data, err := r.engine.Get(key)
+	if err != nil {
+		helper.Println(5, "Error getting onode from db. err ", err, key)
+		if err == badger.ErrKeyNotFound {
+			pErr = multiraftbase.NewError(multiraftbase.NewKeyNonExistent(key))
+			return nil, pErr
+		}
+	}
+	onode := multiraftbase.Onode{}
+	err = onode.Unmarshal(data)
+	if err != nil {
+		helper.Println(5, "Error Unmarshal onode", err, key)
+		pErr = multiraftbase.NewError(multiraftbase.NewOnodeBroken(key))
+		return nil, pErr
+	}
+
+	data, err = r.engine.Get(onode.Key)
+	if err != nil || int32(len(data)) != onode.Size_ {
+		helper.Println(5, "Error getting data from db. err ", err, key, onode.Key)
+		if err == badger.ErrKeyNotFound {
+			pErr = multiraftbase.NewError(multiraftbase.NewDataLost(key))
+			return nil, pErr
+		}
+	}
+	return data, nil
+}
+
 // executeReadOnlyBatch updates the read timestamp cache and waits for any
 // overlapping writes currently processing through Raft ahead of us to
 // clear via the command queue.
@@ -1196,18 +1310,32 @@ func (r *Replica) executeReadOnlyBatch(
 		getReq := req.(*multiraftbase.GetRequest)
 		r.store.enqueueRaftUpdateCheck(r.GroupID)
 		r.linearizableReadNotify(ctx)
-
-		eng := r.store.LoadGroupEngine(r.Desc().GroupID)
-		data, err := StripeRead(eng, []byte(getReq.Key), uint64(getReq.Value.Offset), getReq.Value.Len)
-		if err != nil {
-			helper.Println(5, "Error getting data from db. err ", err)
-			if err == badger.ErrKeyNotFound {
-				pErr = multiraftbase.NewError(multiraftbase.NewKeyNonExistent(getReq.Key))
-			}
-		}
-
+		//eng := r.store.LoadGroupEngine(r.Desc().GroupID)
+		//data, err := eng.Get(getReq.Key)
+		//if err != nil {
+		//	helper.Println(5, "Error getting onode from db. err ", err, getReq.Key)
+		//	if err == badger.ErrKeyNotFound {
+		//		pErr = multiraftbase.NewError(multiraftbase.NewKeyNonExistent(getReq.Key))
+		//	}
+		//}
+		//onode := multiraftbase.Onode{}
+		//err = onode.Unmarshal(data)
+		//if err != nil {
+		//	helper.Println(5, "Error Unmarshal onode", err, getReq.Key)
+		//	pErr = multiraftbase.NewError(multiraftbase.NewOnodeBroken(getReq.Key))
+		//}
+		//
+		//data, err = eng.Get(onode.Key)
+		//if err != nil {
+		//	helper.Println(5, "Error getting onode from db. err ", err, getReq.Key)
+		//	if err == badger.ErrKeyNotFound {
+		//		pErr = multiraftbase.NewError(multiraftbase.NewDataLost(getReq.Key))
+		//	}
+		//}
+		data := []byte{}
+		data, pErr = r.readKV(getReq.Key)
 		getRes := multiraftbase.GetResponse{}
-		getRes.Value = &multiraftbase.Value{RawBytes: data}
+		getRes.Value = data
 		res.Responses = multiraftbase.ResponseUnion{Get: &getRes}
 	} else {
 		helper.Panicln(0, "Unsupported req type.")
@@ -1237,9 +1365,8 @@ func (r *Replica) ExistCheck(
 	}
 	r.store.enqueueRaftUpdateCheck(r.GroupID)
 	r.linearizableReadNotify(ctx)
-	eng := r.store.LoadGroupEngine(r.Desc().GroupID)
-	mkey := getMetaKey(oid)
-	_, err := eng.Get(mkey)
+	//eng := r.store.LoadGroupEngine(r.Desc().GroupID)
+	_, err := r.engine.Get(oid)
 	if err != nil {
 		return false, nil
 	} else {
@@ -1305,7 +1432,12 @@ func defaultSubmitProposalLocked(r *Replica, p *ProposalData) error {
 	// TODO(tschottdorf): can we mark them so lightstep can group them?
 
 	return r.withRaftGroupLocked(true, func(raftGroup *raft.RawNode) (bool, error) {
-		encode := encodeRaftCommandV1
+		var encode func(multiraftbase.CmdIDKey, []byte) []byte
+		if p.command.Method == multiraftbase.Put {
+			encode = encodeRaftCommandV2
+		} else {
+			encode = encodeRaftCommandV1
+		}
 		// We're proposing a command so there is no need to wake the leader if we
 		// were quiesced.
 		r.unquiesceLocked()

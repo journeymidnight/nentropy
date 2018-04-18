@@ -131,28 +131,31 @@ func (s *OsdServer) MigrateGet(ctx context.Context, in *protos.MigrateGetRequest
 		if bytes.Equal(key, in.Marker) {
 			continue
 		} else {
-			// exclude all localPrefixByte
-			if !bytes.HasPrefix(key, []byte{'\x02'}) {
+			// exclude all Prefixed kv
+			if bytes.HasPrefix(key, []byte{'\x01'}) ||
+				bytes.HasPrefix(key, []byte{'\x02'}) ||
+				bytes.HasPrefix(key, []byte{'\x03'}) ||
+				bytes.HasPrefix(key, []byte{'\x04'}) {
 				continue
 			}
-			helper.Println(5, "print useful migrate key :", key)
-			oid := bytes.TrimPrefix(key, []byte{'\x02'})
-			if string(oid) == "system_pg_state" {
-				continue
-			}
-			hash := protos.Nentropy_str_hash(string(oid))
+			helper.Println(5, "print useful migrate key :", string(key))
+			hash := protos.Nentropy_str_hash(string(key))
 			hashPgId := protos.Nentropy_stable_mod(int(hash), int(pgNumbers), mask)
 			if hashPgId == childPgId {
-				//value, err := item.Value()
-				//var onode multiraft.Onode
-				//bson.Unmarshal(value, onode)
-				value, err := StripeRead(engine, oid, 0, math.MaxUint32)
+				value, err := item.Value()
+				var onode multiraftbase.Onode
+				err = onode.Unmarshal(value)
 				if err != nil {
-					helper.Println(5, "print err when migrate key :", oid, string(oid), err)
+					helper.Println(5, "find bad onode while MigrateGet :", key, string(key))
+					continue
+				}
+				value, err = engine.Get(onode.Key)
+				if err != nil {
+					helper.Println(5, "try fetch data of key failed", string(key), string(onode.Key), err)
 					return &protos.MigrateGetReply{}, err
 				} else {
-					defer deleteAfterMigrate(in.ParentPgId, oid)
-					return &protos.MigrateGetReply{oid, value, key}, nil
+					defer deleteAfterMigrate(in.ParentPgId, key)
+					return &protos.MigrateGetReply{key, value, key}, nil
 				}
 			} else {
 				continue

@@ -164,8 +164,8 @@ func (b *Batch) fillResults() error {
 				row.Key = []byte(req.Key)
 				if result.Err == nil {
 					getRes := b.response.Responses.GetValue().(*multiraftbase.GetResponse)
-					row.Value = getRes.Value
-					helper.Println(5, "sssssssss:", row.Value.RawBytes)
+					row.Value = &getRes.Value
+					helper.Println(5, "sssssssss:", row.Value)
 				}
 			case *multiraftbase.PutRequest:
 				row := &result.Rows[k]
@@ -222,7 +222,7 @@ func (b *Batch) AddRawRequest(req multiraftbase.Request) {
 //
 // key can be either a byte slice or a string.
 func (b *Batch) Get(key multiraftbase.Key) {
-	b.appendReq(multiraftbase.NewGet(key, 0, 0))
+	b.appendReq(multiraftbase.NewGet(key))
 	b.initResult(1, 1, notRaw, nil)
 }
 

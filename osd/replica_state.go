@@ -3,6 +3,8 @@ package main
 import (
 	"golang.org/x/net/context"
 
+	"encoding/binary"
+	"fmt"
 	"github.com/coreos/etcd/raft/raftpb"
 	"github.com/journeymidnight/badger"
 	"github.com/journeymidnight/nentropy/helper"
@@ -96,13 +98,9 @@ func (rsl replicaStateLoader) loadAppliedIndex(
 		return 0, err
 	}
 	if v != nil {
-		var value multiraftbase.Value
-		if err := value.Unmarshal(v); err != nil {
-			return 0, err
-		}
-		int64AppliedIndex, err := value.GetInt()
-		if err != nil {
-			return 0, err
+		int64AppliedIndex, n := binary.Varint(v)
+		if n <= 0 {
+			return 0, fmt.Errorf("int64 varint decoding failed: %d", n)
 		}
 		appliedIndex = uint64(int64AppliedIndex)
 	}
@@ -117,12 +115,8 @@ func (rsl replicaStateLoader) setAppliedIndex(
 	eng engine.ReadWriter,
 	appliedIndex uint64,
 ) error {
-	var value multiraftbase.Value
-	value.SetInt(int64(appliedIndex))
-	data, err := value.Marshal()
-	if err != nil {
-		return err
-	}
+	data := make([]byte, binary.MaxVarintLen64)
+	binary.PutVarint(data, int64(appliedIndex))
 	if err := eng.Put(rsl.RaftAppliedIndexKey(),
 		data); err != nil {
 		return err
@@ -198,13 +192,9 @@ func (rsl replicaStateLoader) loadLastIndex(
 		return 0, err
 	}
 	if v != nil {
-		var value multiraftbase.Value
-		if err := value.Unmarshal(v); err != nil {
-			return 0, err
-		}
-		int64LastIndex, err := value.GetInt()
-		if err != nil {
-			return 0, err
+		int64LastIndex, n := binary.Varint(v)
+		if n <= 0 {
+			return 0, fmt.Errorf("int64 varint decoding failed: %d", n)
 		}
 		lastIndex = uint64(int64LastIndex)
 	} else {
@@ -222,13 +212,8 @@ func (rsl replicaStateLoader) loadLastIndex(
 func (rsl replicaStateLoader) setLastIndex(
 	ctx context.Context, writer engine.Writer, lastIndex uint64,
 ) error {
-	var value multiraftbase.Value
-	value.SetInt(int64(lastIndex))
-	data, err := value.Marshal()
-	if err != nil {
-		return err
-	}
-
+	data := make([]byte, binary.MaxVarintLen64)
+	binary.PutVarint(data, int64(lastIndex))
 	return writer.Put(rsl.RaftLastIndexKey(), data)
 }
 

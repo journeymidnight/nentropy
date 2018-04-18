@@ -91,10 +91,9 @@ func (tr *HasKeyRequest) ShallowCopy() Request {
 func (*TruncateLogRequest) flags() int { return 0 }
 
 // NewGet returns a Request initialized to get the value at key.
-func NewGet(key Key, offset int64, len uint64) Request {
+func NewGet(key Key) Request {
 	return &GetRequest{
-		Key:   key,
-		Value: Value{Offset: offset, Len: len},
+		Key: key,
 	}
 }
 
@@ -103,6 +102,7 @@ func NewPut(key Key, value Value) Request {
 	return &PutRequest{
 		Key:   key,
 		Value: value,
+		Size_: uint64(len(value)),
 	}
 }
 

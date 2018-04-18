@@ -96,7 +96,7 @@ func (m *migrateCenter) processMigrateTask(child string) {
 			b.Header.GroupID = multiraftbase.GroupID(child)
 			b.AddRawRequest(&multiraftbase.PutRequest{
 				Key:   multiraftbase.Key(res.Key),
-				Value: multiraftbase.Value{Offset: 0, Len: uint64(len(res.Value)), RawBytes: res.Value},
+				Value: res.Value,
 			})
 			if err := Server.store.Db.Run(context.Background(), b); err != nil {
 				helper.Printf(5, "Error run batch! try put migrated kv failed")

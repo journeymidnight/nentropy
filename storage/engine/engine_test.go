@@ -49,7 +49,7 @@ func Test_PutDataByTxn(t *testing.T) {
 	eng = badger
 	defer eng.Close()
 
-	batch := eng.NewBatch()
+	batch := eng.NewBatch(true)
 	defer batch.Close()
 
 	err = batch.Put([]byte("key1"), []byte("value1"))
@@ -71,7 +71,7 @@ func Test_PutDataByTxn(t *testing.T) {
 }
 
 func Test_IteratorKeys(t *testing.T) {
-	opt := KVOpt{Dir: "../../basedir/osd.1/1.6"}
+	opt := KVOpt{Dir: "../../basedir/osd.1/1.1"}
 	eng, err := NewBadgerDB(&opt)
 	if err != nil {
 		t.Error(err)

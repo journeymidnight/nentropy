@@ -13,10 +13,13 @@ const (
 	metaMaxByte      = '\x03'
 	systemPrefixByte = metaMaxByte
 	systemMaxByte    = '\x04'
+	dataPrefixByte   = systemMaxByte
+	dataMaxByte      = '\x05'
 )
 
 var (
 	localPrefix                 = multiraftbase.Key{localPrefixByte}
+	dataPrefix                  = multiraftbase.Key{dataPrefixByte}
 	localGroupIDReplicatedInfix = []byte("r")
 	// LocalRaftAppliedIndexSuffix is the suffix for the raft applied index.
 	LocalRaftAppliedIndexSuffix = []byte("rfta")
@@ -94,6 +97,17 @@ func makePrefixWithGroupID(prefix []byte, groupID multiraftbase.GroupID, infix m
 	key = helper.EncodeStringAscending(key, string(groupID))
 	key = append(key, infix...)
 	return key
+}
+
+func makeDataPrefix() multiraftbase.Key {
+	key := make(multiraftbase.Key, 0)
+	key = append(key, dataPrefix...)
+	return key
+}
+
+func DataKey(logTerm, logIndex uint64) multiraftbase.Key {
+	result := helper.EncodeUint64Ascending(makeDataPrefix(), logTerm)
+	return helper.EncodeUint64Ascending(result, logIndex)
 }
 
 // MakeGroupIDPrefix creates a range-local key prefix from

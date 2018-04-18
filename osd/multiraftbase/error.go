@@ -129,6 +129,40 @@ func (e *KeyNonExistent) message(_ *Error) string {
 
 var _ ErrorDetailInterface = &KeyNonExistent{}
 
+// NewOnodeBroken initializes a new OnodeBroken.
+func NewOnodeBroken(key Key) *OnodeBroken {
+	return &OnodeBroken{
+		Key: key,
+	}
+}
+
+func (e *OnodeBroken) Error() string {
+	return e.message(nil)
+}
+
+func (e *OnodeBroken) message(_ *Error) string {
+	return fmt.Sprintf("onode of %s was broken", string(e.Key))
+}
+
+var _ ErrorDetailInterface = &OnodeBroken{}
+
+// NewDataLost initializes a new DataLost.
+func NewDataLost(key Key) *DataLost {
+	return &DataLost{
+		Key: key,
+	}
+}
+
+func (e *DataLost) Error() string {
+	return e.message(nil)
+}
+
+func (e *DataLost) message(_ *Error) string {
+	return fmt.Sprintf("data of %s was lost", string(e.Key))
+}
+
+var _ ErrorDetailInterface = &DataLost{}
+
 // NewAmbiguousResultError initializes a new AmbiguousResultError with
 // an explanatory message.
 func NewAmbiguousResultError(msg string) *AmbiguousResultError {

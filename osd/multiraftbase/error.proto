@@ -83,6 +83,16 @@ message KeyNonExistent {
     bytes key = 1 [(gogoproto.customname) = "Key", (gogoproto.casttype) = "Key"];
 }
 
+message OnodeBroken {
+    option (gogoproto.equal) = true;
+    bytes key = 1 [(gogoproto.customname) = "Key", (gogoproto.casttype) = "Key"];
+}
+
+message DataLost {
+    option (gogoproto.equal) = true;
+    bytes key = 1 [(gogoproto.customname) = "Key", (gogoproto.casttype) = "Key"];
+}
+
 // A StoreNotFoundError indicates that a command was sent to a store
 // which is not hosted on this node.
 message StoreNotFoundError {

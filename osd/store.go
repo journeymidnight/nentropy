@@ -1431,7 +1431,7 @@ func sendSnapshot(
 	logEntries := make([][]byte, 0, endIndex-firstIndex)
 	scanFunc := func(kv multiraftbase.KeyValue) (bool, error) {
 		//bytes, err := kv.Value.GetBytes()
-		bytes := kv.Value.RawBytes
+		bytes := kv.Value
 		if err == nil {
 			logEntries = append(logEntries, bytes)
 		}
