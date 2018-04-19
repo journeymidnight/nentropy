@@ -406,7 +406,7 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 		)
 		r.sendRaftMessage(ctx, message)
 	}
-
+	var lastAppliedIndex uint64
 	for _, e := range rd.CommittedEntries {
 		helper.Println(5, "raft commit index:", e.Index, " term:", e.Term)
 		switch e.Type {
@@ -453,6 +453,7 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 			if changedRepl := r.processRaftCommand(ctx, commandID, e.Term, e.Index, command); !changedRepl {
 				helper.Fatalf("unexpected replication change from command %s", &command)
 			}
+			lastAppliedIndex = e.Index
 			stats.processed++
 
 		case raftpb.EntryConfChange:
@@ -480,6 +481,7 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 			}
 
 			if cc.Type == raftpb.ConfChangeAddNode {
+				r.mu.Lock()
 				var exist bool
 				for _, rep := range r.mu.state.Desc.Replicas {
 					if rep.ReplicaID == ccCtx.Replica.ReplicaID &&
@@ -493,7 +495,9 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 						ReplicaID: ccCtx.Replica.ReplicaID,
 					})
 				}
+				r.mu.Unlock()
 			} else {
+				r.mu.Lock()
 				var replicas []multiraftbase.ReplicaDescriptor
 				for _, rep := range r.mu.state.Desc.Replicas {
 					if rep.ReplicaID != ccCtx.Replica.ReplicaID ||
@@ -516,6 +520,7 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 					OsdId:        osdId,
 					ReplicaIndex: int32(ccCtx.Replica.ReplicaID),
 				})
+				r.mu.Unlock()
 				ReplicaDelReplicaCallback(reps, r.GroupID)
 			}
 
@@ -528,16 +533,23 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 				const expl = "during ApplyConfChange"
 				return stats, expl, errors.Wrap(err, expl)
 			}
+			lastAppliedIndex = e.Index
 		default:
 			helper.Fatalf("unexpected Raft entry: %v", e)
 		}
 	}
 
 	rsl := makeReplicaStateLoader(r.GroupID)
+	r.mu.Lock()
 	err = rsl.save(ctx, eng, r.mu.state)
 	if err != nil {
 		helper.Println(5, "Failed to write replica state! err:", err)
 	}
+	if lastAppliedIndex != 0 {
+		r.mu.state.RaftAppliedIndex = lastAppliedIndex
+	}
+	r.applyWait.Trigger(r.mu.state.RaftAppliedIndex)
+	r.mu.Unlock()
 	if len(rd.CommittedEntries) != 0 {
 		helper.Println(5, "Group:", r.GroupID, "Raft lastIndex:", r.mu.lastIndex,
 			" RaftAppliedIndex:", r.mu.state.RaftAppliedIndex,
@@ -554,8 +566,6 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 	}); err != nil {
 		return stats, expl, errors.Wrap(err, expl)
 	}
-
-	r.applyWait.Trigger(r.mu.state.RaftAppliedIndex)
 
 	return stats, "", nil
 }
@@ -610,8 +620,6 @@ func (r *Replica) processRaftCommand(
 	}
 
 	helper.Println(5, "GroupID:", r.GroupID, "processRaftCommand(): RaftAppliedIndex:", index)
-	r.mu.state.RaftAppliedIndex = index
-	//r.applyWait.Trigger(index)
 
 	if proposedLocally {
 		proposal.finishRaftApplication(response)
@@ -740,6 +748,7 @@ func (r *Replica) applyRaftCommand(
 		}
 		eng := r.store.LoadGroupEngine(r.Desc().GroupID)
 		deltSize := int32(0)
+		r.mu.Lock()
 		for i := uint64(r.mu.state.TruncatedState.Index); i < truncateReq.Index; i++ {
 			raftLogKey := keys.RaftLogKey(truncateReq.GroupID, i)
 			value, err := eng.Get(raftLogKey)
@@ -766,7 +775,6 @@ func (r *Replica) applyRaftCommand(
 				deltSize += onode.Size_
 			}
 		}
-		r.mu.Lock()
 		r.mu.state.TruncatedState.Index = truncateReq.Index
 		r.mu.state.TruncatedState.Term = truncateReq.Term
 		r.mu.raftLogSize = r.mu.raftLogSize - int64(deltSize)
@@ -808,25 +816,6 @@ func (r *Replica) applyRaftCommand(
 		resp = &multiraftbase.DeleteResponse{}
 
 	} else if method == multiraftbase.ChangeConf {
-		changeConfReq := multiraftbase.ChangeConfRequest{}
-		err := changeConfReq.Unmarshal(writeBatch.Data)
-		if err != nil {
-			Err = multiraftbase.NewError(err)
-			helper.Printf(5, "Cannot unmarshal data to kv")
-		}
-		var exist bool
-		nodeId := fmt.Sprintf("osd.%d", changeConfReq.OsdId)
-		for _, rep := range r.mu.state.Desc.Replicas {
-			if rep.ReplicaID == multiraftbase.ReplicaID(changeConfReq.ReplicaId) &&
-				rep.NodeID == multiraftbase.NodeID(nodeId) {
-				exist = true
-			}
-		}
-		if !exist {
-			r.mu.state.Desc.Replicas = append(r.mu.state.Desc.Replicas, multiraftbase.ReplicaDescriptor{multiraftbase.NodeID(nodeId), 0, multiraftbase.ReplicaID(changeConfReq.ReplicaId)})
-		}
-
-		helper.Println(5, "Finished to changeconf command!")
 		resp = &multiraftbase.ChangeConfResponse{}
 	} else {
 		helper.Fatalln("Unexpected raft command method.")

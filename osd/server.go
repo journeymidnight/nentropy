@@ -587,7 +587,6 @@ func (s *OsdServer) addReplicasToPGState(reps []protos.PgReplica, groupID multir
 func PrintPgStatusMap() {
 	Server.pgStatusLock.Lock()
 	defer Server.pgStatusLock.Unlock()
-	helper.Println(5, "--------pg state---------")
 	f := func(key, value interface{}) bool {
 		pgId := key.(string)
 		pgStatus := value.(*protos.PgStatus)

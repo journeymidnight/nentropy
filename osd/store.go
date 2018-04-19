@@ -389,6 +389,8 @@ func (s *Store) raftTickLoop(ctx context.Context) {
 					}
 					if replica.mu.destroyed == nil {
 						groupIDs = append(groupIDs, val)
+					} else {
+						// TODO: queue the replica to delete
 					}
 				}
 				return true
@@ -1132,20 +1134,6 @@ func (s *Store) BootstrapGroup(join bool, group *multiraftbase.GroupDescriptor) 
 		// before shutting down. Add the replica to the GC queue.
 	}
 
-	replicaDescs := desc.GetReplicas()
-	peers := []raft.Peer{}
-	for _, desc := range replicaDescs {
-		var ccCtx multiraftbase.ConfChangeContext
-		ccCtx.Replica = desc
-		data, err := ccCtx.Marshal()
-		if err != nil {
-			helper.Check(err)
-		}
-		peers = append(peers, raft.Peer{
-			ID:      uint64(desc.ReplicaID),
-			Context: data,
-		})
-	}
 	r.raftMu.Lock()
 	r.mu.Lock()
 	if r.mu.internalRaftGroup == nil {
