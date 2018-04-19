@@ -25,8 +25,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/journeymidnight/badger/y"
 	farm "github.com/dgryski/go-farm"
+	"github.com/journeymidnight/badger/y"
 	"github.com/pkg/errors"
 )
 

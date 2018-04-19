@@ -56,9 +56,9 @@ type ProposalData struct {
 	// booleans.
 	Request *multiraftbase.BatchRequest
 
-	ChangeReplica     uint64
-	RepDes multiraftbase.ReplicaDescriptor
-	ChangeRepType     multiraftbase.ConfType
+	ChangeReplica uint64
+	RepDes        multiraftbase.ReplicaDescriptor
+	ChangeRepType multiraftbase.ConfType
 }
 
 // finishRaftApplication is called downstream of Raft when a command application
