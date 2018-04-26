@@ -756,23 +756,49 @@ func (r *Replica) applyRaftCommand(
 				Err = multiraftbase.NewError(err)
 				helper.Println(5, "Failed to remove raft log, index:", i, err)
 				continue
-			} else if err != badger.ErrKeyNotFound {
+			} else if err == badger.ErrKeyNotFound {
 				helper.Println(5, "Failed to remove raft log, index:", i, err)
 				continue
 			} else {
-				var onode multiraftbase.Onode
-				err = onode.Unmarshal(value)
+				var entry raftpb.Entry
+				err = entry.Unmarshal(value)
 				if err != nil {
-					helper.Println(5, "Failed to remove raft log, index:", i, err)
+					helper.Println(5, "Failed to remove raft log, Entry Unmarshal failed index:", i, err)
 					continue
 				}
-				err := eng.Clear(raftLogKey)
-				if err != nil {
-					Err = multiraftbase.NewError(err)
-					helper.Println(5, "Failed to remove raft log, index:", i)
-					continue
+				if sniffSideloadedRaftCommand(entry.Data) {
+					_, data := DecodeRaftCommand(entry.Data)
+					var strippedCmd multiraftbase.RaftCommand
+					if err := protoutil.Unmarshal(data, &strippedCmd); err != nil {
+						helper.Println(5, "Failed to remove raft log, RaftCommand Unmarshal failed index:", i, err)
+						continue
+					}
+					if strippedCmd.Method != multiraftbase.Put {
+						err = helper.Errorf("Failed to remove raft log, side load raft log must be a put request", i, err)
+						continue
+					}
+					putReq := multiraftbase.PutRequest{}
+					err = putReq.Unmarshal(strippedCmd.WriteBatch.Data)
+					if err != nil {
+						helper.Printf(5, "Failed to remove raft log, PutRequest unmarshal failed", i, err)
+						continue
+					}
+					err := eng.Clear(raftLogKey)
+					if err != nil {
+						Err = multiraftbase.NewError(err)
+						helper.Println(5, "Failed to remove raft log, index:", i)
+						continue
+					}
+					deltSize += int32(putReq.Size_) + int32(len(raftLogKey)) + int32(len(value))
+				} else {
+					err := eng.Clear(raftLogKey)
+					if err != nil {
+						Err = multiraftbase.NewError(err)
+						helper.Println(5, "Failed to remove raft log, index:", i)
+						continue
+					}
+					deltSize += int32(len(raftLogKey)) + int32(len(value))
 				}
-				deltSize += onode.Size_
 			}
 		}
 		r.mu.state.TruncatedState.Index = truncateReq.Index
