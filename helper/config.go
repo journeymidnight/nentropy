@@ -87,6 +87,7 @@ type Config struct {
 	// in the cluster. It should be reachable by all other nodes and should
 	// route to an interface that Addr is listening on.
 	AdvertiseAddr string
+	AdvertiseIp   string
 	HTTPAddr      string
 }
 
@@ -126,6 +127,8 @@ func (c *Config) parseCmdArgs() {
 		"specify node type [osd/mon].")
 	flag.StringVar(&c.AdvertiseAddr, "advertiseAddr", "",
 		"specify rpc listen address, like [10.11.11.11:8888]")
+	flag.StringVar(&c.AdvertiseIp, "advertiseIp", "",
+		"specify rpc listen address, like [10.11.11.11]")
 	flag.Uint64Var(&c.RaftId, "idx", DefaultConfig.RaftId,
 		"RAFT ID that this server will use to join RAFT cluster.")
 	flag.StringVar(&c.BaseDir, "baseDir", "./basedir",

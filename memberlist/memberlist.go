@@ -117,7 +117,11 @@ func recvChanEvent(myName string) {
 var SetMonLeader func()
 var SetMonFollower func()
 
-func GetMyIpAddress(port int) string {
+func GetMyIpAddress(specifyIp string, port int) string {
+	if specifyIp != "" {
+		return specifyIp + ":" + strconv.Itoa(port)
+	}
+
 	addrs, err := net.InterfaceAddrs()
 	if err != nil {
 		os.Stderr.WriteString("Oops: " + err.Error() + "\n")

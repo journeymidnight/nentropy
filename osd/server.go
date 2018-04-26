@@ -131,7 +131,7 @@ func NewOsdServer(ctx context.Context, cfg Config, stopper *stop.Stopper) (*OsdS
 
 	//init member list here
 	rpcPort := Listener.Addr().(*net.TCPAddr).Port
-	advertiseAddr := memberlist.GetMyIpAddress(rpcPort)
+	advertiseAddr := memberlist.GetMyIpAddress(cfg.AdvertiseIp, rpcPort)
 	memberlist.Init(false, false, (uint64)(cfg.NodeID), advertiseAddr, cfg.MemberBindPort, logger.Logger, cfg.JoinMemberAddr)
 
 	//get osd map
