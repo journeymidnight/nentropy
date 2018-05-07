@@ -22,10 +22,15 @@ import (
 	"github.com/journeymidnight/nentropy/helper"
 	"github.com/journeymidnight/nentropy/log"
 	"github.com/journeymidnight/nentropy/memberlist"
+	"github.com/journeymidnight/nentropy/rpc"
 	"github.com/journeymidnight/nentropy/storage/engine"
+	"golang.org/x/net/trace"
+	_ "golang.org/x/net/trace"
 	"google.golang.org/grpc"
+	"math"
 	"math/rand"
 	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"strings"
@@ -38,6 +43,12 @@ var (
 	cfg    *Config
 
 	eng engine.Engine
+)
+
+const (
+	defaultWindowSize     = 65535
+	initialWindowSize     = defaultWindowSize * 32 // for an RPC
+	initialConnWindowSize = initialWindowSize * 16 // for a connection
 )
 
 func getMonDataDir() (string, error) {
@@ -63,9 +74,18 @@ func disposeStorage() {
 }
 
 func newGrpcServer() *grpc.Server {
-	var opts []grpc.ServerOption
+	opts := []grpc.ServerOption{
+		grpc.MaxRecvMsgSize(math.MaxInt32),
+		grpc.MaxSendMsgSize(math.MaxInt32),
+		grpc.MaxConcurrentStreams(math.MaxInt32),
+		grpc.InitialWindowSize(initialWindowSize),
+		grpc.InitialConnWindowSize(initialConnWindowSize),
+		grpc.KeepaliveParams(rpc.ServerKeepalive),
+		grpc.KeepaliveEnforcementPolicy(rpc.ServerEnforcement),
+	}
+	grpc.EnableTracing = true
 	// By default Go GRPC traces all requests.
-	// grpc.EnableTracing = false
+
 	return grpc.NewServer(opts...)
 }
 
@@ -115,6 +135,23 @@ func main() {
 		return
 	}
 	go grpcSrv.Serve(ln)
+	if cfg.RaftId == 1 {
+		trace.AuthRequest = func(req *http.Request) (any, sensitive bool) {
+
+			host, _, err := net.SplitHostPort(req.RemoteAddr)
+			if err != nil {
+				host = req.RemoteAddr
+			}
+			switch host {
+			case "localhost", "127.0.0.1", "::1":
+				return true, true
+			default:
+				return true, true
+			}
+		}
+		helper.Println(5, "start debug", cfg.NodeID)
+		go http.ListenAndServe("0.0.0.0:12316", nil)
+	}
 
 	// setup shutdown os signal handler
 	sdCh := make(chan os.Signal, 3)

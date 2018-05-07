@@ -132,6 +132,7 @@ func NewOsdServer(ctx context.Context, cfg Config, stopper *stop.Stopper) (*OsdS
 	//init member list here
 	rpcPort := Listener.Addr().(*net.TCPAddr).Port
 	advertiseAddr := memberlist.GetMyIpAddress(cfg.AdvertiseIp, rpcPort)
+	helper.Println(5, "advertiseAddr:", advertiseAddr)
 	memberlist.Init(false, false, (uint64)(cfg.NodeID), advertiseAddr, cfg.MemberBindPort, logger.Logger, cfg.JoinMemberAddr)
 
 	//get osd map
@@ -237,7 +238,7 @@ func (s *OsdServer) fetchAndStoreObjectFromParent(ctx context.Context, ba multir
 	req.PgId = st.parent
 	res, err := client_mon.GetPgStatus(ctx, &req)
 	if err != nil {
-		helper.Println(5, "Error send rpc request!")
+		helper.Println(5, "Error send rpc request! when fetchAndStoreObjectFromParent", err)
 		return errors.New("Error send rpc request! when fetchAndStoreObjectFromParent")
 
 	}
@@ -368,11 +369,13 @@ func (s *OsdServer) Batch(
 }
 
 func (s *OsdServer) sendOsdStatusToMon(addr string) error {
-	conn, err := grpc.Dial(addr, grpc.WithInsecure())
+	helper.Println(5, "enter sendOsdStatusToMon every two second")
+	conn, err := grpc.Dial(addr, grpc.WithInsecure(), grpc.WithBlock())
 	if err != nil {
 		helper.Println(5, "fail to dial: %v", err)
 		return err
 	}
+	helper.Println(5, "enter sendOsdStatusToMon every two second, got conn")
 	defer conn.Close()
 	client := protos.NewMonitorClient(conn)
 	groups, _ := s.store.GetGroupIdsByLeader()
@@ -395,7 +398,7 @@ func (s *OsdServer) sendOsdStatusToMon(addr string) error {
 	ctx := context.Background()
 	res, err := client.OsdStatusReport(ctx, &req)
 	if err != nil {
-		helper.Println(5, "Error send rpc request!")
+		helper.Println(5, "Error send rpc request! sendOsdStatusToMon", err)
 		return err
 	}
 
@@ -427,7 +430,7 @@ func (s *OsdServer) getPGStatusFromMon(addr string, groupId multiraftbase.GroupI
 	req.PgId = string(groupId)
 	res, err := client.GetPgStatus(ctx, &req)
 	if err != nil {
-		helper.Println(5, "Error send rpc request!")
+		helper.Println(5, "Error send rpc request! getPGStatusFromMon", err)
 		return nil, err
 	}
 	status := res.GetStatus()

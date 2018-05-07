@@ -539,12 +539,12 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 		}
 	}
 
-	rsl := makeReplicaStateLoader(r.GroupID)
+	//	rsl := makeReplicaStateLoader(r.GroupID)
 	r.mu.Lock()
-	err = rsl.save(ctx, eng, r.mu.state)
-	if err != nil {
-		helper.Println(5, "Failed to write replica state! err:", err)
-	}
+	//	err = rsl.save(ctx, eng, r.mu.state)
+	//	if err != nil {
+	//		helper.Println(5, "Failed to write replica state! err:", err)
+	//	}
 	if lastAppliedIndex != 0 {
 		r.mu.state.RaftAppliedIndex = lastAppliedIndex
 	}
