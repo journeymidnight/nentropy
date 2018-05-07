@@ -42,7 +42,7 @@ const (
 	// to truncate. The value of 64 KB was chosen experimentally by looking at
 	// when Raft log truncation usually occurs when using the number of entries
 	// as the sole criteria.
-	RaftLogQueueStaleSize = 64 << 10
+	RaftLogQueueStaleSize = 2048 << 10
 )
 
 // raftLogMaxSize limits the maximum size of the Raft log.
