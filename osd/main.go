@@ -40,6 +40,11 @@ func main() {
 		panic("take up a random port failed")
 	}
 	helper.Println(5, "Listen at :", Listener.Addr())
+	cfg.Tracer = tracing.NewTracer()
+	cfg.Tracer.Configure()
+	sp := cfg.Tracer.StartSpan("Server Start")
+	ctx := opentracing.ContextWithSpan(context.Background(), sp)
+	defer sp.Finish()
 	go func() {
 		defer func() {
 			if Server != nil {
@@ -49,12 +54,7 @@ func main() {
 			}
 		}()
 		var err error
-		cfg.Tracer = tracing.NewTracer()
-		cfg.Tracer.Configure()
-		sp := cfg.Tracer.StartSpan("server start")
-		ctx := opentracing.ContextWithSpan(context.Background(), sp)
-		defer sp.Finish()
-		cfg.AmbientCtx = log.NewAmbientContext(ctx)
+		cfg.AmbientCtx = log.NewAmbientContext(ctx, cfg.Tracer)
 		if err = func() error {
 			Server, err = NewOsdServer(*cfg, stopper)
 			if err != nil {

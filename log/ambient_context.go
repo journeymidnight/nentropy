@@ -70,9 +70,9 @@ type AmbientContext struct {
 	backgroundCtx context.Context
 }
 
-func NewAmbientContext(ctx context.Context) AmbientContext {
+func NewAmbientContext(ctx context.Context, tracer opentracing.Tracer) AmbientContext {
 	ac := AmbientContext{backgroundCtx: ctx,
-		Tracer: tracing.NewTracer()}
+		Tracer: tracer}
 	return ac
 }
 
