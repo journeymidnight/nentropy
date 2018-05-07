@@ -31,6 +31,7 @@ import (
 	"github.com/journeymidnight/nentropy/util/timeutil"
 
 	"github.com/journeymidnight/nentropy/helper"
+	"github.com/journeymidnight/nentropy/log"
 	"github.com/journeymidnight/nentropy/memberlist"
 	"github.com/journeymidnight/nentropy/osd/multiraftbase"
 	//"github.com/journeymidnight/nentropy/storage/engine"
@@ -146,7 +147,7 @@ func (s raftTransportStatsSlice) Less(i, j int) bool { return s[i].nodeID < s[j]
 // outbound message which caused the remote to hang up; all that is known is
 // which remote hung up.
 type RaftTransport struct {
-	helper.AmbientContext
+	log.AmbientContext
 	resolver   NodeAddressResolver
 	rpcContext *rpc.Context
 	queues     sync.Map // map[string]*chan *RaftMessageRequest
@@ -171,7 +172,7 @@ func GossipAddressResolver() NodeAddressResolver {
 
 // NewRaftTransport creates a new RaftTransport.
 func NewRaftTransport(
-	ambient helper.AmbientContext,
+	ambient log.AmbientContext,
 	resolver NodeAddressResolver,
 	grpcServer *grpc.Server,
 	rpcContext *rpc.Context,

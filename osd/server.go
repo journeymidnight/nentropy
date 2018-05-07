@@ -11,6 +11,8 @@ import (
 	"github.com/journeymidnight/nentropy/rpc"
 	"github.com/journeymidnight/nentropy/storage/engine"
 	"github.com/journeymidnight/nentropy/util/stop"
+	"github.com/journeymidnight/nentropy/util/tracing"
+	opentracing "github.com/opentracing/opentracing-go"
 	"github.com/pkg/errors"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
@@ -100,7 +102,7 @@ func getOsdSysDataDir() (string, error) {
 }
 
 // NewServer creates a Server from a server.Context.
-func NewOsdServer(ctx context.Context, cfg Config, stopper *stop.Stopper) (*OsdServer, error) {
+func NewOsdServer(cfg Config, stopper *stop.Stopper) (*OsdServer, error) {
 	if _, err := net.ResolveTCPAddr("tcp", cfg.AdvertiseAddr); err != nil {
 		return nil, errors.Errorf("unable to resolve RPC address %q: %v", cfg.AdvertiseAddr, err)
 	}
@@ -113,6 +115,8 @@ func NewOsdServer(ctx context.Context, cfg Config, stopper *stop.Stopper) (*OsdS
 		pgStatusLock:   &sync.Mutex{},
 		mc:             &migrateCenter{},
 	}
+	//s.cfg.AmbientCtx.AddLogTag("n", &s.nodeIDContainer)
+	ctx := s.AnnotateCtx(context.Background())
 
 	// Add a dynamic log tag value for the node ID.
 	//
@@ -126,7 +130,7 @@ func NewOsdServer(ctx context.Context, cfg Config, stopper *stop.Stopper) (*OsdS
 	// regular tag since it's just doing an (atomic) load when a log/trace message
 	// is constructed. The node ID is set by the Store if this host was
 	// bootstrapped; otherwise a new one is allocated in Node.
-	s.rpcContext = rpc.NewContext(&s.cfg.Config, s.stopper)
+	s.rpcContext = rpc.NewContext(s.cfg.AmbientCtx, &s.cfg.Config, s.stopper)
 	s.grpc = rpc.NewServer()
 
 	//init member list here
@@ -195,6 +199,7 @@ func NewOsdServer(ctx context.Context, cfg Config, stopper *stop.Stopper) (*OsdS
 		NodeID:  config.NodeID,
 		BaseDir: config.BaseDir,
 	}
+	s.storeCfg = storeCfg
 	desc := multiraftbase.NodeDescriptor{}
 	desc.NodeID = multiraftbase.NodeID(fmt.Sprintf("%s.%d", s.cfg.NodeType, s.cfg.NodeID))
 	helper.Println(0, "New osd server nodeid: ", s.cfg.NodeID)
@@ -215,6 +220,11 @@ func NewOsdServer(ctx context.Context, cfg Config, stopper *stop.Stopper) (*OsdS
 type ListenError struct {
 	error
 	Addr string
+}
+
+// AnnotateCtx is a convenience wrapper; see AmbientContext.
+func (s *OsdServer) AnnotateCtx(ctx context.Context) context.Context {
+	return s.cfg.AmbientCtx.AnnotateCtx(ctx)
 }
 
 func (s *OsdServer) fetchAndStoreObjectFromParent(ctx context.Context, ba multiraftbase.BatchRequest) error {
@@ -292,6 +302,61 @@ func (s *OsdServer) fetchAndStoreObjectFromParent(ctx context.Context, ba multir
 	return nil
 }
 
+// setupSpanForIncomingRPC takes a context and returns a derived context with a
+// new span in it. Depending on the input context, that span might be a root
+// span or a child span. If it is a child span, it might be a child span of a
+// local or a remote span. Note that supporting both the "child of local span"
+// and "child of remote span" cases are important, as this RPC can be called
+// either through the network or directly if the caller is local.
+//
+// It returns the derived context and a cleanup function to be called when
+// servicing the RPC is done. The cleanup function will close the span and, in
+// case the span was the child of a remote span and "snowball tracing" was
+// enabled on that parent span, it serializes the local trace into the
+// BatchResponse. The cleanup function takes the BatchResponse in which the
+// response is to serialized. The BatchResponse can be nil in case no response
+// is to be returned to the rpc caller.
+func (s *OsdServer) setupSpanForIncomingRPC(
+	ctx context.Context, isLocalRequest bool,
+) (context.Context, func(*multiraftbase.BatchResponse)) {
+	// The operation name matches the one created by the interceptor in the
+	// remoteTrace case below.
+	const opName = "/nentropy.multiraft/Batch"
+	var newSpan, grpcSpan opentracing.Span
+	if isLocalRequest {
+		// This is a local request which circumvented gRPC. Start a span now.
+		ctx, newSpan = tracing.ChildSpan(ctx, opName)
+	} else {
+		grpcSpan = opentracing.SpanFromContext(ctx)
+		if grpcSpan == nil {
+			// If tracing information was passed via gRPC metadata, the gRPC interceptor
+			// should have opened a span for us. If not, open a span now (if tracing is
+			// disabled, this will be a noop span).
+			newSpan = s.storeCfg.AmbientCtx.Tracer.StartSpan(opName)
+			ctx = opentracing.ContextWithSpan(ctx, newSpan)
+		}
+	}
+
+	finishSpan := func(br *multiraftbase.BatchResponse) {
+		if newSpan != nil {
+			newSpan.Finish()
+		}
+		if br == nil {
+			return
+		}
+		if grpcSpan != nil {
+			// If this is a "snowball trace", we'll need to return all the recorded
+			// spans in the BatchResponse at the end of the request.
+			// We don't want to do this if the operation is on the same host, in which
+			// case everything is already part of the same recording.
+			if rec := tracing.GetRecording(grpcSpan); rec != nil {
+				//br.CollectedSpans = append(br.CollectedSpans, rec...)
+			}
+		}
+	}
+	return ctx, finishSpan
+}
+
 func (s *OsdServer) batchInternal(
 	ctx context.Context, args *multiraftbase.BatchRequest,
 ) (*multiraftbase.BatchResponse, error) {
@@ -320,6 +385,13 @@ func (s *OsdServer) batchInternal(
 				}
 			}
 		}
+
+		var finishSpan func(*multiraftbase.BatchResponse)
+		// Shadow ctx from the outer function. Written like this to pass the linter.
+		ctx, finishSpan = s.setupSpanForIncomingRPC(ctx, false)
+		defer func(br **multiraftbase.BatchResponse) {
+			finishSpan(*br)
+		}(&br)
 
 		br, pErr = s.store.Send(ctx, *args)
 		if pErr != nil {

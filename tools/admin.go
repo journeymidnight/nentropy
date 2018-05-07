@@ -380,7 +380,7 @@ func objectHandle() {
 		}
 		err = putObject(result.PgName, result.Osds[0].Addr, []byte(*oid), *filename)
 		if err != nil {
-			fmt.Println("Error getting object from osd, err:", err)
+			fmt.Println("Error putting object from osd, err:", err)
 			return
 		}
 	case "get":

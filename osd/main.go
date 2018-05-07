@@ -6,6 +6,8 @@ import (
 	"github.com/journeymidnight/nentropy/helper"
 	"github.com/journeymidnight/nentropy/log"
 	"github.com/journeymidnight/nentropy/util/stop"
+	"github.com/journeymidnight/nentropy/util/tracing"
+	opentracing "github.com/opentracing/opentracing-go"
 	"golang.org/x/net/context"
 	"net"
 	"os"
@@ -47,10 +49,14 @@ func main() {
 			}
 		}()
 		var err error
-		ctx := context.Background()
-		cfg.AmbientCtx = helper.NewAmbientContext()
+		cfg.Tracer = tracing.NewTracer()
+		cfg.Tracer.Configure()
+		sp := cfg.Tracer.StartSpan("server start")
+		ctx := opentracing.ContextWithSpan(context.Background(), sp)
+		defer sp.Finish()
+		cfg.AmbientCtx = log.NewAmbientContext(ctx)
 		if err = func() error {
-			Server, err = NewOsdServer(ctx, *cfg, stopper)
+			Server, err = NewOsdServer(*cfg, stopper)
 			if err != nil {
 				return errors.New("failed to create server : " + err.Error())
 			}

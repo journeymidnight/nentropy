@@ -18,7 +18,9 @@ package main
 
 import (
 	"github.com/journeymidnight/nentropy/helper"
+	"github.com/journeymidnight/nentropy/log"
 	"github.com/journeymidnight/nentropy/storage/engine"
+	"github.com/journeymidnight/nentropy/util/tracing"
 	"golang.org/x/net/context"
 )
 
@@ -27,9 +29,10 @@ const (
 )
 
 type Config struct {
-	AmbientCtx helper.AmbientContext
+	AmbientCtx log.AmbientContext
 	helper.Config
 	helper.RaftConfig
+	Tracer *tracing.Tracer
 }
 
 var config Config

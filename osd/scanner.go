@@ -20,6 +20,7 @@ import (
 	"golang.org/x/net/context"
 
 	"github.com/journeymidnight/nentropy/helper"
+	"github.com/journeymidnight/nentropy/log"
 	"github.com/journeymidnight/nentropy/osd/multiraftbase"
 	"github.com/journeymidnight/nentropy/util/stop"
 	"github.com/journeymidnight/nentropy/util/syncutil"
@@ -61,7 +62,7 @@ type replicaSet interface {
 // interval).  Each replica is tested for inclusion in a sequence of
 // prioritized replica queues.
 type replicaScanner struct {
-	helper.AmbientContext
+	log.AmbientContext
 
 	targetInterval time.Duration  // Target duration interval for scan loop
 	maxIdleTime    time.Duration  // Max idle time for scan loop
@@ -87,7 +88,7 @@ type replicaScanner struct {
 // nil, after a complete loop that function will be called. If the
 // targetInterval is 0, the scanner is disabled.
 func newReplicaScanner(
-	ambient helper.AmbientContext, targetInterval, maxIdleTime time.Duration, replicas replicaSet,
+	ambient log.AmbientContext, targetInterval, maxIdleTime time.Duration, replicas replicaSet,
 ) *replicaScanner {
 	if targetInterval < 0 {
 		panic("scanner interval must be greater than or equal to zero")

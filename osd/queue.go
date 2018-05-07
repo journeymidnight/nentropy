@@ -24,6 +24,7 @@ import (
 	"golang.org/x/net/context"
 
 	"github.com/journeymidnight/nentropy/helper"
+	"github.com/journeymidnight/nentropy/log"
 	"github.com/journeymidnight/nentropy/osd/multiraftbase"
 	"github.com/journeymidnight/nentropy/util/stop"
 	"github.com/journeymidnight/nentropy/util/syncutil"
@@ -167,7 +168,7 @@ type queueConfig struct {
 // implementing the purgatoryChan method of queueImpl such that it
 // returns a non-nil channel.
 type baseQueue struct {
-	helper.AmbientContext
+	log.AmbientContext
 
 	name string
 	// The constructor of the queueImpl structure MUST return a pointer.
@@ -460,9 +461,10 @@ func (bq *baseQueue) processReplica(
 
 	// Putting a span in a context means that events will no longer go to the
 	// event log. Use queueCtx for events that are intended for the event log.
-
+	ctx, span := bq.AnnotateCtxWithSpan(queueCtx, bq.name)
+	defer span.Finish()
 	// Also add the Replica annotations to ctx.
-	ctx := repl.AnnotateCtx(queueCtx)
+	ctx = repl.AnnotateCtx(queueCtx)
 	ctx, cancel := context.WithTimeout(ctx, bq.processTimeout)
 	defer cancel()
 

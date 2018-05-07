@@ -47,7 +47,7 @@ var enablePreVote = envutil.EnvOrDefaultBool(
 // All fields holding a pointer or an interface are required to create
 // a store; the rest will have sane defaults set if omitted.
 type StoreConfig struct {
-	AmbientCtx helper.AmbientContext
+	AmbientCtx log.AmbientContext
 	BaseDir    string
 	NodeID     int
 	helper.RaftConfig

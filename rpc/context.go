@@ -3,6 +3,7 @@ package rpc
 import (
 	"fmt"
 	"github.com/journeymidnight/nentropy/helper"
+	"github.com/journeymidnight/nentropy/log"
 	"github.com/journeymidnight/nentropy/util/envutil"
 	"github.com/journeymidnight/nentropy/util/stop"
 	"github.com/pkg/errors"
@@ -48,17 +49,20 @@ var SourceAddr = func() net.Addr {
 type Context struct {
 	*helper.Config
 
-	Stopper   *stop.Stopper
-	masterCtx context.Context
+	AmbientCtx log.AmbientContext
+	Stopper    *stop.Stopper
+	masterCtx  context.Context
 
 	conns sync.Map
 }
 
 // NewContext creates an rpc Context with the supplied values.
 func NewContext(
+	ambient log.AmbientContext,
 	baseCtx *helper.Config, stopper *stop.Stopper) *Context {
 	ctx := &Context{
-		Config: baseCtx,
+		AmbientCtx: ambient,
+		Config:     baseCtx,
 	}
 	var cancel context.CancelFunc
 	ctx.masterCtx, cancel = context.WithCancel(context.Background())

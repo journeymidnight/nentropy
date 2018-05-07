@@ -6,6 +6,7 @@ import "state.proto";
 import "error.proto";
 import "metadata.proto";
 import "gogoproto/gogo.proto";
+import "github.com/journeymidnight/nentropy/util/tracing/recorded_span.proto";
 
 // ReadConsistencyType specifies what type of consistency is observed
 // during read operations.
@@ -154,6 +155,9 @@ message BatchResponse {
         reserved 4;
         // error is non-nil if an error occurred.
         Error error = 1;
+        // collected_spans stores trace spans recorded during the execution of this
+        // request.
+        repeated github.com.journeymidnight.nentropy.util.tracing.RecordedSpan collected_spans = 6 [(gogoproto.nullable) = false];
     }
 
     Header header = 1 [(gogoproto.embed) = true, (gogoproto.nullable) = false];

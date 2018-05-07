@@ -24,6 +24,7 @@ import (
 	"golang.org/x/net/context"
 
 	"github.com/journeymidnight/nentropy/util/syncutil"
+	"github.com/journeymidnight/nentropy/util/tracing"
 	"github.com/opentracing/opentracing-go"
 )
 
@@ -233,10 +234,13 @@ func (s *Stopper) RunAsyncTask(
 		return errUnavailable
 	}
 
+	ctx, span := tracing.ForkCtxSpan(ctx, taskName)
+
 	// Call f.
 	go func() {
 		defer s.Recover(ctx)
 		defer s.runPostlude(taskName)
+		defer tracing.FinishSpan(span)
 
 		f(ctx)
 	}()
@@ -290,10 +294,13 @@ func (s *Stopper) RunLimitedAsyncTask(
 		return errUnavailable
 	}
 
+	ctx, span := tracing.ForkCtxSpan(ctx, taskName)
+
 	go func() {
 		defer s.Recover(ctx)
 		defer s.runPostlude(taskName)
 		defer func() { <-sem }()
+		defer tracing.FinishSpan(span)
 
 		f(ctx)
 	}()

@@ -16,6 +16,7 @@ import (
 	"github.com/journeymidnight/nentropy/util/protoutil"
 	"github.com/journeymidnight/nentropy/util/syncutil"
 	"github.com/journeymidnight/nentropy/util/timeutil"
+	"github.com/journeymidnight/nentropy/util/tracing"
 	"github.com/journeymidnight/nentropy/util/uuid"
 	"github.com/journeymidnight/nentropy/util/wait"
 	"github.com/pkg/errors"
@@ -49,7 +50,7 @@ func (ec *endCmds) done(br *multiraftbase.BatchResponse, pErr *multiraftbase.Err
 // integrity by replacing failed replicas, splitting and merging
 // as appropriate.
 type Replica struct {
-	helper.AmbientContext
+	log.AmbientContext
 
 	// TODO(tschottdorf): Duplicates r.mu.state.desc.RangeID; revisit that.
 	GroupID multiraftbase.GroupID // Should only be set by the constructor.
@@ -1439,6 +1440,8 @@ func (r *Replica) Send(
 
 	// Add the range log tag.
 	ctx = r.AnnotateCtx(ctx)
+	ctx, cleanup := tracing.EnsureContext(ctx, r.AmbientContext.Tracer, "replica send")
+	defer cleanup()
 
 	// If the internal Raft group is not initialized, create it and wake the leader.
 	r.maybeInitializeRaftGroup(ctx)
