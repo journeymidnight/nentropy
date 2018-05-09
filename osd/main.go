@@ -41,7 +41,7 @@ func main() {
 	}
 	helper.Println(5, "Listen at :", Listener.Addr())
 	cfg.Tracer = tracing.NewTracer()
-	cfg.Tracer.Configure()
+	cfg.Tracer.Configure(cfg.Zipkin)
 	sp := cfg.Tracer.StartSpan("Server Start")
 	ctx := opentracing.ContextWithSpan(context.Background(), sp)
 	defer sp.Finish()
