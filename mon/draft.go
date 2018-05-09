@@ -351,20 +351,14 @@ func (n *node) Run() {
 				if rd.RaftState == raft.StateFollower && n.leader {
 					// stepped down as leader do a sync membership immediately
 					//cluster().syncMemberships()
-					clus.internalMapLock.Lock()
 					clus.isPrimaryMon = false
-					clus.PgStatusMap = nil
 					memberlist.SetMonFollower()
-					clus.internalMapLock.Unlock()
 
 				} else if rd.RaftState == raft.StateLeader && !n.leader {
 					//leaseMgr().resetLease(n.gid)
 					//cluster().syncMemberships()
-					clus.internalMapLock.Lock()
 					clus.isPrimaryMon = true
-					clus.PgStatusMap = make(map[string]protos.PgStatus)
 					memberlist.SetMonLeader()
-					clus.internalMapLock.Unlock()
 				}
 				n.leader = rd.RaftState == raft.StateLeader
 			}
