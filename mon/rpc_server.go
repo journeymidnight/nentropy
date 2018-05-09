@@ -43,8 +43,8 @@ func (s *monitorRpcServer) GetLayout(ctx context.Context, in *protos.LayoutReque
 	mask := protos.Calc_pg_masks(int(pgNumbers))
 	hashPgId := protos.Nentropy_stable_mod(int(hash), int(pgNumbers), mask)
 	pgName := fmt.Sprintf("%d.%d", poolId, hashPgId)
-	if v, ok := clus.PgStatusMap[pgName]; ok {
-		clus.pgMaps.Pgmaps[poolId].Pgmap[int32(hashPgId)].PrimaryId = v.LeaderNodeId
+	if v, ok := clus.PgStatusMap.Load(pgName); ok {
+		clus.pgMaps.Pgmaps[poolId].Pgmap[int32(hashPgId)].PrimaryId = v.(protos.PgStatus).LeaderNodeId
 	} else {
 		helper.Println(5, "No primary osd for pg ", pgName)
 	}
@@ -69,8 +69,9 @@ func (s *monitorRpcServer) GetLayout(ctx context.Context, in *protos.LayoutReque
 }
 
 func (s *monitorRpcServer) GetPgStatus(ctx context.Context, in *protos.GetPgStatusRequest) (*protos.GetPgStatusReply, error) {
-	status, ok := clus.PgStatusMap[in.PgId]
+	value, ok := clus.PgStatusMap.Load(in.PgId)
 	if ok {
+		status := value.(protos.PgStatus)
 		return &protos.GetPgStatusReply{&status}, nil
 	} else {
 		return &protos.GetPgStatusReply{}, errors.New("can not find specified pg")
@@ -472,20 +473,23 @@ func HandlePgList(req *protos.PgConfigRequest) (*protos.PgConfigReply, error) {
 		if err != nil {
 			return &protos.PgConfigReply{}, err
 		}
-		for pgName, status := range clus.PgStatusMap {
+		clus.PgStatusMap.Range(func(k, v interface{}) bool {
+			pgName := k.(string)
+			status := v.(protos.PgStatus)
 			res := strings.Split(pgName, ".")
 			pool_id, err := strconv.Atoi(res[0])
 			if err != nil {
-				continue
+				return true
 			}
 			pg_id, err := strconv.Atoi(res[1])
 			if err != nil {
-				continue
+				return true
 			}
 			if int32(pool_id) == poolId {
 				statusMap[int32(pg_id)] = status
 			}
-		}
+			return true
+		})
 		return &protos.PgConfigReply{0, pgmaps.Epoch, pgmaps.Pgmaps[poolId], nil, statusMap}, nil
 	} else {
 		return &protos.PgConfigReply{0, pgmaps.Epoch, nil, pgmaps, nil}, nil
@@ -635,11 +639,9 @@ func (s *monitorRpcServer) OsdStatusReport(ctx context.Context, in *protos.OsdSt
 		return &protos.OsdStatusReportReply{}, errors.New("not primary monitor, please check!")
 	}
 	pgsStatuses := in.GetLeaderPgsStatus()
-	clus.internalMapLock.Lock()
 	for k, v := range pgsStatuses {
-		clus.PgStatusMap[k] = v
+		clus.PgStatusMap.Store(k, v)
 	}
-	clus.internalMapLock.Unlock()
 	return &protos.OsdStatusReportReply{}, nil
 }
 
