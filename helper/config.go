@@ -89,6 +89,7 @@ type Config struct {
 	AdvertiseAddr string
 	AdvertiseIp   string
 	HTTPAddr      string
+	Zipkin        string
 }
 
 var DefaultConfig = Config{
@@ -107,6 +108,7 @@ var DefaultConfig = Config{
 	MemberBindPort:      7946,
 	JoinMemberAddr:      "",
 	NodeType:            "osd",
+	Zipkin:              "",
 }
 
 var CONFIG Config
@@ -133,6 +135,8 @@ func (c *Config) parseCmdArgs() {
 		"RAFT ID that this server will use to join RAFT cluster.")
 	flag.StringVar(&c.BaseDir, "baseDir", "./basedir",
 		"Base directory where nentropy stores data")
+	flag.StringVar(&c.Zipkin, "zipkin", "",
+		"zipkin Collector address")
 
 	flag.Parse()
 	if !flag.Parsed() {

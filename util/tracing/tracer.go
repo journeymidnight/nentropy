@@ -26,11 +26,10 @@ import (
 	"time"
 	"unsafe"
 
-	"golang.org/x/net/trace"
-
 	"github.com/journeymidnight/nentropy/util/caller"
 	opentracing "github.com/opentracing/opentracing-go"
 	"github.com/pkg/errors"
+	"golang.org/x/net/trace"
 )
 
 // Snowball is set as Baggage on traces which are used for snowball tracing.
@@ -55,8 +54,6 @@ const (
 )
 
 var enableNetTrace = true
-
-var zipkinCollector = "127.0.0.1:9411"
 
 var lightstepToken = "trace.lightstep.token"
 
@@ -109,9 +106,9 @@ func NewTracer() *Tracer {
 
 // Configure sets up the Tracer according to the cluster settings (and keeps
 // it updated if they change).
-func (t *Tracer) Configure() {
-	if zipkinCollector != "" {
-		t.setShadowTracer(createZipkinTracer(zipkinCollector))
+func (t *Tracer) Configure(addr string) {
+	if addr != "" {
+		t.setShadowTracer(createZipkinTracer(addr))
 	} else {
 		t.setShadowTracer(nil, nil)
 	}

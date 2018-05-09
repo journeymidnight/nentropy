@@ -5,10 +5,10 @@ package zipkincore
 
 import (
 	"bytes"
-	"reflect"
 	"context"
 	"fmt"
 	"github.com/apache/thrift/lib/go/thrift"
+	"reflect"
 )
 
 // (needed to ensure safety because of naive import list construction.)
@@ -42,4 +42,3 @@ const SERVER_ADDR = "sa"
 
 func init() {
 }
-
