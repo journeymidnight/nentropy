@@ -154,7 +154,7 @@ func Init(isMon bool, isLeader bool, id uint64, advertiseAddr string, memberBind
 	if !isMon {
 		member.Name = fmt.Sprintf("osd.%d", id)
 	} else {
-		member.Name = fmt.Sprintf("%d", id)
+		member.Name = fmt.Sprintf("mon.%d", id)
 	}
 	meta, err := json.Marshal(member)
 	if err != nil {
@@ -184,7 +184,7 @@ func Init(isMon bool, isLeader bool, id uint64, advertiseAddr string, memberBind
 	}
 
 	// Ask for members of the cluster
-	for _, member := range List.Members() {
+	for _, member := range GetMembers() {
 		helper.Printf(0, "Member: %s %s\n", member.Name, member.Addr)
 	}
 
