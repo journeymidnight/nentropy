@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"github.com/journeymidnight/nentropy/storage/engine"
+	"math/rand"
 	"os"
 	"sync/atomic"
 	"time"
@@ -35,7 +36,7 @@ func write_data() error {
 
 	var wCount int32
 	wCount = 0
-
+	prefix := rand.Int()
 	ch := make(chan struct{}, *cNum)
 	f := func(idx int) error {
 		dbPath := fmt.Sprintf("%s/db-%d", *dir, idx)
@@ -50,7 +51,7 @@ func write_data() error {
 		buf := make([]byte, *bs, *bs)
 		for {
 			sequence++
-			key := fmt.Sprintf("%d-%d", idx, sequence)
+			key := fmt.Sprintf("%d-%d-%d", idx, prefix, sequence)
 			err = eng.Put([]byte([]byte(key)), buf)
 			if err != nil {
 				fmt.Println("Error putting data to badger db. err:", err)
@@ -84,7 +85,7 @@ func write_data() error {
 			exitSubFunc++
 			if exitSubFunc == *cNum {
 				val := atomic.LoadInt32(&wCount)
-				fmt.Printf("%d ops/s, %d KB/s for write", val-preWCount, (val-preWCount)*(int32(*bs))/1024)
+				fmt.Printf("%d ops/s, %d KB/s for write\n", val-preWCount, (val-preWCount)*(int32(*bs))/1024)
 
 				exit = true
 			}
@@ -98,7 +99,7 @@ func write_data() error {
 
 func main() {
 	flag.Parse()
-
+	rand.Seed(time.Now().UnixNano())
 	switch *cmd {
 	case "write":
 		err := write_data()
