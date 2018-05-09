@@ -136,7 +136,7 @@ func (rlq *transferLeaderQueue) process(ctx context.Context, r *Replica) error {
 	}
 	r.mu.Lock()
 	if multiraftbase.ReplicaID(id) != r.mu.replicaID {
-		helper.Printf(5, "Transfer leader id from %d to %d", r.mu.replicaID, id)
+		helper.Printf(5, "Transfer leader id from %d to %d, groupID %v", r.mu.replicaID, id, r.GroupID)
 		r.mu.internalRaftGroup.TransferLeader(uint64(id))
 		r.mu.Unlock()
 		return nil

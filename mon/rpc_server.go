@@ -52,7 +52,7 @@ func (s *monitorRpcServer) GetLayout(ctx context.Context, in *protos.LayoutReque
 	osds := make([]*protos.Osd, 0)
 	nonPrimayOsds := make([]*protos.Osd, 0)
 	for _, v := range clus.pgMaps.Pgmaps[poolId].Pgmap[int32(hashPgId)].Replicas {
-		helper.Println(5, "osd to be returned:", *clus.osdMap.MemberList[v.OsdId])
+		//helper.Println(5, "osd to be returned:", *clus.osdMap.MemberList[v.OsdId])
 		if clus.pgMaps.Pgmaps[poolId].Pgmap[int32(hashPgId)].PrimaryId == v.OsdId {
 			osds = append(osds, clus.osdMap.MemberList[v.OsdId])
 		} else {

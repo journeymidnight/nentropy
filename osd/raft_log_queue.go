@@ -249,7 +249,7 @@ func (rlq *raftLogQueue) process(ctx context.Context, r *Replica) error {
 	if err != nil {
 		return err
 	}
-
+	return nil
 	// Can and should the raft logs be truncated?
 	if shouldTruncate(truncatableIndexes, raftLogSize) {
 		r.mu.Lock()

@@ -44,6 +44,7 @@ var (
 	bSize              = flag.Int("bench_size", 131072, "bench value size, default:128K")
 	bRunName           = flag.String("bench_run_name", "", "bench run name, default:")
 	client             pb.MonitorClient
+	Bc                 *benchControl
 )
 
 func createPool(poolName string, poolSize int32, pgNumber int32, policy pb.DistributePolicy) {
@@ -309,7 +310,7 @@ func getObject(pgname string, osd string, oid []byte, filename string) error {
 	ctx := context.Background()
 	res, err := client.Batch(ctx, &dumy)
 	if err != nil {
-		fmt.Printf("Error send rpc request!")
+		fmt.Printf("Error send rpc request!， admin getObject", err)
 		return err
 	}
 	getRes := res.Responses.GetValue().(*multiraftbase.GetResponse)
@@ -330,11 +331,29 @@ func getObject(pgname string, osd string, oid []byte, filename string) error {
 }
 
 func putObjectFromBuf(pgname string, osd string, oid []byte, buf []byte) error {
-	conn, err := grpc.Dial(osd, grpc.WithInsecure(), grpc.WithBlock())
-	if err != nil {
-		log.Fatalf("fail to dial: %v", err)
+	tm := time.Now()
+	Bc.log.Printf("try get conn to osd %v ,%v", string(oid), osd)
+	var conn *grpc.ClientConn
+	var err error
+	value, ok := Bc.osdConnMap.Load(osd)
+	if ok {
+		conn = value.(*grpc.ClientConn)
+	} else {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		newConn, err := grpc.DialContext(ctx, osd, grpc.WithInsecure(), grpc.WithBlock())
+		if err != nil {
+			log.Fatalf("fail to dial: %v", err)
+			return err
+		}
+		realConn, loaded := Bc.osdConnMap.LoadOrStore(osd, newConn)
+		if loaded {
+			newConn.Close()
+		}
+		conn = realConn.(*grpc.ClientConn)
 	}
-	defer conn.Close()
+
+	Bc.log.Printf("got conn to osd %v ,%v, cost %v", string(oid), osd, time.Now().Sub(tm).Seconds())
 	client := multiraftbase.NewInternalClient(conn)
 
 	dumy := multiraftbase.BatchRequest{}
@@ -343,10 +362,11 @@ func putObjectFromBuf(pgname string, osd string, oid []byte, buf []byte) error {
 	putReq := multiraftbase.NewPut(oid, buf)
 	dumy.Request.MustSetInner(putReq)
 
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 	_, err = client.Batch(ctx, &dumy)
 	if err != nil {
-		fmt.Printf("putobject()! res=%v", err)
+		fmt.Printf("putobject()! res=%v", err, pgname, osd, string(oid))
 		return err
 	}
 
@@ -377,7 +397,7 @@ func deleteObject(pgname string, osd string, oid []byte) error {
 	ctx := context.Background()
 	_, err = client.Batch(ctx, &dumy)
 	if err != nil {
-		fmt.Printf("Error send rpc request!")
+		fmt.Printf("Error send rpc request! admin deleteObject", err)
 		return err
 	}
 	//deleteRes := res.Responses.GetValue().(*multiraftbase.DeleteResponse)
@@ -470,6 +490,8 @@ type benchControl struct {
 	threadNumber int
 	pool         string
 	buffer       []byte
+	log          *log.Logger
+	osdConnMap   sync.Map //map[string]*ClientConn
 }
 
 func (bc *benchControl) printStatics() {
@@ -514,19 +536,25 @@ func (bc *benchControl) worker(threadId int) {
 				bc.totalCount = newId
 				bc.lock.Unlock()
 				key := bc.generateObjectKey(newId)
+				bc.log.Printf("try get lay out of %v", key)
+				tm := time.Now()
 				result, err := getObjectLayout(bc.pool, key)
 				if err != nil {
 					fmt.Println("get object layout error: ", err)
 					panic("")
 				}
+				bc.log.Printf("got lay out of %v, cost %v s", key, time.Now().Sub(tm).Seconds())
 				//fmt.Println("Layout Info:")
 				//fmt.Println("PG name:", result.PgName)
 				//fmt.Println("OSDS:")
+				bc.log.Printf("try put kv of %v", key)
+				tm = time.Now()
 				err = putObjectFromBuf(result.PgName, result.Osds[0].Addr, []byte(key), bc.buffer)
 				if err != nil {
 					fmt.Println("Error put object err:", err, result.PgName, result.Osds[0].Addr, []byte(key))
 					panic("")
 				}
+				bc.log.Printf("finish put kv of %v, cost %v s", key, time.Now().Sub(tm).Seconds())
 			}
 		}
 	}
@@ -546,6 +574,16 @@ func benchHandle() {
 		return
 	}
 	bc := &benchControl{}
+	Bc = bc
+	f, err := os.OpenFile("./bench.log", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+	if err != nil {
+		bc.log = log.New(os.Stdout, "[bench]", log.LstdFlags)
+		fmt.Println(0, "Failed to open log file %s, use stdout!")
+	} else {
+		defer f.Close()
+		bc.log = log.New(f, "[bench]", log.LstdFlags)
+	}
+
 	switch *cmd {
 	case "write":
 		if *bRunName != "" {

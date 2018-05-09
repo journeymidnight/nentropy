@@ -482,16 +482,22 @@ func (t *RaftTransport) processQueue(
 			return err
 		case req := <-ch:
 			batch.Requests = append(batch.Requests, *req)
-
-			// Pull off as many queued requests as possible.
-			//
-			// TODO(peter): Think about limiting the size of the batch we send.
-			for done := false; !done; {
-				select {
-				case req = <-ch:
-					batch.Requests = append(batch.Requests, *req)
-				default:
-					done = true
+			if req.Message.Type != raftpb.MsgHeartbeat {
+				// TODO(peter): Think about limiting the size of the batch we send.
+				for done := false; !done; {
+					select {
+					case req = <-ch:
+						if req.Message.Type == raftpb.MsgHeartbeat {
+							slice := make([]multiraftbase.RaftMessageRequest, 0)
+							slice = append(slice, *req)
+							batch.Requests = append(slice, batch.Requests...)
+							done = true
+						} else {
+							batch.Requests = append(batch.Requests, *req)
+						}
+					default:
+						done = true
+					}
 				}
 			}
 			err := stream.Send(batch)
