@@ -121,8 +121,6 @@ type Replica struct {
 		// raft log truncation while a preemptive snapshot is in flight. A value of
 		// 0 indicates that there is no pending snapshot.
 		pendingSnapshotIndex uint64
-		// Max bytes before split.
-		maxBytes int64
 	}
 
 	// raftMu protects Raft processing the replica.
@@ -308,13 +306,13 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 	if len(rd.Entries) > 0 {
 		// All of the entries are appended to distinct keys, returning a new
 		// last index.
-		thinEntries, sideLoadedEntriesSize, err := r.maybeSideloadEntriesRaftMuLocked(ctx, rd.Entries)
+		thinEntries, _, err := r.maybeSideloadEntriesRaftMuLocked(ctx, rd.Entries)
 		if err != nil {
 			const expl = "during sideloading"
 			return stats, expl, errors.Wrap(err, expl)
 		}
 
-		raftLogSize += sideLoadedEntriesSize
+		//raftLogSize += sideLoadedEntriesSize
 		if lastIndex, lastTerm, raftLogSize, err = r.append(
 			ctx, batch, lastIndex, lastTerm, raftLogSize, thinEntries,
 		); err != nil {
@@ -742,7 +740,9 @@ func (r *Replica) applyRaftCommand(
 		eng := r.store.LoadGroupEngine(r.Desc().GroupID)
 		deltSize := int32(0)
 		r.mu.Lock()
-		for i := uint64(r.mu.state.TruncatedState.Index); i < truncateReq.Index; i++ {
+		startIdx := r.mu.state.TruncatedState.Index
+		r.mu.Unlock()
+		for i := uint64(startIdx); i < truncateReq.Index; i++ {
 			raftLogKey := keys.RaftLogKey(truncateReq.GroupID, i)
 			value, err := eng.Get(raftLogKey)
 			if err != nil && err != badger.ErrKeyNotFound {
@@ -794,9 +794,11 @@ func (r *Replica) applyRaftCommand(
 				}
 			}
 		}
+		r.mu.Lock()
 		r.mu.state.TruncatedState.Index = truncateReq.Index
 		r.mu.state.TruncatedState.Term = truncateReq.Term
-		r.mu.raftLogSize = r.mu.raftLogSize - int64(deltSize)
+		//r.mu.raftLogSize = r.mu.raftLogSize - int64(deltSize)
+		r.mu.raftLogSize = 0
 		r.mu.Unlock()
 
 		helper.Println(5, "Finished to truncate log! GroupID:", truncateReq.GroupID, " index:", truncateReq.Index)
