@@ -71,7 +71,8 @@ type raftRequestInfo struct {
 
 type raftRequestQueue struct {
 	syncutil.Mutex
-	infos []raftRequestInfo
+	infos  []raftRequestInfo
+	idxMap map[string]int
 }
 
 //type ReplicaStateChangeCallback func(pgId string, state string)
@@ -195,6 +196,7 @@ func (s *Store) processRequestQueue(ctx context.Context, id multiraftbase.GroupI
 	q.Lock()
 	infos := q.infos
 	q.infos = nil
+	q.idxMap = nil
 	q.Unlock()
 
 	for _, info := range infos {
@@ -731,7 +733,7 @@ func (s *Store) processRaftRequest(
 		if req.Message.Type == raftpb.MsgApp {
 			r.setEstimatedCommitIndexLocked(req.Message.Commit)
 		}
-		helper.Println(20, "received message:", "To:", req.Message.To,
+		helper.Println(20, r.GroupID, "received message:", "To:", req.Message.To,
 			"From:", req.Message.From,
 			"Type:", req.Message.Type,
 			"Term:", req.Message.Term,
@@ -787,10 +789,31 @@ func (s *Store) HandleRaftUncoalescedRequest(
 		helper.Printf(5, "drop message because of queue too full")
 		return nil
 	}
-	q.infos = append(q.infos, raftRequestInfo{
-		req:        req,
-		respStream: respStream,
-	})
+	if q.idxMap == nil {
+		q.idxMap = make(map[string]int)
+	}
+	idx := fmt.Sprintf("%d.%d", req.Message.Term, req.Message.Index)
+	seq, ok := q.idxMap[idx]
+	if ok {
+		q.infos[seq] = raftRequestInfo{
+			req:        req,
+			respStream: respStream,
+		}
+	} else {
+		if len(q.infos) >= 100 {
+			q.Unlock()
+			// TODO(peter): Return an error indicating the request was dropped. Note
+			// that dropping the request is safe. Raft will retry.
+			helper.Printf(5, "drop message because of queue too full")
+			return nil
+		}
+		q.infos = append(q.infos, raftRequestInfo{
+			req:        req,
+			respStream: respStream,
+		})
+		q.idxMap[idx] = len(q.infos) - 1
+	}
+
 	q.Unlock()
 	s.scheduler.EnqueueRaftRequest(req.GroupID)
 	return nil
