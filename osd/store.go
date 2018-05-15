@@ -781,7 +781,6 @@ func (s *Store) HandleRaftUncoalescedRequest(
 		return nil
 	}
 	q.Lock()
-	helper.Printf(5, "raft queue depth pg: %s, depth: %v", req.GroupID, len(q.infos))
 	if len(q.infos) >= 100 {
 		q.Unlock()
 		// TODO(peter): Return an error indicating the request was dropped. Note

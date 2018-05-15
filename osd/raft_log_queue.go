@@ -36,13 +36,13 @@ const (
 	// RaftLogQueueStaleThreshold is the minimum threshold for stale raft log
 	// entries. A stale entry is one which all replicas of the range have
 	// progressed past and thus is no longer needed and can be truncated.
-	RaftLogQueueStaleThreshold = 200
+	RaftLogQueueStaleThreshold = 100
 	// RaftLogQueueStaleSize is the minimum size of the Raft log that we'll
 	// truncate even if there are fewer than RaftLogQueueStaleThreshold entries
 	// to truncate. The value of 64 KB was chosen experimentally by looking at
 	// when Raft log truncation usually occurs when using the number of entries
 	// as the sole criteria.
-	RaftLogQueueStaleSize = 64 << 20
+	RaftLogQueueStaleSize = 128 << 10
 )
 
 // raftLogMaxSize limits the maximum size of the Raft log.
@@ -73,7 +73,8 @@ func newRaftLogQueue(store *Store, db *client.DB) *raftLogQueue {
 }
 
 func shouldTruncate(truncatableIndexes uint64, raftLogSize int64) bool {
-	return (truncatableIndexes > 0 && raftLogSize >= RaftLogQueueStaleSize)
+	return truncatableIndexes >= RaftLogQueueStaleThreshold ||
+		(truncatableIndexes > 0 && raftLogSize >= RaftLogQueueStaleSize)
 }
 
 // getTruncatableIndexes returns the number of truncatable indexes, the oldest
