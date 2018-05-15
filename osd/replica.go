@@ -412,14 +412,6 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 		helper.Println(5, "raft commit index:", e.Index, " term:", e.Term)
 		switch e.Type {
 		case raftpb.EntryNormal:
-			if newEnt, err := maybeInlineSideloadedRaftCommand(
-				ctx, r.GroupID, e, r.engine, r.store.raftEntryCache,
-			); err != nil {
-				const expl = "maybeInlineSideloadedRaftCommand"
-				return stats, expl, errors.Wrap(err, expl)
-			} else if newEnt != nil {
-				e = *newEnt
-			}
 			var commandID multiraftbase.CmdIDKey
 			var command multiraftbase.RaftCommand
 
@@ -709,7 +701,7 @@ func (r *Replica) applyRaftCommand(
 			Err = multiraftbase.NewError(err)
 		} else if err == badger.ErrKeyNotFound {
 			onode.Key = keys.DataKey(term, index)
-			onode.Size_ = int32(len(putReq.Value))
+			onode.Size_ = int32(putReq.Size_)
 			data, err = onode.Marshal()
 			err = r.engine.Put(putReq.Key, data)
 			helper.Println(5, "write kv onode ***************", r.GroupID, putReq.Key, onode.Key, onode.Size_, term, index)
@@ -729,7 +721,7 @@ func (r *Replica) applyRaftCommand(
 				helper.Println(5, "Error clear expired data, err:", err)
 			} else {
 				onode.Key = keys.DataKey(term, index)
-				onode.Size_ = int32(len(putReq.Value))
+				onode.Size_ = int32(putReq.Size_)
 				data, err = onode.Marshal()
 				err = r.engine.Put(putReq.Key, data)
 				helper.Println(5, "update kv onode ***************", r.GroupID, putReq.Key, onode.Key, onode.Size_)
