@@ -738,51 +738,20 @@ func (r *Replica) applyRaftCommand(
 			helper.Printf(5, "Cannot unmarshal data to kv")
 		}
 		eng := r.store.LoadGroupEngine(r.Desc().GroupID)
-		deltSize := int32(0)
 		r.mu.Lock()
 		startIdx := r.mu.state.TruncatedState.Index
 		r.mu.Unlock()
-		for i := uint64(startIdx); i < truncateReq.Index; i++ {
-			raftLogKey := keys.RaftLogKey(truncateReq.GroupID, i)
-			value, err := eng.Get(raftLogKey)
-			if err != nil && err != badger.ErrKeyNotFound {
-				Err = multiraftbase.NewError(err)
-				helper.Println(5, "Failed to remove raft log, index:", i, err)
-				continue
-			} else if err == badger.ErrKeyNotFound {
-				helper.Println(5, "Failed to remove raft log, index:", i, err)
-				continue
-			} else {
-				var entry raftpb.Entry
-				err = entry.Unmarshal(value)
-				if err != nil {
-					helper.Println(5, "Failed to remove raft log, Entry Unmarshal failed index:", i, err)
+		go func() {
+			for i := uint64(startIdx); i < truncateReq.Index; i++ {
+				raftLogKey := keys.RaftLogKey(truncateReq.GroupID, i)
+				_, err := eng.Get(raftLogKey)
+				if err != nil && err != badger.ErrKeyNotFound {
+					Err = multiraftbase.NewError(err)
+					helper.Println(5, "Failed to remove raft log, index:", i, err)
 					continue
-				}
-				if sniffSideloadedRaftCommand(entry.Data) {
-					_, data := DecodeRaftCommand(entry.Data)
-					var strippedCmd multiraftbase.RaftCommand
-					if err := protoutil.Unmarshal(data, &strippedCmd); err != nil {
-						helper.Println(5, "Failed to remove raft log, RaftCommand Unmarshal failed index:", i, err)
-						continue
-					}
-					if strippedCmd.Method != multiraftbase.Put {
-						err = helper.Errorf("Failed to remove raft log, side load raft log must be a put request", i, err)
-						continue
-					}
-					putReq := multiraftbase.PutRequest{}
-					err = putReq.Unmarshal(strippedCmd.WriteBatch.Data)
-					if err != nil {
-						helper.Printf(5, "Failed to remove raft log, PutRequest unmarshal failed", i, err)
-						continue
-					}
-					err := eng.Clear(raftLogKey)
-					if err != nil {
-						Err = multiraftbase.NewError(err)
-						helper.Println(5, "Failed to remove raft log, index:", i)
-						continue
-					}
-					deltSize += int32(putReq.Size_) + int32(len(raftLogKey)) + int32(len(value))
+				} else if err == badger.ErrKeyNotFound {
+					helper.Println(5, "Failed to remove raft log, index:", i, err)
+					continue
 				} else {
 					err := eng.Clear(raftLogKey)
 					if err != nil {
@@ -790,10 +759,50 @@ func (r *Replica) applyRaftCommand(
 						helper.Println(5, "Failed to remove raft log, index:", i)
 						continue
 					}
-					deltSize += int32(len(raftLogKey)) + int32(len(value))
+					//var entry raftpb.Entry
+					//err = entry.Unmarshal(value)
+					//if err != nil {
+					//	helper.Println(5, "Failed to remove raft log, Entry Unmarshal failed index:", i, err)
+					//	continue
+					//}
+					//if sniffSideloadedRaftCommand(entry.Data) {
+					//	_, data := DecodeRaftCommand(entry.Data)
+					//	var strippedCmd multiraftbase.RaftCommand
+					//	if err := protoutil.Unmarshal(data, &strippedCmd); err != nil {
+					//		helper.Println(5, "Failed to remove raft log, RaftCommand Unmarshal failed index:", i, err)
+					//		continue
+					//	}
+					//	if strippedCmd.Method != multiraftbase.Put {
+					//		err = helper.Errorf("Failed to remove raft log, side load raft log must be a put request", i, err)
+					//		continue
+					//	}
+					//	putReq := multiraftbase.PutRequest{}
+					//	err = putReq.Unmarshal(strippedCmd.WriteBatch.Data)
+					//	if err != nil {
+					//		helper.Printf(5, "Failed to remove raft log, PutRequest unmarshal failed", i, err)
+					//		continue
+					//	}
+					//	err := eng.Clear(raftLogKey)
+					//	if err != nil {
+					//		Err = multiraftbase.NewError(err)
+					//		helper.Println(5, "Failed to remove raft log, index:", i)
+					//		continue
+					//	}
+					//	deltSize += int32(putReq.Size_) + int32(len(raftLogKey)) + int32(len(value))
+					//} else {
+					//	err := eng.Clear(raftLogKey)
+					//	if err != nil {
+					//		Err = multiraftbase.NewError(err)
+					//		helper.Println(5, "Failed to remove raft log, index:", i)
+					//		continue
+					//	}
+					//	deltSize += int32(len(raftLogKey)) + int32(len(value))
+					//}
 				}
 			}
-		}
+			helper.Println(5, "Finished to truncate log background! GroupID:", truncateReq.GroupID, " index:", truncateReq.Index)
+		}()
+
 		r.mu.Lock()
 		r.mu.state.TruncatedState.Index = truncateReq.Index
 		r.mu.state.TruncatedState.Term = truncateReq.Term
