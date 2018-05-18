@@ -22,6 +22,7 @@ import (
 	"github.com/pkg/errors"
 	"golang.org/x/net/context"
 	"math/rand"
+	"runtime"
 	"strconv"
 	"time"
 )
@@ -610,9 +611,11 @@ func (r *Replica) processRaftCommand(
 		response.Err = err
 	}
 
-	helper.Println(5, "GroupID:", r.GroupID, "processRaftCommand(): RaftAppliedIndex:", index)
+	helper.Println(20, "GroupID:", r.GroupID, "processRaftCommand(): RaftAppliedIndex:", index)
 
 	if proposedLocally {
+		response.reqInsertTime = proposal.insertTime
+		response.reqCommitTime = time.Now()
 		proposal.finishRaftApplication(response)
 	} else if response.Err != nil {
 		helper.Printf(5, "applying raft command resulted in error: %s", response.Err)
@@ -1503,6 +1506,7 @@ func (r *Replica) insertProposalLocked(
 	if _, ok := r.mu.proposals[proposal.idKey]; ok {
 		helper.Fatal("pending command already exists for %s", proposal.idKey)
 	}
+	proposal.insertTime = time.Now()
 	r.mu.proposals[proposal.idKey] = proposal
 }
 
@@ -1697,6 +1701,23 @@ func (r *Replica) propose(
 
 const SlowRequestThreshold = 60 * time.Second
 
+func StackTrace(all bool) {
+	// Reserve 10K buffer at first
+	buf := make([]byte, 10240)
+	for {
+		size := runtime.Stack(buf, all)
+		// The size of the buffer may be not enough to hold the stacktrace,
+		// so double the buffer size
+		if size == len(buf) {
+			buf = make([]byte, len(buf)<<1)
+			continue
+		}
+		break
+	}
+	helper.Fatalln(5, "nentropy stacks:", string(buf))
+	return
+}
+
 func (r *Replica) tryExecuteWriteBatch(
 	ctx context.Context, ba multiraftbase.BatchRequest,
 ) (br *multiraftbase.BatchResponse, pErr *multiraftbase.Error) {
@@ -1714,9 +1735,11 @@ func (r *Replica) tryExecuteWriteBatch(
 	for {
 		select {
 		case propResult := <-ch:
-			helper.Printf(5, "successfully to propose data. ")
+			propResult.reqFinishTime = time.Now()
+			helper.Printf(5, "successfully to propose data. time spent: %d ms", (time.Since(propResult.reqInsertTime).Nanoseconds())/1000000)
 			return propResult.Reply, propResult.Err
 		case <-slowTimer.C:
+			StackTrace(true)
 			slowTimer.Read = true
 			helper.Printf(5, "have been waiting %s for proposing command %s",
 				SlowRequestThreshold, ba)

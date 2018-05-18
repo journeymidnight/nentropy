@@ -3,12 +3,18 @@ package main
 import (
 	"github.com/journeymidnight/nentropy/osd/multiraftbase"
 	"golang.org/x/net/context"
+	"time"
 )
 
 // proposalResult indicates the result of a proposal. Exactly one of
 // Reply, Err and ProposalRetry is set, and it represents the result of
 // the proposal.
 type proposalResult struct {
+	// time to insert map
+	reqInsertTime time.Time
+	reqCommitTime time.Time
+	reqFinishTime time.Time
+
 	Reply *multiraftbase.BatchResponse
 	Err   *multiraftbase.Error
 }
@@ -30,6 +36,9 @@ type ProposalData struct {
 	// proposedAtTicks is the (logical) time at which this command was
 	// last (re-)proposed.
 	proposedAtTicks int
+
+	// time to insert map
+	insertTime time.Time
 
 	// command is serialized and proposed to raft. In the event of
 	// reproposals its MaxLeaseIndex field is mutated.
