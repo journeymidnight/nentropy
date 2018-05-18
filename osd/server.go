@@ -550,7 +550,8 @@ func (s *OsdServer) GetPoolMap() (*protos.PoolMap, error) {
 // should represent the general startup operation.
 func (s *OsdServer) Start(ctx context.Context) error {
 
-	workersCtx := context.Background()
+	//workersCtx := context.Background()
+	workersCtx := s.AnnotateCtx(ctx)
 	//s.stopper.RunWorker(workersCtx, func(context.Context) {
 	//	<-s.stopper.ShouldQuiesce()
 	//	// TODO(bdarnell): Do we need to also close the other listeners?
@@ -853,6 +854,15 @@ func GetExpectedReplicaId(pgId string) (int32, bool) {
 	id, err := Server.pgMaps.GetPgExpectedId(pgId)
 	if err != nil {
 		helper.Printf(5, "GetExpectedPrimaryId failed:%d", pgId)
+		return 0, false
+	}
+	return id, true
+}
+
+func GetRepLenInPgMap(pgId string) (int32, bool) {
+	id, err := Server.pgMaps.GetRepLenInPgMap(pgId)
+	if err != nil {
+		helper.Printf(5, "GetRepLenInPgMap failed:%d", pgId)
 		return 0, false
 	}
 	return id, true

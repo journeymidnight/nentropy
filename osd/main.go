@@ -44,7 +44,7 @@ func main() {
 	cfg.Tracer.Configure(cfg.Zipkin)
 	sp := cfg.Tracer.StartSpan("Server Start")
 	ctx := opentracing.ContextWithSpan(context.Background(), sp)
-	defer sp.Finish()
+	//defer sp.Finish()
 	go func() {
 		defer func() {
 			if Server != nil {
@@ -53,6 +53,7 @@ func main() {
 				}
 			}
 		}()
+		defer sp.Finish()
 		var err error
 		cfg.AmbientCtx = log.NewAmbientContext(ctx, cfg.Tracer)
 		if err = func() error {

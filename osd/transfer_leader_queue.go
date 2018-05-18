@@ -111,14 +111,16 @@ func (rlq *transferLeaderQueue) shouldQueue(
 	var id int32
 	var ok bool
 	if id, ok = GetExpectedReplicaId(string(r.GroupID)); !ok {
+		helper.Println(5, "Error getting expected replica id!")
 		return false, 0
 	}
-	poolSize, err := GetPoolSize(string(r.GroupID))
-	if err != nil {
+	repSize, ok := GetRepLenInPgMap(string(r.GroupID))
+	if !ok {
 		helper.Println(5, "Error getting pool size")
 		return false, 0
 	}
-	if multiraftbase.ReplicaID(id) == r.mu.replicaID && len(raftStatus.Progress) == int(poolSize) {
+
+	if multiraftbase.ReplicaID(id) == r.mu.replicaID && len(raftStatus.Progress) == int(repSize) {
 		return false, 0
 	}
 
@@ -141,14 +143,14 @@ func (rlq *transferLeaderQueue) process(ctx context.Context, r *Replica) error {
 		r.mu.Unlock()
 		return nil
 	}
-	poolSize, err := GetPoolSize(string(r.GroupID))
-	if err != nil {
+	repSize, ok := GetRepLenInPgMap(string(r.GroupID))
+	if !ok {
 		helper.Println(5, "Error getting pool size")
 		r.mu.Unlock()
 		return nil
 	}
 	desc := r.mu.state.Desc
-	if len(desc.Replicas) <= int(poolSize) {
+	if len(desc.Replicas) <= int(repSize) {
 		r.mu.Unlock()
 		return nil
 	}
@@ -178,7 +180,7 @@ func (rlq *transferLeaderQueue) process(ctx context.Context, r *Replica) error {
 		}
 	}
 	r.mu.Unlock()
-	helper.Println(5, "groupId:", r.GroupID, " remove:", reps, " replicaId:", r.mu.replicaID)
+	helper.Println(5, "transferLeaderQueue: groupId:", r.GroupID, " remove:", reps, " replicaId:", r.mu.replicaID)
 	proposeConfChange(multiraftbase.ConfType_REMOVE_REPLICA, r.GroupID, reps)
 
 	return nil
