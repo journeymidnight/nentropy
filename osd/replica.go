@@ -408,7 +408,7 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 	}
 	var lastAppliedIndex uint64
 	for _, e := range rd.CommittedEntries {
-		helper.Println(5, "raft commit index:", e.Index, " term:", e.Term)
+		helper.Println(15, "raft commit index:", e.Index, " term:", e.Term)
 		switch e.Type {
 		case raftpb.EntryNormal:
 			var commandID multiraftbase.CmdIDKey
@@ -441,7 +441,7 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 					return stats, expl, errors.Wrap(err, expl)
 				}
 			}
-			helper.Println(5, "commit entries. EntryNormal: ")
+			helper.Println(15, "commit entries. EntryNormal: ")
 			if changedRepl := r.processRaftCommand(ctx, commandID, e.Term, e.Index, command); !changedRepl {
 				helper.Fatalf("unexpected replication change from command %s", &command)
 			}
@@ -543,7 +543,7 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 	r.applyWait.Trigger(r.mu.state.RaftAppliedIndex)
 	r.mu.Unlock()
 	if len(rd.CommittedEntries) != 0 {
-		helper.Println(5, "Group:", r.GroupID, "Raft lastIndex:", r.mu.lastIndex,
+		helper.Println(15, "Group:", r.GroupID, "Raft lastIndex:", r.mu.lastIndex,
 			" RaftAppliedIndex:", r.mu.state.RaftAppliedIndex,
 			" TruncatedState.index:", r.mu.state.TruncatedState.Index,
 			" TruncatedState.term:", r.mu.state.TruncatedState.Term)
@@ -1506,6 +1506,7 @@ func (r *Replica) insertProposalLocked(
 	if _, ok := r.mu.proposals[proposal.idKey]; ok {
 		helper.Fatal("pending command already exists for %s", proposal.idKey)
 	}
+	helper.Println(5, "Group:", r.GroupID, " total proposals:", len(r.mu.proposals))
 	proposal.insertTime = time.Now()
 	r.mu.proposals[proposal.idKey] = proposal
 }

@@ -38,15 +38,15 @@ func maybeSideloadEntriesImpl(
 ) (_ []raftpb.Entry, sideloadedEntriesSize int64, _ error) {
 
 	cow := false
-	helper.Println(5, "enter maybeSideloadEntriesImpl")
+	helper.Println(15, "enter maybeSideloadEntriesImpl")
 	for i := range entriesToAppend {
 		var err error
 		if sniffSideloadedRaftCommand(entriesToAppend[i].Data) {
-			helper.Println(5, "sideloading command in append")
+			helper.Println(15, "sideloading command in append")
 			if !cow {
 				// Avoid mutating the passed-in entries directly. The caller
 				// wants them to remain "fat".
-				helper.Printf(10, "copying entries slice of length %d", len(entriesToAppend))
+				helper.Printf(15, "copying entries slice of length %d", len(entriesToAppend))
 				cow = true
 				entriesToAppend = append([]raftpb.Entry(nil), entriesToAppend...)
 			}
@@ -55,12 +55,12 @@ func maybeSideloadEntriesImpl(
 			cmdID, data := DecodeRaftCommand(ent.Data) // cheap
 			strippedCmd, ok := maybeRaftCommand(cmdID)
 			if ok {
-				helper.Println(5, "command already in memory")
+				helper.Println(15, "command already in memory")
 
 			} else {
 				// Bad luck: we didn't have the proposal in-memory, so we'll
 				// have to unmarshal it.
-				helper.Println(5, "proposal not already in memory; unmarshaling")
+				helper.Println(15, "proposal not already in memory; unmarshaling")
 				if err := protoutil.Unmarshal(data, &strippedCmd); err != nil {
 					return nil, 0, err
 				}
@@ -108,7 +108,7 @@ func maybeSideloadEntriesImpl(
 			}
 
 			ent.Data = encodeRaftCommandV2(cmdID, data)
-			helper.Printf(5, "writing payload at index=%d term=%d", ent.Index, ent.Term)
+			helper.Printf(15, "writing payload at index=%d term=%d", ent.Index, ent.Term)
 			if err = engine.Put(dataKey, dataToSideload); err != nil {
 				return nil, 0, err
 			}

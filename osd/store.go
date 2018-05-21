@@ -781,13 +781,6 @@ func (s *Store) HandleRaftUncoalescedRequest(
 		return nil
 	}
 	q.Lock()
-	if len(q.infos) >= 100 {
-		q.Unlock()
-		// TODO(peter): Return an error indicating the request was dropped. Note
-		// that dropping the request is safe. Raft will retry.
-		helper.Printf(5, "drop message because of queue too full")
-		return nil
-	}
 	if q.idxMap == nil {
 		q.idxMap = make(map[string]int)
 	}
@@ -803,7 +796,7 @@ func (s *Store) HandleRaftUncoalescedRequest(
 			q.Unlock()
 			// TODO(peter): Return an error indicating the request was dropped. Note
 			// that dropping the request is safe. Raft will retry.
-			helper.Printf(5, "drop message because of queue too full")
+			helper.Fatalf("drop message because of queue too full")
 			return nil
 		}
 		q.infos = append(q.infos, raftRequestInfo{
