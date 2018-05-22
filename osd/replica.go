@@ -261,6 +261,7 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 
 	}
 	//eng := r.store.LoadGroupEngine(r.mu.state.Desc.GroupID)
+	start := timeutil.Now()
 	eng := r.engine
 	if !raft.IsEmptySnap(rd.Snapshot) {
 		snapUUID, err := uuid.FromBytes(rd.Snapshot.Data)
@@ -296,12 +297,19 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 		}
 
 	}
+	elapsed := timeutil.Since(start)
+	if elapsed >= defaultReplicaRaftMuWarnThreshold {
+		helper.Printf(5, "handle raft snapshot: %.1fs",
+			elapsed.Seconds())
+	}
 
 	// Use a more efficient write-only batch because we don't need to do any
 	// reads from the batch. Any reads are performed via the "distinct" batch
 	// which passes the reads through to the underlying DB.
 	batch := eng.NewBatch(true)
 	defer batch.Close()
+
+	start = timeutil.Now()
 
 	prevLastIndex := lastIndex
 	if len(rd.Entries) > 0 {
@@ -329,10 +337,15 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 			return stats, expl, errors.Wrap(err, expl)
 		}
 	}
+	elapsed = timeutil.Since(start)
+	if elapsed >= defaultReplicaRaftMuWarnThreshold {
+		helper.Printf(5, "handle sideload and set hardstate: %.1fs",
+			elapsed.Seconds())
+	}
 
 	internalTimeout := time.Second
 	if len(rd.ReadStates) != 0 {
-		helper.Println(20, "handle readstate message.")
+		helper.Println(5, "handle readstate message.")
 		select {
 		case r.readStateC <- rd.ReadStates[len(rd.ReadStates)-1]:
 		case <-time.After(internalTimeout):
@@ -354,12 +367,18 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 	// were not persisted to disk, it wouldn't be a problem because raft does not
 	// infer the that entries are persisted on the node that sends a snapshot.
 	//start := timeutil.Now()
+	start = timeutil.Now()
 	if err := batch.Commit(); err != nil {
-		helper.Println(10, "Failed to commit! err:", err)
+		helper.Println(5, "Failed to commit! err:", err)
 		const expl = "while committing batch"
 		return stats, expl, errors.Wrap(err, expl)
 	}
-
+	elapsed = timeutil.Since(start)
+	if elapsed >= defaultReplicaRaftMuWarnThreshold {
+		helper.Printf(5, "handle commited entries: %.1fs",
+			elapsed.Seconds())
+	}
+	start = timeutil.Now()
 	if len(rd.Entries) > 0 {
 		// We may have just overwritten parts of the log which contain
 		// sideloaded SSTables from a previous term (and perhaps discarded some
@@ -378,6 +397,12 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 			}
 		}
 	}
+	elapsed = timeutil.Since(start)
+	if elapsed >= defaultReplicaRaftMuWarnThreshold {
+		helper.Printf(5, "handle overwritten entries: %.1fs",
+			elapsed.Seconds())
+	}
+	start = timeutil.Now()
 
 	// Update protected state (last index, last term, raft log size and raft
 	// leader ID) and set raft log entry cache. We clear any older, uncommitted
@@ -406,6 +431,12 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 		)
 		r.sendRaftMessage(ctx, message)
 	}
+	elapsed = timeutil.Since(start)
+	if elapsed >= defaultReplicaRaftMuWarnThreshold {
+		helper.Printf(5, "handle sended entries: %.1fs",
+			elapsed.Seconds())
+	}
+	start = timeutil.Now()
 	var lastAppliedIndex uint64
 	for _, e := range rd.CommittedEntries {
 		helper.Println(15, "raft commit index:", e.Index, " term:", e.Term)
@@ -530,6 +561,12 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 			helper.Fatalf("unexpected Raft entry: %v", e)
 		}
 	}
+	elapsed = timeutil.Since(start)
+	if elapsed >= defaultReplicaRaftMuWarnThreshold {
+		helper.Printf(5, "handle applied entries: %.1fs",
+			elapsed.Seconds())
+	}
+	start = timeutil.Now()
 
 	//	rsl := makeReplicaStateLoader(r.GroupID)
 	r.mu.Lock()
@@ -557,6 +594,11 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 		return true, nil
 	}); err != nil {
 		return stats, expl, errors.Wrap(err, expl)
+	}
+	elapsed = timeutil.Since(start)
+	if elapsed >= defaultReplicaRaftMuWarnThreshold {
+		helper.Printf(5, "handle advanced entries: %.1fs",
+			elapsed.Seconds())
 	}
 
 	return stats, "", nil
@@ -1472,7 +1514,7 @@ func (r *Replica) Send(
 
 	// Add the range log tag.
 	ctx = r.AnnotateCtx(ctx)
-	ctx, cleanup := tracing.EnsureContext(ctx, r.AmbientContext.Tracer, "replica send")
+	ctx, cleanup := tracing.EnsureChildSpan(ctx, r.AmbientContext.Tracer, "replica send")
 	defer cleanup()
 
 	// If the internal Raft group is not initialized, create it and wake the leader.
