@@ -705,7 +705,7 @@ func (r *Replica) applyRaftCommand(
 			onode.Size_ = int32(putReq.Size_)
 			data, err = onode.Marshal()
 			err = r.engine.Put(putReq.Key, data)
-			helper.Println(5, "write kv onode ***************", r.GroupID, putReq.Key, onode.Key, onode.Size_, term, index)
+			helper.Println(15, "write kv onode ***************", r.GroupID, putReq.Key, onode.Key, onode.Size_, term, index)
 			if err != nil {
 				Err = multiraftbase.NewError(err)
 				helper.Println(5, "Error putting data to db, err:", err)
@@ -1737,7 +1737,7 @@ func (r *Replica) tryExecuteWriteBatch(
 		select {
 		case propResult := <-ch:
 			propResult.reqFinishTime = time.Now()
-			helper.Printf(5, "successfully to propose data. time spent: %d ms", (time.Since(propResult.reqInsertTime).Nanoseconds())/1000000)
+			helper.Printf(5, "%s successfully to propose data. time spent: %d ms", string(r.GroupID), (time.Since(propResult.reqInsertTime).Nanoseconds())/1000000)
 			return propResult.Reply, propResult.Err
 		case <-slowTimer.C:
 			StackTrace(true)

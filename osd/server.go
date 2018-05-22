@@ -417,7 +417,7 @@ func (s *OsdServer) Batch(
 	ctx context.Context, args *multiraftbase.BatchRequest,
 ) (*multiraftbase.BatchResponse, error) {
 
-	helper.Println(0, "Get a batch request! GroupID:", args.GroupID)
+	helper.Println(15, "Get a batch request! GroupID:", args.GroupID)
 
 	// NB: Node.Batch is called directly for "local" calls. We don't want to
 	// carry the associated log tags forward as doing so makes adding additional
