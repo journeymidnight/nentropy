@@ -15,9 +15,9 @@
 [bitcask的论文](http://basho.com/wp-content/uploads/2015/05/bitcask-intro.pdf)
 
 
-Netropy选择了根据论文[WiscKey: Separating Keys from Values
-in SSD-conscious Storage](https://www.usenix.org/system/files/conference/fast16/fast16-papers-lu.pdf), 开发的[badge-io](https://github.com/dgraph-io/badger), 这个存储引擎把实际数据存储在VLOG中, 而对应的索引结构持久化在类似于levelDB的KV数据库中, 由于
-KV数据库只存储实际小文件的索引, 这个KV数据库非常小, 也可以极大地减少写放大的压力, 从badge[官方对比测试数据](https://blog.dgraph.io/post/badger-lmdb-boltdb/)看, 在badge存储的value大于1KB时, badge的读写性能大约是[boltDB](https://github.com/boltdb/bolt)的4倍到100倍. badge-io的架构刚好适合存储小文件, 如1KB ~ 2MB左右的图片.  
+Nentropy选择了根据论文[WiscKey: Separating Keys from Values
+in SSD-conscious Storage](https://www.usenix.org/system/files/conference/fast16/fast16-papers-lu.pdf), 开发的[badge-io](https://github.com/dgraph-io/badger), 这个存储引擎把实际数据存储在VLOG中, 而对应的索引结构持久化在类似于levelDB的KV数据库中, 由于
+KV数据库只存储实际小文件的索引, 这个KV数据库非常小, 也可以极大地减少写放大的压力, 从badge[官方对比测试数据](https://blog.dgraph.io/post/badger-lmdb-boltdb/)看, 在badge存储的value大于1KB时, badge的读写性能大约是[boltDB](https://github.com/boltdb/bolt)的4倍到100倍. badge-io的架构刚好适合存储小文件, 如1KB ~ 2MB左右的图片.  
 
 小文件存储的底层引擎不同于
 一般Key-Value存储引擎, 它的value比较大(1KB ~ 2MB). 而rocksdb等kv数据库的典型应用的value通常不到几百字节. 之前笔者压测过用Rocksdb存储图片, 由于写放大的问题, 效果不如预期. 而badge-io反而在大value下表现更好.
@@ -29,7 +29,7 @@ KV数据库只存储实际小文件的索引, 这个KV数据库非常小, 也可
 
 ## Raft算法保证数据一致性
 
-分布式性一致性通过[Raft协议](raft.github.io)解决, 由于raft leader在收到多数成功后就返回, 相比与其他强一致分布式系统, 写入延迟更小.
+分布式性一致性通过[Raft协议](raft.github.io)解决, 由于raft leader在收到多数成功后就返回, 相比与其他强一致分布式系统, 写入延迟更小.
 Raft算法的实现采用[etcd的raft实现](https://github.com/coreos/etcd/tree/master/raft), 在read策略上, 我们也不需要严格的Linearizability
 Read. 选择Lease read, 即使有可能存在时钟漂移, 出现stale read, 在对象存储的应用中也完全可以接受.
 
