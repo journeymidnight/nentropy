@@ -178,7 +178,7 @@ func (c *Config) InitConfig() {
 }
 
 var defaultRaftElectionTimeoutTicks = envutil.EnvOrDefaultInt(
-	"NENTROPY_RAFT_ELECTION_TIMEOUT_TICKS", 10)
+	"NENTROPY_RAFT_ELECTION_TIMEOUT_TICKS", 50)
 
 // RaftConfig holds raft tuning parameters.
 type RaftConfig struct {
