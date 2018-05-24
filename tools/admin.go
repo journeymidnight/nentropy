@@ -11,6 +11,7 @@ import (
 	"google.golang.org/grpc"
 	"io"
 	"log"
+	"math"
 	"os"
 	"os/signal"
 	"sort"
@@ -42,6 +43,7 @@ var (
 	filename           = flag.String("f", "", "the filename to read or write")
 	bThread            = flag.Int("bench_thread", 16, "bench concurrent IOS, default:16")
 	bSize              = flag.Int("bench_size", 131072, "bench value size, default:128K")
+	bCount             = flag.Int("bench_count", math.MaxUint32, "bench value size, default:0/unlimited")
 	bRunName           = flag.String("bench_run_name", "", "bench run name, default:")
 	client             pb.MonitorClient
 	Bc                 *benchControl
@@ -484,6 +486,7 @@ type benchControl struct {
 	lock         sync.RWMutex //protect totalCount
 	runName      string
 	totalCount   int
+	maxCount     int
 	size         int //write object length
 	startTime    time.Time
 	endTime      time.Time
@@ -492,6 +495,7 @@ type benchControl struct {
 	buffer       []byte
 	log          *log.Logger
 	osdConnMap   sync.Map //map[string]*ClientConn
+	signal       *chan os.Signal
 }
 
 func (bc *benchControl) printStatics() {
@@ -509,6 +513,18 @@ func (bc *benchControl) printStatics() {
 			bandwidth := bc.size * ops / 1024
 			lastCount = bc.totalCount
 			fmt.Println(fmt.Sprintf("Current Ops:%d/s  BandWidth:%dK/s TotalCount:%d", ops, bandwidth, bc.totalCount))
+			if bc.totalCount > bc.maxCount {
+				bc.endTime = time.Now()
+				fmt.Println(fmt.Sprintf("Summary :"))
+				fmt.Println(fmt.Sprintf("Concurrency :%d", bc.threadNumber))
+				fmt.Println(fmt.Sprintf("Size :%d", bc.size))
+				fmt.Println(fmt.Sprintf("Time taken for tests :%d seconds", bc.endTime.Sub(bc.startTime).Seconds()))
+				fmt.Println(fmt.Sprintf("Complete requests :%d", bc.totalCount))
+				fmt.Println(fmt.Sprintf("Total transferred :%d bytes", bc.totalCount*bc.size))
+				fmt.Println(fmt.Sprintf("Requests per second :%d [#/sec]", bc.totalCount/int(bc.endTime.Sub(bc.startTime).Seconds())))
+				*(bc.signal) <- syscall.SIGQUIT
+				return
+			}
 		case <-bc.stop:
 			return
 		}
@@ -532,6 +548,9 @@ func (bc *benchControl) worker(threadId int) {
 				return
 			default:
 				bc.lock.Lock()
+				if bc.totalCount > bc.maxCount {
+					return
+				}
 				newId := bc.totalCount + 1
 				bc.totalCount = newId
 				bc.lock.Unlock()
@@ -594,6 +613,7 @@ func benchHandle() {
 		bc.stop = make(chan struct{})
 		bc.startTime = time.Now()
 		bc.size = *bSize
+		bc.maxCount = *bCount
 		bc.threadNumber = *bThread
 		bc.pool = *pool
 		bc.buffer = helper.GenerateRandomIdByLength(bc.size)
@@ -618,6 +638,7 @@ func benchHandle() {
 	signalQueue := make(chan os.Signal)
 	signal.Notify(signalQueue, syscall.SIGINT, syscall.SIGTERM,
 		syscall.SIGQUIT, syscall.SIGHUP, syscall.SIGUSR1)
+	bc.signal = &signalQueue
 	for {
 		s := <-signalQueue
 		switch s {
