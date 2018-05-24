@@ -38,13 +38,64 @@ Read. 选择Lease read, 即使有可能存在时钟漂移, 出现stale read, 在
 
 ## Object映射
 
+在写入object前，需要先创建pool， 写入object时需要指定pool名字，monitor会根据object的名字的hash值和特殊的掩码规则分配到该pool下的某一个pg上， 代码如下
+
+	func Cale_bits_of(num int) int {
+		return bits.Len(uint(num))
+	}
+	
+	func Calc_pg_masks(pg_num int) int {
+		pg_num_mask := 1<<uint(Cale_bits_of(pg_num-1)) - 1
+		return pg_num_mask
+	}
+	
+	func Nentropy_str_hash(s string) uint32 {
+		h := fnv.New32a()
+		h.Write([]byte(s))
+		return h.Sum32()
+	}
+	
+	func Nentropy_stable_mod(x, b, bmask int) int {
+		if (b & bmask) < b {
+			return x & bmask
+		} else {
+			return x & (bmask >> 1)
+		}
+	}
+
+	hash := protos.Nentropy_str_hash(in.ObjectName)
+	mask := protos.Calc_pg_masks(int(pgNumbers))
+	hashPgId := protos.Nentropy_stable_mod(int(hash), int(pgNumbers), mask)
+	pgName := fmt.Sprintf("%d.%d", poolId, hashPgId)
+	
+
+
 ## Pg的分配
+
+根据创建pool时的副本数目配置项size，该pool内的各个pg会通过一致性hash算法及故障域要求分配到某几个osd上，故障域目前支持HOST和ZONE.分配流程大致如下：
+
+	1.将全部的osd节点参考权重后，生成虚节点落到hash环上
+	2.将pgId哈希后也落到hash环上
+	3.顺时针选取最近的虚节点，要求虚节点对应的osd不重复，且OSD所处的故障域id不重复，达到指定的副本数目后结束。
 
 ## Member List 管理
 
-## 加减OSD
+使用开源memberlist库实现全部节点的状态管理，monitor及osd节点都包含了memberlist实例，启动时通知其他节点自身的节点类型，节点编号和用于rpc通信的ip和端口号，当某一个osd故障后，monitor会收到消息通知，并修改该osd状态为down，故障超过5分钟后，自动设置osd状态为out，并重新计算全部pool的pg的分布，且下发更新后的pgmap到全部的osd节点，触发后续的动作。当某个osd故障恢复后重新上线，会设置osd状态为in，并重新计算pg分布。
 
-## 修改badge-io, 支持Nentropy的snapshot
+## 加减OSD
+加减osd都会引起hashRing上虚节点的数目增减，进而引起部分pg到osd的映射发生变动，从而更新pgmap，新的pgmap被同步到各个osd节点上后，会触发创建replica的操作，新建的replica的peers来自monitor该pg状态里的全部成员和本地记录的pg状态里的全部成员及最新的pgmap里的成员的并集。raft里的leader replica会向其他replicas发送confchange的propose的请求，等待全部的replica同步完成后，再通过confchange剔除已经不存在于最新的pg成员里的osd上的replica成员。
+
+
+## 修改badger-io, 支持Nentropy的snapshot
+当某个pg上的raft group内有新replica加入，或者是follower跟leader的index差异过大时会触发snapshot全量恢复，需要将主replica上的全部kv同步到落后的replica上，但是开源badger-io的生成快照方式为顺序读取存储的全部kv并序列化为一个文件，速度很慢，且额外占用磁盘空间。为了快速的将一个badger内的全部数据快速的复制到另一个osd节点上，对badger做了一些修改，snapshot恢复流程如下
+
+	1.主pg禁止vlog的gc，正在进行的gc直接退出
+	2.禁止由于sst合并引起的删除文件操作，要删除的文件记录到删除队列里
+	3.将bagder目录下面的manifest、sst、vlog文件拷贝到对目的osd节点应的badger目录下
+	4.拷贝完成后删除主pg的badger的删除队列的文件，允许删除文件
+	5.允许vlog的gc
+	4.新分配的pg实例reopen拷贝过来的badger文件
+	5.通过raft的机制实现拷贝过程中的新增修改的增量同步
 
 ## Multiraft
 
