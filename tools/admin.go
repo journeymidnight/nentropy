@@ -513,15 +513,16 @@ func (bc *benchControl) printStatics() {
 			bandwidth := bc.size * ops / 1024
 			lastCount = bc.totalCount
 			fmt.Println(fmt.Sprintf("Current Ops:%d/s  BandWidth:%dK/s TotalCount:%d", ops, bandwidth, bc.totalCount))
-			if bc.totalCount > bc.maxCount {
+			if bc.totalCount >= bc.maxCount {
 				bc.endTime = time.Now()
 				fmt.Println(fmt.Sprintf("Summary :"))
 				fmt.Println(fmt.Sprintf("Concurrency :%d", bc.threadNumber))
 				fmt.Println(fmt.Sprintf("Size :%d", bc.size))
-				fmt.Println(fmt.Sprintf("Time taken for tests :%d seconds", bc.endTime.Sub(bc.startTime).Seconds()))
+				fmt.Println(fmt.Sprintf("Time taken for tests :%v seconds", bc.endTime.Sub(bc.startTime).Seconds()))
 				fmt.Println(fmt.Sprintf("Complete requests :%d", bc.totalCount))
 				fmt.Println(fmt.Sprintf("Total transferred :%d bytes", bc.totalCount*bc.size))
 				fmt.Println(fmt.Sprintf("Requests per second :%d [#/sec]", bc.totalCount/int(bc.endTime.Sub(bc.startTime).Seconds())))
+				fmt.Println(fmt.Sprintf("Transfer rate :%d [Kbytes/sec]", bc.totalCount*bc.size/1024/int(bc.endTime.Sub(bc.startTime).Seconds())))
 				*(bc.signal) <- syscall.SIGQUIT
 				return
 			}
@@ -548,7 +549,8 @@ func (bc *benchControl) worker(threadId int) {
 				return
 			default:
 				bc.lock.Lock()
-				if bc.totalCount > bc.maxCount {
+				if bc.totalCount >= bc.maxCount {
+					bc.lock.Unlock()
 					return
 				}
 				newId := bc.totalCount + 1

@@ -7,7 +7,6 @@ import (
 	"github.com/journeymidnight/badger"
 	"github.com/journeymidnight/nentropy/helper"
 	"github.com/journeymidnight/nentropy/log"
-	//"github.com/journeymidnight/nentropy/multiraft/keys"
 	"github.com/journeymidnight/nentropy/osd/keys"
 	"github.com/journeymidnight/nentropy/osd/multiraftbase"
 	"github.com/journeymidnight/nentropy/protos"
@@ -244,6 +243,15 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 		return stats, "", nil
 	}
 
+	start := timeutil.Now()
+	defer func() {
+		elapsed := timeutil.Since(start)
+		if elapsed >= defaultReplicaRaftMuWarnThreshold {
+			helper.Printf(5, "handle raft ready: %.1fs",
+				elapsed.Seconds())
+		}
+	}()
+
 	if rd.SoftState != nil {
 		leader := r.mu.leaderID == r.mu.replicaID
 		if rd.RaftState == raft.StateFollower && leader {
@@ -306,7 +314,7 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 	if len(rd.Entries) > 0 {
 		// All of the entries are appended to distinct keys, returning a new
 		// last index.
-		thinEntries, _, err := r.maybeSideloadEntriesRaftMuLocked(ctx, rd.Entries)
+		thinEntries, _, err := r.maybeSideloadEntriesRaftMuLocked(ctx, rd.Entries, batch)
 		if err != nil {
 			const expl = "during sideloading"
 			return stats, expl, errors.Wrap(err, expl)
@@ -331,7 +339,7 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 
 	internalTimeout := time.Second
 	if len(rd.ReadStates) != 0 {
-		helper.Println(20, "handle readstate message.")
+		helper.Println(5, "handle readstate message.")
 		select {
 		case r.readStateC <- rd.ReadStates[len(rd.ReadStates)-1]:
 		case <-time.After(internalTimeout):
@@ -352,13 +360,11 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 	// uncommitted log entries, and even if they did include log entries that
 	// were not persisted to disk, it wouldn't be a problem because raft does not
 	// infer the that entries are persisted on the node that sends a snapshot.
-	//start := timeutil.Now()
-	if err := batch.Commit(); err != nil {
-		helper.Println(10, "Failed to commit! err:", err)
-		const expl = "while committing batch"
-		return stats, expl, errors.Wrap(err, expl)
-	}
-
+	//if err := batch.Commit(); err != nil {
+	//	helper.Println(5, "Failed to commit! err:", err)
+	//	const expl = "while committing batch"
+	//	return stats, expl, errors.Wrap(err, expl)
+	//}
 	if len(rd.Entries) > 0 {
 		// We may have just overwritten parts of the log which contain
 		// sideloaded SSTables from a previous term (and perhaps discarded some
@@ -406,8 +412,10 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 		r.sendRaftMessage(ctx, message)
 	}
 	var lastAppliedIndex uint64
+	committedProposals := make([]*ProposalData, 0)
 	for _, e := range rd.CommittedEntries {
-		helper.Println(5, "raft commit index:", e.Index, " term:", e.Term)
+		helper.Println(15, "raft commit index:", e.Index, " term:", e.Term)
+		var proposal *ProposalData
 		switch e.Type {
 		case raftpb.EntryNormal:
 			var commandID multiraftbase.CmdIDKey
@@ -440,10 +448,13 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 					return stats, expl, errors.Wrap(err, expl)
 				}
 			}
-			helper.Println(5, "commit entries. EntryNormal: ")
-			if changedRepl := r.processRaftCommand(ctx, commandID, e.Term, e.Index, command); !changedRepl {
+			if proposal, err = r.processRaftCommand(ctx, batch, commandID, e.Term, e.Index, command); err != nil {
 				helper.Fatalf("unexpected replication change from command %s", &command)
 			}
+			if proposal != nil {
+				committedProposals = append(committedProposals, proposal)
+			}
+
 			lastAppliedIndex = e.Index
 			stats.processed++
 
@@ -464,11 +475,14 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 				return stats, expl, errors.Wrap(err, expl)
 			}
 			commandID := multiraftbase.CmdIDKey(ccCtx.CommandID)
-			if changedRepl := r.processRaftCommand(
-				ctx, commandID, e.Term, e.Index, command,
-			); !changedRepl {
+			if proposal, err = r.processRaftCommand(
+				ctx, batch, commandID, e.Term, e.Index, command,
+			); err != nil {
 				// If we did not apply the config change, tell raft that the config change was aborted.
 				cc = raftpb.ConfChange{}
+			}
+			if proposal != nil {
+				committedProposals = append(committedProposals, proposal)
 			}
 
 			if cc.Type == raftpb.ConfChangeAddNode {
@@ -516,7 +530,7 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 			}
 
 			stats.processed++
-			helper.Println(5, "-------conf change node group", r.GroupID, ccCtx.Replica.NodeID, " replica id:", ccCtx.Replica.ReplicaID)
+			helper.Println(5, "Conf change: group", r.GroupID, ccCtx.Replica.NodeID, " replica id:", ccCtx.Replica.ReplicaID)
 			if err := r.withRaftGroup(func(raftGroup *raft.RawNode) (bool, error) {
 				raftGroup.ApplyConfChange(cc)
 				return true, nil
@@ -530,22 +544,25 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 		}
 	}
 
-	//	rsl := makeReplicaStateLoader(r.GroupID)
+	rsl := makeReplicaStateLoader(r.GroupID)
 	r.mu.Lock()
-	//	err = rsl.save(ctx, eng, r.mu.state)
-	//	if err != nil {
-	//		helper.Println(5, "Failed to write replica state! err:", err)
-	//	}
+	err = rsl.save(ctx, eng, r.mu.state)
+	if err != nil {
+		helper.Println(5, "Failed to write replica state! err:", err)
+	}
 	if lastAppliedIndex != 0 {
 		r.mu.state.RaftAppliedIndex = lastAppliedIndex
 	}
 	r.applyWait.Trigger(r.mu.state.RaftAppliedIndex)
 	r.mu.Unlock()
-	if len(rd.CommittedEntries) != 0 {
-		helper.Println(5, "Group:", r.GroupID, "Raft lastIndex:", r.mu.lastIndex,
-			" RaftAppliedIndex:", r.mu.state.RaftAppliedIndex,
-			" TruncatedState.index:", r.mu.state.TruncatedState.Index,
-			" TruncatedState.term:", r.mu.state.TruncatedState.Term)
+
+	if err := batch.Commit(); err != nil {
+		helper.Println(5, "Failed to commit! err:", err)
+		const expl = "while committing batch"
+		return stats, expl, errors.Wrap(err, expl)
+	}
+	for _, proposal := range committedProposals {
+		proposal.finishRaftApplication(proposal.resp)
 	}
 	// TODO(bdarnell): need to check replica id and not Advance if it
 	// has changed. Or do we need more locking to guarantee that replica
@@ -576,10 +593,11 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 // those cases, as one of the callers uses it to abort replica changes.
 func (r *Replica) processRaftCommand(
 	ctx context.Context,
+	batch engine.Batch,
 	idKey multiraftbase.CmdIDKey,
 	term, index uint64,
 	raftCmd multiraftbase.RaftCommand,
-) bool {
+) (*ProposalData, error) {
 	if index == 0 {
 		helper.Fatalf("processRaftCommand requires a non-zero index")
 	}
@@ -605,20 +623,21 @@ func (r *Replica) processRaftCommand(
 			writeBatch = raftCmd.WriteBatch
 		}
 		response.Reply = &multiraftbase.BatchResponse{}
-		resp, err := r.applyRaftCommand(ctx, idKey, term, index, raftCmd.Method, writeBatch)
+		resp, err := r.applyRaftCommand(ctx, batch, idKey, term, index, raftCmd.Method, writeBatch)
 		response.Reply.Responses.MustSetInner(resp)
 		response.Err = err
 	}
 
-	helper.Println(5, "GroupID:", r.GroupID, "processRaftCommand(): RaftAppliedIndex:", index)
-
 	if proposedLocally {
-		proposal.finishRaftApplication(response)
+		response.reqInsertTime = proposal.insertTime
+		response.reqCommitTime = time.Now()
+		proposal.resp = response
+		//proposal.finishRaftApplication(response)
 	} else if response.Err != nil {
 		helper.Printf(5, "applying raft command resulted in error: %s", response.Err)
 	}
 
-	return true
+	return proposal, nil
 }
 
 // NewReplicaCorruptionError creates a new error indicating a corrupt replica,
@@ -674,6 +693,7 @@ func (r *Replica) init(
 // must be handled by the caller.
 func (r *Replica) applyRaftCommand(
 	ctx context.Context,
+	batch engine.Batch,
 	idKey multiraftbase.CmdIDKey,
 	term, index uint64,
 	method multiraftbase.Method,
@@ -693,7 +713,7 @@ func (r *Replica) applyRaftCommand(
 			helper.Printf(5, "Cannot unmarshal data to kv")
 			return
 		}
-		data, err := r.engine.Get(putReq.Key)
+		data, err := batch.Get(putReq.Key)
 		onode := multiraftbase.Onode{}
 		if err != nil && err != badger.ErrKeyNotFound {
 			Err = multiraftbase.NewError(err)
@@ -701,8 +721,8 @@ func (r *Replica) applyRaftCommand(
 			onode.Key = keys.DataKey(term, index)
 			onode.Size_ = int32(putReq.Size_)
 			data, err = onode.Marshal()
-			err = r.engine.Put(putReq.Key, data)
-			helper.Println(5, "write kv onode ***************", r.GroupID, putReq.Key, onode.Key, onode.Size_, term, index)
+			err = batch.Put(putReq.Key, data)
+			helper.Println(15, "write kv onode ***************", r.GroupID, putReq.Key, onode.Key, onode.Size_, term, index)
 			if err != nil {
 				Err = multiraftbase.NewError(err)
 				helper.Println(5, "Error putting data to db, err:", err)
@@ -713,7 +733,7 @@ func (r *Replica) applyRaftCommand(
 				Err = multiraftbase.NewError(err)
 				return
 			}
-			err = r.engine.Clear(onode.Key)
+			err = batch.Clear(onode.Key)
 			if err != nil && err != badger.ErrKeyNotFound {
 				Err = multiraftbase.NewError(err)
 				helper.Println(5, "Error clear expired data, err:", err)
@@ -721,7 +741,7 @@ func (r *Replica) applyRaftCommand(
 				onode.Key = keys.DataKey(term, index)
 				onode.Size_ = int32(putReq.Size_)
 				data, err = onode.Marshal()
-				err = r.engine.Put(putReq.Key, data)
+				err = batch.Put(putReq.Key, data)
 				helper.Println(5, "update kv onode ***************", r.GroupID, putReq.Key, onode.Key, onode.Size_)
 				if err != nil {
 					Err = multiraftbase.NewError(err)
@@ -742,9 +762,11 @@ func (r *Replica) applyRaftCommand(
 		startIdx := r.mu.state.TruncatedState.Index
 		r.mu.Unlock()
 		go func() {
+			batch := eng.NewBatch(true)
+			defer batch.Close()
 			for i := uint64(startIdx); i < truncateReq.Index; i++ {
 				raftLogKey := keys.RaftLogKey(truncateReq.GroupID, i)
-				_, err := eng.Get(raftLogKey)
+				_, err := batch.Get(raftLogKey)
 				if err != nil && err != badger.ErrKeyNotFound {
 					Err = multiraftbase.NewError(err)
 					helper.Println(5, "Failed to remove raft log, index:", i, err)
@@ -753,52 +775,18 @@ func (r *Replica) applyRaftCommand(
 					helper.Println(5, "Failed to remove raft log, index:", i, err)
 					continue
 				} else {
-					err := eng.Clear(raftLogKey)
+					err := batch.Clear(raftLogKey)
 					if err != nil {
 						Err = multiraftbase.NewError(err)
 						helper.Println(5, "Failed to remove raft log, index:", i)
 						continue
 					}
-					//var entry raftpb.Entry
-					//err = entry.Unmarshal(value)
-					//if err != nil {
-					//	helper.Println(5, "Failed to remove raft log, Entry Unmarshal failed index:", i, err)
-					//	continue
-					//}
-					//if sniffSideloadedRaftCommand(entry.Data) {
-					//	_, data := DecodeRaftCommand(entry.Data)
-					//	var strippedCmd multiraftbase.RaftCommand
-					//	if err := protoutil.Unmarshal(data, &strippedCmd); err != nil {
-					//		helper.Println(5, "Failed to remove raft log, RaftCommand Unmarshal failed index:", i, err)
-					//		continue
-					//	}
-					//	if strippedCmd.Method != multiraftbase.Put {
-					//		err = helper.Errorf("Failed to remove raft log, side load raft log must be a put request", i, err)
-					//		continue
-					//	}
-					//	putReq := multiraftbase.PutRequest{}
-					//	err = putReq.Unmarshal(strippedCmd.WriteBatch.Data)
-					//	if err != nil {
-					//		helper.Printf(5, "Failed to remove raft log, PutRequest unmarshal failed", i, err)
-					//		continue
-					//	}
-					//	err := eng.Clear(raftLogKey)
-					//	if err != nil {
-					//		Err = multiraftbase.NewError(err)
-					//		helper.Println(5, "Failed to remove raft log, index:", i)
-					//		continue
-					//	}
-					//	deltSize += int32(putReq.Size_) + int32(len(raftLogKey)) + int32(len(value))
-					//} else {
-					//	err := eng.Clear(raftLogKey)
-					//	if err != nil {
-					//		Err = multiraftbase.NewError(err)
-					//		helper.Println(5, "Failed to remove raft log, index:", i)
-					//		continue
-					//	}
-					//	deltSize += int32(len(raftLogKey)) + int32(len(value))
-					//}
 				}
+			}
+			if err := batch.Commit(); err != nil {
+				helper.Println(5, "Failed to commit delete logs! err:", err)
+				const expl = "while committing batch"
+				return
 			}
 			helper.Println(5, "Finished to truncate log background! GroupID:", truncateReq.GroupID, " index:", truncateReq.Index)
 		}()
@@ -820,9 +808,9 @@ func (r *Replica) applyRaftCommand(
 			Err = multiraftbase.NewError(err)
 			helper.Printf(5, "Cannot unmarshal data to kv")
 		}
-		eng := r.store.LoadGroupEngine(r.Desc().GroupID)
+		//eng := r.store.LoadGroupEngine(r.Desc().GroupID)
 		onode := multiraftbase.Onode{}
-		value, err := eng.Get(deleteReq.Key)
+		value, err := batch.Get(deleteReq.Key)
 		if err != nil {
 			Err = multiraftbase.NewError(err)
 			return
@@ -832,12 +820,12 @@ func (r *Replica) applyRaftCommand(
 			Err = multiraftbase.NewError(err)
 			return
 		}
-		err = eng.Clear(onode.Key)
+		err = batch.Clear(onode.Key)
 		if err != nil {
 			Err = multiraftbase.NewError(err)
 			helper.Println(5, "Failed to remove data:", onode.Key, deleteReq.Key, err)
 		}
-		err = eng.Clear(deleteReq.Key)
+		err = batch.Clear(deleteReq.Key)
 		if err != nil {
 			Err = multiraftbase.NewError(err)
 			helper.Println(5, "Failed to remove key:", deleteReq.Key, err)
@@ -1469,7 +1457,7 @@ func (r *Replica) Send(
 
 	// Add the range log tag.
 	ctx = r.AnnotateCtx(ctx)
-	ctx, cleanup := tracing.EnsureContext(ctx, r.AmbientContext.Tracer, "replica send")
+	ctx, cleanup := tracing.EnsureChildSpan(ctx, r.AmbientContext.Tracer, "replica send")
 	defer cleanup()
 
 	// If the internal Raft group is not initialized, create it and wake the leader.
@@ -1503,6 +1491,8 @@ func (r *Replica) insertProposalLocked(
 	if _, ok := r.mu.proposals[proposal.idKey]; ok {
 		helper.Fatal("pending command already exists for %s", proposal.idKey)
 	}
+	helper.Println(5, "Group:", r.GroupID, " total proposals:", len(r.mu.proposals))
+	proposal.insertTime = time.Now()
 	r.mu.proposals[proposal.idKey] = proposal
 }
 
@@ -1714,9 +1704,11 @@ func (r *Replica) tryExecuteWriteBatch(
 	for {
 		select {
 		case propResult := <-ch:
-			helper.Printf(5, "successfully to propose data. ")
+			propResult.reqFinishTime = time.Now()
+			helper.Printf(5, "%s successfully to propose data. time spent: %d ms", string(r.GroupID), (time.Since(propResult.reqInsertTime).Nanoseconds())/1000000)
 			return propResult.Reply, propResult.Err
 		case <-slowTimer.C:
+			helper.StackTrace(true)
 			slowTimer.Read = true
 			helper.Printf(5, "have been waiting %s for proposing command %s",
 				SlowRequestThreshold, ba)

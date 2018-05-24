@@ -36,6 +36,8 @@ Read. 选择Lease read, 即使有可能存在时钟漂移, 出现stale read, 在
 
 # 架构
 
+![img](./imgs/architecture.png)
+
 ## Object映射
 
 在写入object前，需要先创建pool， 写入object时需要指定pool名字，monitor会根据object的名字的hash值和特殊的掩码规则分配到该pool下的某一个pg上， 代码如下

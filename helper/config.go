@@ -97,7 +97,7 @@ var DefaultConfig = Config{
 	PanicLogPath:        "/var/log/nentropy/panic.log",
 	PidFile:             "/var/run/nentropy/nentropy.pid",
 	DebugMode:           false,
-	LogLevel:            15,
+	LogLevel:            10,
 	WALDir:              "w",
 	JoinMon:             false,
 	NumPendingProposals: 2000,
@@ -178,7 +178,7 @@ func (c *Config) InitConfig() {
 }
 
 var defaultRaftElectionTimeoutTicks = envutil.EnvOrDefaultInt(
-	"NENTROPY_RAFT_ELECTION_TIMEOUT_TICKS", 10)
+	"NENTROPY_RAFT_ELECTION_TIMEOUT_TICKS", 50)
 
 // RaftConfig holds raft tuning parameters.
 type RaftConfig struct {
