@@ -68,6 +68,8 @@ type ProposalData struct {
 	ChangeReplica uint64
 	RepDes        multiraftbase.ReplicaDescriptor
 	ChangeRepType multiraftbase.ConfType
+
+	resp proposalResult
 }
 
 // finishRaftApplication is called downstream of Raft when a command application

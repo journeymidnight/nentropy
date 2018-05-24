@@ -7,6 +7,7 @@ import (
 	"hash/crc32"
 	"os"
 	"reflect"
+	"runtime"
 	"strconv"
 	"sync"
 	"syscall"
@@ -288,4 +289,21 @@ func GetDataDir(baseDir string, id uint64, isMon bool, create bool) (string, err
 		}
 	}
 	return dir, nil
+}
+
+func StackTrace(all bool) {
+	// Reserve 10K buffer at first
+	buf := make([]byte, 10240)
+	for {
+		size := runtime.Stack(buf, all)
+		// The size of the buffer may be not enough to hold the stacktrace,
+		// so double the buffer size
+		if size == len(buf) {
+			buf = make([]byte, len(buf)<<1)
+			continue
+		}
+		break
+	}
+	Fatalln(5, "nentropy stacks:", string(buf))
+	return
 }

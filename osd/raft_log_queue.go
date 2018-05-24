@@ -36,7 +36,7 @@ const (
 	// RaftLogQueueStaleThreshold is the minimum threshold for stale raft log
 	// entries. A stale entry is one which all replicas of the range have
 	// progressed past and thus is no longer needed and can be truncated.
-	RaftLogQueueStaleThreshold = 100
+	RaftLogQueueStaleThreshold = 3000
 	// RaftLogQueueStaleSize is the minimum size of the Raft log that we'll
 	// truncate even if there are fewer than RaftLogQueueStaleThreshold entries
 	// to truncate. The value of 64 KB was chosen experimentally by looking at

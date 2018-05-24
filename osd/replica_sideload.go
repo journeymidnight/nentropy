@@ -14,7 +14,7 @@ import (
 var errSideloadedFileNotFound = errors.New("sideloaded file not found")
 
 func (r *Replica) maybeSideloadEntriesRaftMuLocked(
-	ctx context.Context, entriesToAppend []raftpb.Entry,
+	ctx context.Context, entriesToAppend []raftpb.Entry, batch engine.Batch,
 ) (_ []raftpb.Entry, sideloadedEntriesSize int64, _ error) {
 	// TODO(tschottdorf): allocating this closure could be expensive. If so make
 	// it a method on Replica.
@@ -27,13 +27,13 @@ func (r *Replica) maybeSideloadEntriesRaftMuLocked(
 		}
 		return multiraftbase.RaftCommand{}, false
 	}
-	return maybeSideloadEntriesImpl(ctx, entriesToAppend, r.engine, maybeRaftCommand)
+	return maybeSideloadEntriesImpl(ctx, entriesToAppend, batch, maybeRaftCommand)
 }
 
 func maybeSideloadEntriesImpl(
 	ctx context.Context,
 	entriesToAppend []raftpb.Entry,
-	engine engine.Engine,
+	batch engine.Batch,
 	maybeRaftCommand func(multiraftbase.CmdIDKey) (multiraftbase.RaftCommand, bool),
 ) (_ []raftpb.Entry, sideloadedEntriesSize int64, _ error) {
 
@@ -109,7 +109,7 @@ func maybeSideloadEntriesImpl(
 
 			ent.Data = encodeRaftCommandV2(cmdID, data)
 			helper.Printf(15, "writing payload at index=%d term=%d", ent.Index, ent.Term)
-			if err = engine.Put(dataKey, dataToSideload); err != nil {
+			if err = batch.Put(dataKey, dataToSideload); err != nil {
 				return nil, 0, err
 			}
 			sideloadedEntriesSize += int64(sideloadLenth)
