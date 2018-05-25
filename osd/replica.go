@@ -556,11 +556,24 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 	r.applyWait.Trigger(r.mu.state.RaftAppliedIndex)
 	r.mu.Unlock()
 
-	if err := batch.Commit(); err != nil {
-		helper.Println(5, "Failed to commit! err:", err)
-		const expl = "while committing batch"
-		return stats, expl, errors.Wrap(err, expl)
+	errCh := make(chan error, 1)
+	ticker := time.NewTicker(8 * time.Second)
+	defer ticker.Stop()
+	go func() {
+		err := batch.Commit()
+		errCh <- err
+	}()
+	select {
+	case err = <-errCh:
+		if err != nil {
+			helper.Println(5, "Failed to commit! err:", err)
+			const expl = "while committing batch"
+			return stats, expl, errors.Wrap(err, expl)
+		}
+	case <-ticker.C:
+		helper.StackTrace("Handle Raft timeout", true)
 	}
+
 	for _, proposal := range committedProposals {
 		proposal.finishRaftApplication(proposal.resp)
 	}
@@ -783,12 +796,35 @@ func (r *Replica) applyRaftCommand(
 					}
 				}
 			}
-			if err := batch.Commit(); err != nil {
-				helper.Println(5, "Failed to commit delete logs! err:", err)
-				const expl = "while committing batch"
-				return
+			start := timeutil.Now()
+			errCh := make(chan error, 1)
+			ticker := time.NewTicker(6 * time.Second)
+			defer ticker.Stop()
+			go func() {
+				err := batch.Commit()
+				errCh <- err
+			}()
+			select {
+			case err = <-errCh:
+				if err != nil {
+					helper.Println(5, "Failed to commit delete logs! err:", err)
+					return
+				}
+			case <-ticker.C:
+				helper.Println(5, "Timeout to delete trucated log!")
 			}
-			helper.Println(5, "Finished to truncate log background! GroupID:", truncateReq.GroupID, " index:", truncateReq.Index)
+
+			//if err := batch.Commit(); err != nil {
+			//	helper.Println(5, "Failed to commit delete logs! err:", err)
+			//	const expl = "while committing batch"
+			//	return
+			//}
+			elapsed := timeutil.Since(start)
+			if elapsed >= defaultReplicaRaftMuWarnThreshold {
+				helper.Printf(5, "handle raft ready: %.1fs",
+					elapsed.Seconds())
+			}
+			helper.Println(5, "Finished to truncate log background! GroupID:", truncateReq.GroupID, " range:", startIdx, "-", truncateReq.Index, " elapsed:", elapsed.Seconds())
 		}()
 
 		r.mu.Lock()
@@ -1708,7 +1744,7 @@ func (r *Replica) tryExecuteWriteBatch(
 			helper.Printf(5, "%s successfully to propose data. time spent: %d ms", string(r.GroupID), (time.Since(propResult.reqInsertTime).Nanoseconds())/1000000)
 			return propResult.Reply, propResult.Err
 		case <-slowTimer.C:
-			helper.StackTrace(true)
+			helper.StackTrace("Propose timeout", true)
 			slowTimer.Read = true
 			helper.Printf(5, "have been waiting %s for proposing command %s",
 				SlowRequestThreshold, ba)

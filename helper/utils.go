@@ -291,7 +291,7 @@ func GetDataDir(baseDir string, id uint64, isMon bool, create bool) (string, err
 	return dir, nil
 }
 
-func StackTrace(all bool) {
+func StackTrace(str string, all bool) {
 	// Reserve 10K buffer at first
 	buf := make([]byte, 10240)
 	for {
@@ -304,6 +304,6 @@ func StackTrace(all bool) {
 		}
 		break
 	}
-	Fatalln(5, "nentropy stacks:", string(buf))
+	Fatalln(5, str, " :nentropy stacks:", string(buf))
 	return
 }
