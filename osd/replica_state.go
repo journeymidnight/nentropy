@@ -58,7 +58,7 @@ func (rsl replicaStateLoader) loadTruncatedState(
 
 func (rsl replicaStateLoader) setTruncatedState(
 	ctx context.Context,
-	eng engine.ReadWriter,
+	eng engine.Writer,
 	truncState *multiraftbase.RaftTruncatedState,
 ) error {
 	if (*truncState == multiraftbase.RaftTruncatedState{}) {
@@ -112,7 +112,7 @@ func (rsl replicaStateLoader) loadAppliedIndex(
 // accounting for existing keys in the returned stats.
 func (rsl replicaStateLoader) setAppliedIndex(
 	ctx context.Context,
-	eng engine.ReadWriter,
+	eng engine.Writer,
 	appliedIndex uint64,
 ) error {
 	data := make([]byte, binary.MaxVarintLen64)
@@ -155,7 +155,7 @@ func (rsl replicaStateLoader) load(
 }
 
 func (rsl replicaStateLoader) save(
-	ctx context.Context, eng engine.ReadWriter, state multiraftbase.ReplicaState,
+	ctx context.Context, eng engine.Writer, state multiraftbase.ReplicaState,
 ) error {
 	if err := rsl.setAppliedIndex(
 		ctx, eng, state.RaftAppliedIndex,

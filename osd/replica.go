@@ -546,7 +546,7 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 
 	rsl := makeReplicaStateLoader(r.GroupID)
 	r.mu.Lock()
-	err = rsl.save(ctx, eng, r.mu.state)
+	err = rsl.save(ctx, batch, r.mu.state)
 	if err != nil {
 		helper.Println(5, "Failed to write replica state! err:", err)
 	}
@@ -571,6 +571,7 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 			return stats, expl, errors.Wrap(err, expl)
 		}
 	case <-ticker.C:
+		helper.Println(5, "Timeout for commit raftready!")
 		helper.StackTrace("Handle Raft timeout", true)
 	}
 
@@ -1744,6 +1745,8 @@ func (r *Replica) tryExecuteWriteBatch(
 			helper.Printf(5, "%s successfully to propose data. time spent: %d ms", string(r.GroupID), (time.Since(propResult.reqInsertTime).Nanoseconds())/1000000)
 			return propResult.Reply, propResult.Err
 		case <-slowTimer.C:
+			helper.Printf(5, "group %s have been waiting %s for proposing command %s",
+				string(r.GroupID), SlowRequestThreshold, ba)
 			helper.StackTrace("Propose timeout", true)
 			slowTimer.Read = true
 			helper.Printf(5, "have been waiting %s for proposing command %s",

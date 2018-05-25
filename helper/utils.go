@@ -304,6 +304,6 @@ func StackTrace(str string, all bool) {
 		}
 		break
 	}
-	Fatalln(5, str, " :nentropy stacks:", string(buf))
+	Fatalln(str, " :nentropy stacks:", string(buf))
 	return
 }
