@@ -771,13 +771,13 @@ func (r *Replica) applyRaftCommand(
 			Err = multiraftbase.NewError(err)
 			helper.Printf(5, "Cannot unmarshal data to kv")
 		}
-		eng := r.store.LoadGroupEngine(r.Desc().GroupID)
+		//eng := r.store.LoadGroupEngine(r.Desc().GroupID)
 		r.mu.Lock()
 		startIdx := r.mu.state.TruncatedState.Index
 		r.mu.Unlock()
-		go func() {
-			batch := eng.NewBatch(true)
-			defer batch.Close()
+		func() {
+			//batch := eng.NewBatch(true)
+			//defer batch.Close()
 			for i := uint64(startIdx); i < truncateReq.Index; i++ {
 				raftLogKey := keys.RaftLogKey(truncateReq.GroupID, i)
 				_, err := batch.Get(raftLogKey)
@@ -797,35 +797,35 @@ func (r *Replica) applyRaftCommand(
 					}
 				}
 			}
-			start := timeutil.Now()
-			errCh := make(chan error, 1)
-			ticker := time.NewTicker(6 * time.Second)
-			defer ticker.Stop()
-			go func() {
-				err := batch.Commit()
-				errCh <- err
-			}()
-			select {
-			case err = <-errCh:
-				if err != nil {
-					helper.Println(5, "Failed to commit delete logs! err:", err)
-					return
-				}
-			case <-ticker.C:
-				helper.Println(5, "Timeout to delete trucated log!")
-			}
-
-			//if err := batch.Commit(); err != nil {
-			//	helper.Println(5, "Failed to commit delete logs! err:", err)
-			//	const expl = "while committing batch"
-			//	return
+			//start := timeutil.Now()
+			//errCh := make(chan error, 1)
+			//ticker := time.NewTicker(6 * time.Second)
+			//defer ticker.Stop()
+			//go func() {
+			//	err := batch.Commit()
+			//	errCh <- err
+			//}()
+			//select {
+			//case err = <-errCh:
+			//	if err != nil {
+			//		helper.Println(5, "Failed to commit delete logs! err:", err)
+			//		return
+			//	}
+			//case <-ticker.C:
+			//	helper.Println(5, "Timeout to delete trucated log!")
 			//}
-			elapsed := timeutil.Since(start)
-			if elapsed >= defaultReplicaRaftMuWarnThreshold {
-				helper.Printf(5, "handle raft ready: %.1fs",
-					elapsed.Seconds())
-			}
-			helper.Println(5, "Finished to truncate log background! GroupID:", truncateReq.GroupID, " range:", startIdx, "-", truncateReq.Index, " elapsed:", elapsed.Seconds())
+			//
+			////if err := batch.Commit(); err != nil {
+			////	helper.Println(5, "Failed to commit delete logs! err:", err)
+			////	const expl = "while committing batch"
+			////	return
+			////}
+			//elapsed := timeutil.Since(start)
+			//if elapsed >= defaultReplicaRaftMuWarnThreshold {
+			//	helper.Printf(5, "handle raft ready: %.1fs",
+			//		elapsed.Seconds())
+			//}
+			//helper.Println(5, "Finished to truncate log background! GroupID:", truncateReq.GroupID, " range:", startIdx, "-", truncateReq.Index, " elapsed:", elapsed.Seconds())
 		}()
 
 		r.mu.Lock()
