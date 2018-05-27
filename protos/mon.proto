@@ -168,11 +168,15 @@ message Pg {
     repeated int32 clildren = 7;
 }
 
+message PgMembers {
+    repeated PgReplica members = 1 [(gogoproto.nullable) = false];
+}
+
 message PgStatus {
     int32 leader_node_id = 1;
     int32 status = 2;
     int64 migrated_cnt = 3;
-    repeated PgReplica members = 4 [(gogoproto.nullable) = false];
+    PgMembers replicas = 4 [(gogoproto.nullable) = false];
 }
 
 message Op {

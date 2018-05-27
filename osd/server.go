@@ -144,7 +144,6 @@ func NewOsdServer(cfg Config, stopper *stop.Stopper) (*OsdServer, error) {
 	if err != nil {
 		return nil, err
 	}
-	helper.Println(5, "get osd map at startup")
 	//check if osd not existed in osd map
 	found := false
 	for k, _ := range osdmap.MemberList {
@@ -568,7 +567,16 @@ func (s *OsdServer) Start(ctx context.Context) error {
 	s.pgMaps = pgmaps
 	helper.Println(5, "pgmaps.epoch:", pgmaps.Epoch, " pool count:", len(pgmaps.Pgmaps))
 
-	s.initPGState(pgmaps)
+	poolMap, err := s.GetPoolMap()
+	if err != nil {
+		helper.Check(err)
+	}
+	for _, pool := range poolMap.Pools {
+		helper.Println(5, "pool name:", pool.Name, " size:", pool.Size_)
+	}
+	s.poolMap = poolMap
+
+	//s.initPGState(pgmaps)
 	s.createOrRemoveReplica(pgmaps)
 
 	s.stopper.RunWorker(workersCtx, func(context.Context) {
@@ -598,67 +606,73 @@ func (s *OsdServer) Start(ctx context.Context) error {
 	return nil
 }
 
-func (s *OsdServer) delReplicasToPGState(reps []protos.PgReplica, groupID multiraftbase.GroupID) ([]protos.PgReplica, error) {
+func (s *OsdServer) saveReplicasLocally(reps []protos.PgReplica, groupID multiraftbase.GroupID) error {
 	Server.pgStatusLock.Lock()
 	defer Server.pgStatusLock.Unlock()
 
-	var pgStatus *protos.PgStatus
-	if value, ok := Server.leaderPgStatusMap.Load(string(groupID)); ok {
-		pgStatus = value.(*protos.PgStatus)
-	} else {
-		pgStatus = &protos.PgStatus{}
+	pgMembers := &protos.PgMembers{Members: reps}
+	err := s.SetLocalPgMembers(string(groupID), pgMembers)
+	if err != nil {
+		helper.Check(err)
 	}
-	replicas := make([]protos.PgReplica, 0)
-	for _, replica := range pgStatus.Members {
-		var exist bool
-		for _, rep := range reps {
-			if replica.ReplicaIndex == rep.ReplicaIndex && replica.OsdId == rep.OsdId {
-				exist = true
-			}
-		}
-		if !exist {
-			replicas = append(replicas, replica)
-		}
-	}
-	pgStatus.Members = replicas
-	s.leaderPgStatusMap.Store(string(groupID), pgStatus)
-	s.WritePgStatusMap(string(groupID), pgStatus)
-	return nil, nil
+
+	//var pgStatus *protos.PgStatus
+	//if value, ok := Server.leaderPgStatusMap.Load(string(groupID)); ok {
+	//	pgStatus = value.(*protos.PgStatus)
+	//} else {
+	//	pgStatus = &protos.PgStatus{}
+	//}
+	//replicas := make([]protos.PgReplica, 0)
+	//for _, replica := range pgStatus.Replicas.Members {
+	//	var exist bool
+	//	for _, rep := range reps {
+	//		if replica.ReplicaIndex == rep.ReplicaIndex && replica.OsdId == rep.OsdId {
+	//			exist = true
+	//		}
+	//	}
+	//	if !exist {
+	//		replicas = append(replicas, replica)
+	//	}
+	//}
+	//pgStatus.Replicas.Members = replicas
+	//s.leaderPgStatusMap.Store(string(groupID), pgStatus)
+	//s.WritePgStatusMap(string(groupID), pgStatus)
+	return nil
 }
 
-func (s *OsdServer) addReplicasToPGState(reps []protos.PgReplica, groupID multiraftbase.GroupID) ([]protos.PgReplica, error) {
-	Server.pgStatusLock.Lock()
-	defer Server.pgStatusLock.Unlock()
-
-	var pgStatus *protos.PgStatus
-	if value, ok := Server.leaderPgStatusMap.Load(string(groupID)); ok {
-		pgStatus = value.(*protos.PgStatus)
-	} else {
-		pgStatus = &protos.PgStatus{}
-	}
-	replicas := make([]protos.PgReplica, 0)
-	for _, replica := range pgStatus.Members {
-		replicas = append(replicas, replica)
-	}
-
-	var newReplica []protos.PgReplica
-	for _, rep := range reps {
-		var exist bool
-		for _, replica := range pgStatus.Members {
-			if replica.ReplicaIndex == rep.ReplicaIndex && replica.OsdId == rep.OsdId {
-				exist = true
-			}
-		}
-		if !exist {
-			replicas = append(replicas, rep)
-			newReplica = append(newReplica, rep)
-		}
-	}
-	pgStatus.Members = replicas
-	s.leaderPgStatusMap.Store(string(groupID), pgStatus)
-	s.WritePgStatusMap(string(groupID), pgStatus)
-	return newReplica, nil
-}
+//func (s *OsdServer) addReplicasToPGState(reps []protos.PgReplica, groupID multiraftbase.GroupID) ([]protos.PgReplica, error) {
+//	Server.pgStatusLock.Lock()
+//	defer Server.pgStatusLock.Unlock()
+//
+//	var pgStatus *protos.PgStatus
+//	if value, ok := Server.leaderPgStatusMap.Load(string(groupID)); ok {
+//		pgStatus = value.(*protos.PgStatus)
+//	} else {
+//		pgStatus = &protos.PgStatus{}
+//	}
+//	replicas := make([]protos.PgReplica, 0)
+//	for _, replica := range pgStatus.Members {
+//		replicas = append(replicas, replica)
+//	}
+//
+//	var newReplica []protos.PgReplica
+//	for _, rep := range reps {
+//		var exist bool
+//		for _, replica := range pgStatus.Members {
+//			if replica.ReplicaIndex == rep.ReplicaIndex && replica.OsdId == rep.OsdId {
+//				exist = true
+//			}
+//		}
+//		if !exist {
+//			replicas = append(replicas, rep)
+//			newReplica = append(newReplica, rep)
+//		}
+//	}
+//	pgStatus.Members = replicas
+//	s.leaderPgStatusMap.Store(string(groupID), pgStatus)
+//	s.WritePgStatusMap(string(groupID), pgStatus)
+//	return newReplica, nil
+//}
 
 func PrintPgStatusMap() {
 	Server.pgStatusLock.Lock()
@@ -678,17 +692,25 @@ func PrintPgStatusMap() {
 	Server.leaderPgStatusMap.Range(f)
 }
 
-func GetPgMember(pgId string) ([]protos.PgReplica, error) {
+func (s *OsdServer) GetPgMember(pgId string) ([]protos.PgReplica, error) {
 	Server.pgStatusLock.Lock()
 	defer Server.pgStatusLock.Unlock()
-	var pgStatus *protos.PgStatus
-	if value, ok := Server.leaderPgStatusMap.Load(pgId); ok {
-		pgStatus = value.(*protos.PgStatus)
-	} else {
-		pgStatus = &protos.PgStatus{}
+
+	var reps []protos.PgReplica
+	pgStatus, err := s.GetPGStatus(multiraftbase.GroupID(pgId))
+	if err == nil {
+		reps = pgStatus.Replicas.Members
+		return reps, nil
 	}
-	member := pgStatus.Members
-	return member, nil
+
+	pgMembers, err := s.GetLocalPgMembers(pgId)
+	if err != nil {
+		helper.Check(err)
+	}
+	if pgMembers == nil {
+		return nil, nil
+	}
+	return pgMembers.Members, nil
 }
 
 func UpdatePgMemberMap(pgId string, member []protos.PgReplica) {
@@ -720,7 +742,7 @@ func UpdatePgStatusMap(pgId string, status int32, cnt int64) {
 	Server.leaderPgStatusMap.Store(pgId, pgStatus)
 }
 
-func (s *OsdServer) InitPgStatusMap(pgId string) (*protos.PgStatus, error) {
+func (s *OsdServer) GetLocalPgMembers(pgId string) (*protos.PgMembers, error) {
 	ok := s.store.isExistReplicaWorkDir(multiraftbase.GroupID(pgId))
 	if !ok {
 		return nil, nil
@@ -730,17 +752,39 @@ func (s *OsdServer) InitPgStatusMap(pgId string) (*protos.PgStatus, error) {
 		helper.Fatalln("Can not new a badger db.")
 	}
 
-	data, err := StripeRead(eng, []byte("system_pg_state"), 0, math.MaxUint32)
+	data, err := eng.Get([]byte("local_pg_members"))
 	if err != nil {
 		helper.Check(err)
 	}
-	pgStatus := &protos.PgStatus{}
-	err = pgStatus.Unmarshal(data)
+	pgMembers := &protos.PgMembers{}
+	err = pgMembers.Unmarshal(data)
 	if err != nil {
 		helper.Check(err)
 	}
 
-	return pgStatus, nil
+	return pgMembers, nil
+}
+
+func (s *OsdServer) SetLocalPgMembers(pgId string, member *protos.PgMembers) error {
+	ok := s.store.isExistReplicaWorkDir(multiraftbase.GroupID(pgId))
+	if !ok {
+		return nil
+	}
+	eng, err := s.store.GetGroupStore(multiraftbase.GroupID(pgId))
+	if err != nil {
+		helper.Fatalln("Can not new a badger db.")
+	}
+
+	data, err := member.Marshal()
+	if err != nil {
+		helper.Fatalln("Can not marshal pgMember.")
+	}
+
+	err := eng.Put([]byte("local_pg_members"), data)
+	if err != nil {
+		helper.Check(err)
+	}
+	return nil
 }
 
 func (s *OsdServer) WritePgStatusMap(pgId string, pgStatus *protos.PgStatus) error {
@@ -755,7 +799,7 @@ func (s *OsdServer) WritePgStatusMap(pgId string, pgStatus *protos.PgStatus) err
 		helper.Check(err)
 	}
 
-	err = stripeWrite(eng, []byte("system_pg_state"), data, 0, uint64(len(data)))
+	err = eng.Put([]byte("system_pg_state"), data)
 	if err != nil {
 		helper.Check(err)
 	}
@@ -877,9 +921,9 @@ func GetPgReplicas(pgId string) ([]protos.PgReplica, bool) {
 	return reps, true
 }
 
-func ReplicaDelReplicaCallback(reps []protos.PgReplica, groupID multiraftbase.GroupID) {
-	helper.Println(5, "group:", groupID, "del rep:", reps)
-	go Server.delReplicasToPGState(reps, groupID)
+func SaveReplicasLocallyCallback(reps []protos.PgReplica, groupID multiraftbase.GroupID) {
+	helper.Println(5, "SaveReplicasLocallyCallback: group:", groupID, "del rep:", reps)
+	go Server.saveReplicasLocally(reps, groupID)
 }
 
 func ReplicaStateChangeCallback(pgId string, replicaState string) {

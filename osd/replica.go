@@ -526,7 +526,7 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 					ReplicaIndex: int32(ccCtx.Replica.ReplicaID),
 				})
 				r.mu.Unlock()
-				ReplicaDelReplicaCallback(reps, r.GroupID)
+				SaveReplicasLocallyCallback(reps, r.GroupID)
 			}
 
 			stats.processed++
