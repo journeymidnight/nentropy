@@ -895,6 +895,7 @@ func newRaftConfig(
 		// ~1024 commands that might be executed in the handling of a single
 		// raft.Ready operation.
 		MaxInflightMsgs: 64,
+		//ReadOnlyOption:  raft.ReadOnlyLeaseBased,
 	}
 }
 

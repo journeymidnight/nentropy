@@ -9,7 +9,6 @@ import (
 	"github.com/journeymidnight/nentropy/osd/multiraftbase"
 	"github.com/journeymidnight/nentropy/protos"
 	"golang.org/x/net/context"
-	"math"
 	"strconv"
 	"strings"
 )
@@ -40,44 +39,6 @@ func proposeConfChange(confType multiraftbase.ConfType, groupId multiraftbase.Gr
 	return nil
 }
 
-func (s *OsdServer) initPGState(pgMaps *protos.PgMaps) {
-	s.confChangeLock.Lock()
-	defer s.confChangeLock.Unlock()
-
-	for poolId, pgMap := range pgMaps.Pgmaps {
-		for pgId, _ := range pgMap.Pgmap {
-			groupID := multiraftbase.GroupID(fmt.Sprintf("%d.%d", poolId, pgId))
-			pgStatus, err := s.GetPGStatus(groupID)
-			if err == nil {
-				for _, replica := range pgStatus.Members {
-					if replica.OsdId == int32(s.cfg.NodeID) {
-						s.leaderPgStatusMap.Store(string(groupID), pgStatus)
-					}
-				}
-				continue
-			}
-
-			pgStatus, err = s.InitPgStatusMap(string(groupID))
-			if err != nil {
-				helper.Check(err)
-			}
-			if pgStatus == nil {
-				continue
-			}
-			s.leaderPgStatusMap.Store(string(groupID), pgStatus)
-		}
-	}
-
-	poolMap, err := s.GetPoolMap()
-	if err != nil {
-		helper.Check(err)
-	}
-	for _, pool := range poolMap.Pools {
-		helper.Println(5, "pool name:", pool.Name, " size:", pool.Size_)
-	}
-	s.poolMap = poolMap
-}
-
 func isExist(osdId int32, replicas []protos.PgReplica) bool {
 	for _, replica := range replicas {
 		if replica.OsdId == int32(osdId) {
@@ -98,29 +59,38 @@ func (s *OsdServer) createOrRemoveReplica(pgMaps *protos.PgMaps) {
 	for poolId, pgMap := range s.pgMaps.Pgmaps {
 		for pgId, pg := range pgMap.Pgmap {
 			groupID := multiraftbase.GroupID(fmt.Sprintf("%d.%d", poolId, pgId))
-			replicas, err := GetPgMember(string(groupID))
+			var err error
+			var replicas []protos.PgReplica
+			replicas, err = s.GetPgMember(string(groupID))
 			if err != nil {
 				helper.Check(err)
+			}
+			if replicas == nil {
+				replicas = make([]protos.PgReplica, 0)
 			}
 			if !isExist(int32(s.cfg.NodeID), pg.Replicas) && !isExist(int32(s.cfg.NodeID), replicas) {
 				continue
 			}
 
-			newReps, err := s.addReplicasToPGState(pg.Replicas, groupID)
-			if err != nil {
-				helper.Check(err)
-			}
-
-			total, err := GetPgMember(string(groupID))
-			if err != nil {
-				helper.Check(err)
+			var newReplicas []protos.PgReplica
+			for _, rep := range pg.Replicas {
+				var exist bool
+				for _, replica := range replicas {
+					if replica.ReplicaIndex == rep.ReplicaIndex && replica.OsdId == rep.OsdId {
+						exist = true
+					}
+				}
+				if !exist {
+					replicas = append(replicas, rep)
+					newReplicas = append(newReplicas, rep)
+				}
 			}
 
 			rep, err := s.store.GetReplica(multiraftbase.GroupID(fmt.Sprintf("%d.%d", poolId, pgId)))
 			if err == nil {
 				//replica already existed
 				if rep.amLeader() {
-					err := proposeConfChange(multiraftbase.ConfType_ADD_REPLICA, groupID, newReps)
+					err := proposeConfChange(multiraftbase.ConfType_ADD_REPLICA, groupID, newReplicas)
 					if err != nil {
 						helper.Check(err)
 					}
@@ -132,7 +102,7 @@ func (s *OsdServer) createOrRemoveReplica(pgMaps *protos.PgMaps) {
 			groupDes.PoolId = int64(poolId)
 			groupDes.PgId = int64(pgId)
 			groupDes.GroupID = groupID
-			for _, subReplica := range total {
+			for _, subReplica := range replicas {
 				helper.Println(5, " osdId:", subReplica.OsdId, " replica:", subReplica.ReplicaIndex)
 				nodeId := fmt.Sprintf("osd.%d", subReplica.OsdId)
 				groupDes.Replicas = append(groupDes.Replicas, multiraftbase.ReplicaDescriptor{multiraftbase.NodeID(nodeId), 0, multiraftbase.ReplicaID(subReplica.ReplicaIndex)})
@@ -210,7 +180,7 @@ func (s *OsdServer) MigrateGet(ctx context.Context, in *protos.MigrateGetRequest
 		//TODO: CLEAR OBJECT WHICH HAS ALREADY BE MIGRATED
 	}
 	if in.FlagNext == false {
-		value, err := StripeRead(engine, in.Marker, 0, math.MaxUint32)
+		value, err := engine.Get(in.Marker)
 		if err != nil {
 			helper.Println(5, "print err when migrate key :", in.Marker, string(in.Marker), err)
 			return &protos.MigrateGetReply{}, err

@@ -98,13 +98,14 @@ func (rlq *transferLeaderQueue) shouldQueue(
 		return false, 0
 	}
 
-	state, err := GetPgState(string(r.GroupID))
+	status, err := GetPgStatusMap(string(r.GroupID))
 	if err != nil {
 		helper.Println(5, "Error getting pg state. pgId:", string(r.GroupID))
 		return false, 0
 	}
-	if state != (protos.PG_STATE_ACTIVE | protos.PG_STATE_CLEAN) {
-		helper.Println(5, "shouldQueue pg ", string(r.GroupID), " state ", state)
+
+	if status.Status != (protos.PG_STATE_ACTIVE | protos.PG_STATE_CLEAN) {
+		helper.Println(5, "shouldQueue check pg ", string(r.GroupID), " state ", status.Status)
 		return false, 0
 	}
 

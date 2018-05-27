@@ -226,6 +226,8 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 	raftLogSize := r.mu.raftLogSize
 	leaderID := r.mu.leaderID
 	//lastLeaderID := leaderID
+	replicaID := r.mu.replicaID
+	replicas := r.mu.state.Desc.Replicas // need copy deeply?
 
 	err := r.withRaftGroupLocked(false, func(raftGroup *raft.RawNode) (bool, error) {
 		if hasReady = raftGroup.HasReady(); hasReady {
@@ -253,11 +255,22 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 	}()
 
 	if rd.SoftState != nil {
-		leader := r.mu.leaderID == r.mu.replicaID
+		leader := leaderID == replicaID
 		if rd.RaftState == raft.StateFollower && leader {
 			ReplicaStateChangeCallback(string(r.GroupID), rd.SoftState.RaftState.String())
 		} else if rd.RaftState == raft.StateLeader && !leader {
-			helper.Println(5, "ID ", r.mu.replicaID, " became leader in ", r.GroupID)
+			helper.Println(5, "ID ", replicaID, " became leader in ", r.GroupID)
+			var reps []protos.PgReplica
+			for _, replica := range replicas {
+				var osdId int32
+				fmt.Sscanf(string(replica.NodeID), "osd.%d", &osdId)
+				reps = append(reps, protos.PgReplica{
+					OsdId:        osdId,
+					ReplicaIndex: int32(replica.ReplicaID),
+				})
+			}
+			SaveReplicasLocallyCallback(reps, string(r.GroupID), true)
+
 			ReplicaStateChangeCallback(string(r.GroupID), rd.SoftState.RaftState.String())
 		}
 	}
@@ -339,7 +352,7 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 
 	internalTimeout := time.Second
 	if len(rd.ReadStates) != 0 {
-		helper.Println(5, "handle readstate message.")
+		helper.Println(10, "handle readstate message.")
 		select {
 		case r.readStateC <- rd.ReadStates[len(rd.ReadStates)-1]:
 		case <-time.After(internalTimeout):
@@ -500,33 +513,47 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 						ReplicaID: ccCtx.Replica.ReplicaID,
 					})
 				}
+				var reps []protos.PgReplica
+				for _, replica := range r.mu.state.Desc.Replicas {
+					var osdId int32
+					fmt.Sscanf(string(replica.NodeID), "osd.%d", &osdId)
+					reps = append(reps, protos.PgReplica{
+						OsdId:        osdId,
+						ReplicaIndex: int32(replica.ReplicaID),
+					})
+				}
 				r.mu.Unlock()
+
+				SaveReplicasLocallyCallback(reps, string(r.GroupID), leaderID == replicaID)
 			} else {
 				r.mu.Lock()
+				var reps []protos.PgReplica
 				var replicas []multiraftbase.ReplicaDescriptor
 				for _, rep := range r.mu.state.Desc.Replicas {
 					if rep.ReplicaID != ccCtx.Replica.ReplicaID ||
 						rep.NodeID != ccCtx.Replica.NodeID {
 						replicas = append(replicas, rep)
+
+						var osdId int32
+						fmt.Sscanf(string(rep.NodeID), "osd.%d", &osdId)
+						reps = append(reps, protos.PgReplica{
+							OsdId:        osdId,
+							ReplicaIndex: int32(rep.ReplicaID),
+						})
+
 					}
 				}
 				r.mu.state.Desc.Replicas = replicas
 				if r.mu.replicaID == ccCtx.Replica.ReplicaID {
 					r.mu.destroyed = errors.New("Exit...")
 				}
-				helper.Println(5, "received msg ConfChangeRemoveNode, group:", r.GroupID, " total members:")
-				for _, rep := range r.mu.state.Desc.Replicas {
-					helper.Println(5, "rep.ReplicaID:", rep.ReplicaID, " NodeID:", rep.NodeID)
+				helper.Println(5, "received msg ConfChangeRemoveNode, group:", r.GroupID, " after confchange total members:")
+				for _, replica := range r.mu.state.Desc.Replicas {
+					helper.Println(5, "rep.ReplicaID:", replica.ReplicaID, " NodeID:", replica.NodeID)
 				}
-				var reps []protos.PgReplica
-				var osdId int32
-				fmt.Sscanf(string(ccCtx.Replica.NodeID), "osd.%d", &osdId)
-				reps = append(reps, protos.PgReplica{
-					OsdId:        osdId,
-					ReplicaIndex: int32(ccCtx.Replica.ReplicaID),
-				})
 				r.mu.Unlock()
-				ReplicaDelReplicaCallback(reps, r.GroupID)
+
+				SaveReplicasLocallyCallback(reps, string(r.GroupID), leaderID == replicaID)
 			}
 
 			stats.processed++
@@ -1363,7 +1390,7 @@ func (r *Replica) readKV(key []byte) (value []byte, pErr *multiraftbase.Error) {
 
 	data, err = r.engine.Get(onode.Key)
 	if err != nil || int32(len(data)) != onode.Size_ {
-		helper.Println(5, "Error getting data from db. err ", err, key, onode.Key)
+		helper.Println(5, "Error getting data from db. err ", err, string(key), onode.Key, " size:", len(data), ":", onode.Size_)
 		if err == badger.ErrKeyNotFound {
 			pErr = multiraftbase.NewError(multiraftbase.NewDataLost(key))
 			return nil, pErr

@@ -165,7 +165,7 @@ func (b *Batch) fillResults() error {
 				if result.Err == nil {
 					getRes := b.response.Responses.GetValue().(*multiraftbase.GetResponse)
 					row.Value = &getRes.Value
-					helper.Println(5, "sssssssss:", row.Value)
+					helper.Println(15, "fillResults row value:", row.Value)
 				}
 			case *multiraftbase.PutRequest:
 				row := &result.Rows[k]
