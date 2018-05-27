@@ -9,7 +9,6 @@ import (
 	"github.com/journeymidnight/nentropy/osd/multiraftbase"
 	"github.com/journeymidnight/nentropy/protos"
 	"golang.org/x/net/context"
-	"math"
 	"strconv"
 	"strings"
 )
@@ -40,34 +39,6 @@ func proposeConfChange(confType multiraftbase.ConfType, groupId multiraftbase.Gr
 	return nil
 }
 
-func (s *OsdServer) initPGState(pgMaps *protos.PgMaps) {
-	s.confChangeLock.Lock()
-	defer s.confChangeLock.Unlock()
-
-	for poolId, pgMap := range pgMaps.Pgmaps {
-		for pgId, _ := range pgMap.Pgmap {
-			groupID := multiraftbase.GroupID(fmt.Sprintf("%d.%d", poolId, pgId))
-			pgStatus, err := s.GetPGStatus(groupID)
-			if err == nil {
-				for _, replica := range pgStatus.Replicas.Members {
-					if replica.OsdId == int32(s.cfg.NodeID) {
-						s.leaderPgStatusMap.Store(string(groupID), pgStatus)
-					}
-				}
-				continue
-			}
-
-			pgMembers, err := s.GetLocalPgMembers(string(groupID))
-			if err != nil {
-				helper.Check(err)
-			}
-			if pgMembers == nil {
-				continue
-			}
-			s.leaderPgStatusMap.Store(string(groupID), pgStatus)
-		}
-	}
-}
 
 func isExist(osdId int32, replicas []protos.PgReplica) bool {
 	for _, replica := range replicas {
@@ -97,7 +68,7 @@ func (s *OsdServer) createOrRemoveReplica(pgMaps *protos.PgMaps) {
 				continue
 			}
 
-			var newReplica []protos.PgReplica
+			var newReplicas []protos.PgReplica
 			for _, rep := range pg.Replicas {
 				var exist bool
 				for _, replica := range replicas {
@@ -107,25 +78,15 @@ func (s *OsdServer) createOrRemoveReplica(pgMaps *protos.PgMaps) {
 				}
 				if !exist {
 					replicas = append(replicas, rep)
-					newReplica = append(newReplica, rep)
+					newReplicas = append(newReplicas, rep)
 				}
 			}
-
-			//newReps, err := s.addReplicasToPGState(pg.Replicas, groupID)
-			//if err != nil {
-			//	helper.Check(err)
-			//}
-
-			//total, err := s.GetPgMember(string(groupID))
-			//if err != nil {
-			//	helper.Check(err)
-			//}
 
 			rep, err := s.store.GetReplica(multiraftbase.GroupID(fmt.Sprintf("%d.%d", poolId, pgId)))
 			if err == nil {
 				//replica already existed
 				if rep.amLeader() {
-					err := proposeConfChange(multiraftbase.ConfType_ADD_REPLICA, groupID, newReps)
+					err := proposeConfChange(multiraftbase.ConfType_ADD_REPLICA, groupID, newReplicas)
 					if err != nil {
 						helper.Check(err)
 					}

@@ -226,6 +226,7 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 	raftLogSize := r.mu.raftLogSize
 	leaderID := r.mu.leaderID
 	//lastLeaderID := leaderID
+	replicas := r.mu.state.Desc.Replicas // need copy deeply?
 
 	err := r.withRaftGroupLocked(false, func(raftGroup *raft.RawNode) (bool, error) {
 		if hasReady = raftGroup.HasReady(); hasReady {
@@ -258,6 +259,17 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 			ReplicaStateChangeCallback(string(r.GroupID), rd.SoftState.RaftState.String())
 		} else if rd.RaftState == raft.StateLeader && !leader {
 			helper.Println(5, "ID ", r.mu.replicaID, " became leader in ", r.GroupID)
+			var reps []protos.PgReplica
+			for _, replica := range replicas {
+				var osdId int32
+				fmt.Sscanf(string(replica.NodeID), "osd.%d", &osdId)
+				reps = append(reps, protos.PgReplica{
+					OsdId:        osdId,
+					ReplicaIndex: int32(replica.ReplicaID),
+				})
+			}
+			SaveReplicasLocallyCallback(reps, string(r.GroupID), rd.SoftState.RaftState.String())
+
 			ReplicaStateChangeCallback(string(r.GroupID), rd.SoftState.RaftState.String())
 		}
 	}
@@ -500,33 +512,47 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 						ReplicaID: ccCtx.Replica.ReplicaID,
 					})
 				}
+				var reps []protos.PgReplica
+				for _, replica := range r.mu.state.Desc.Replicas {
+					var osdId int32
+					fmt.Sscanf(string(replica.NodeID), "osd.%d", &osdId)
+					reps = append(reps, protos.PgReplica{
+						OsdId:        osdId,
+						ReplicaIndex: int32(replica.ReplicaID),
+					})
+				}
 				r.mu.Unlock()
+
+				SaveReplicasLocallyCallback(reps, string(r.GroupID), rd.SoftState.RaftState.String())
 			} else {
 				r.mu.Lock()
+				var reps []protos.PgReplica
 				var replicas []multiraftbase.ReplicaDescriptor
 				for _, rep := range r.mu.state.Desc.Replicas {
 					if rep.ReplicaID != ccCtx.Replica.ReplicaID ||
 						rep.NodeID != ccCtx.Replica.NodeID {
 						replicas = append(replicas, rep)
+
+						var osdId int32
+						fmt.Sscanf(string(rep.NodeID), "osd.%d", &osdId)
+						reps = append(reps, protos.PgReplica{
+							OsdId:        osdId,
+							ReplicaIndex: int32(rep.ReplicaID),
+						})
+
 					}
 				}
 				r.mu.state.Desc.Replicas = replicas
 				if r.mu.replicaID == ccCtx.Replica.ReplicaID {
 					r.mu.destroyed = errors.New("Exit...")
 				}
-				helper.Println(5, "received msg ConfChangeRemoveNode, group:", r.GroupID, " total members:")
-				for _, rep := range r.mu.state.Desc.Replicas {
-					helper.Println(5, "rep.ReplicaID:", rep.ReplicaID, " NodeID:", rep.NodeID)
+				helper.Println(5, "received msg ConfChangeRemoveNode, group:", r.GroupID, " after confchange total members:")
+				for _, replica := range r.mu.state.Desc.Replicas {
+					helper.Println(5, "rep.ReplicaID:", replica.ReplicaID, " NodeID:", replica.NodeID)
 				}
-				var reps []protos.PgReplica
-				var osdId int32
-				fmt.Sscanf(string(ccCtx.Replica.NodeID), "osd.%d", &osdId)
-				reps = append(reps, protos.PgReplica{
-					OsdId:        osdId,
-					ReplicaIndex: int32(ccCtx.Replica.ReplicaID),
-				})
 				r.mu.Unlock()
-				SaveReplicasLocallyCallback(reps, r.GroupID)
+
+				SaveReplicasLocallyCallback(reps, string(r.GroupID), rd.SoftState.RaftState.String())
 			}
 
 			stats.processed++
