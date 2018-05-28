@@ -11,6 +11,8 @@ import (
 	"google.golang.org/grpc"
 	"io"
 	"log"
+	"math"
+	"math/rand"
 	"os"
 	"os/signal"
 	"sort"
@@ -42,6 +44,7 @@ var (
 	filename           = flag.String("f", "", "the filename to read or write")
 	bThread            = flag.Int("bench_thread", 16, "bench concurrent IOS, default:16")
 	bSize              = flag.Int("bench_size", 131072, "bench value size, default:128K")
+	bCount             = flag.Int("bench_count", math.MaxUint32, "bench value size, default:0/unlimited")
 	bRunName           = flag.String("bench_run_name", "", "bench run name, default:")
 	client             pb.MonitorClient
 	Bc                 *benchControl
@@ -373,6 +376,49 @@ func putObjectFromBuf(pgname string, osd string, oid []byte, buf []byte) error {
 	return nil
 }
 
+func readObjectToBuf(pgname string, osd string, oid []byte) error {
+	tm := time.Now()
+	Bc.log.Printf("try get conn to osd %v ,%v", string(oid), osd)
+	var conn *grpc.ClientConn
+	var err error
+	value, ok := Bc.osdConnMap.Load(osd)
+	if ok {
+		conn = value.(*grpc.ClientConn)
+	} else {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		newConn, err := grpc.DialContext(ctx, osd, grpc.WithInsecure(), grpc.WithBlock())
+		if err != nil {
+			log.Fatalf("fail to dial: %v", err)
+			return err
+		}
+		realConn, loaded := Bc.osdConnMap.LoadOrStore(osd, newConn)
+		if loaded {
+			newConn.Close()
+		}
+		conn = realConn.(*grpc.ClientConn)
+	}
+
+	Bc.log.Printf("got conn to osd %v ,%v, cost %v", string(oid), osd, time.Now().Sub(tm).Seconds())
+	client := multiraftbase.NewInternalClient(conn)
+
+	dumy := multiraftbase.BatchRequest{}
+	dumy.GroupID = multiraftbase.GroupID(pgname)
+
+	getReq := multiraftbase.NewGet(oid)
+	dumy.Request.MustSetInner(getReq)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	_, err = client.Batch(ctx, &dumy)
+	if err != nil {
+		fmt.Printf("getobject()! res=%v", err, pgname, osd, string(oid))
+		return err
+	}
+
+	return nil
+}
+
 func deleteObject(pgname string, osd string, oid []byte) error {
 	if *length > MAX_SIZE {
 		return errors.New(fmt.Sprintf("the read length should not be 0 or more than %s", MAX_SIZE))
@@ -484,6 +530,7 @@ type benchControl struct {
 	lock         sync.RWMutex //protect totalCount
 	runName      string
 	totalCount   int
+	maxCount     int
 	size         int //write object length
 	startTime    time.Time
 	endTime      time.Time
@@ -492,23 +539,52 @@ type benchControl struct {
 	buffer       []byte
 	log          *log.Logger
 	osdConnMap   sync.Map //map[string]*ClientConn
+	signal       *chan os.Signal
+	readCountMap sync.Map //map[int]int
 }
 
 func (bc *benchControl) printStatics() {
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 	lastCount := 0
+	currentCount := 0
 	fmt.Println(fmt.Sprintf("Start Bench Test!!!"))
 	fmt.Println(fmt.Sprintf("Method:%s    Thread:%d    Size:%d    RunName:%s", *cmd, bc.threadNumber, bc.size, bc.runName))
 	for {
 		select {
 		case <-ticker.C:
-			bc.lock.RLock()
-			ops := bc.totalCount - lastCount
-			bc.lock.RUnlock()
-			bandwidth := bc.size * ops / 1024
-			lastCount = bc.totalCount
-			fmt.Println(fmt.Sprintf("Current Ops:%d/s  BandWidth:%dK/s TotalCount:%d", ops, bandwidth, bc.totalCount))
+			if *cmd == "write" {
+				bc.lock.RLock()
+				ops := bc.totalCount - lastCount
+				bc.lock.RUnlock()
+				bandwidth := bc.size * ops / 1024
+				lastCount = bc.totalCount
+				fmt.Println(fmt.Sprintf("Current Ops:%d/s  BandWidth:%dK/s TotalCount:%d", ops, bandwidth, bc.totalCount))
+				if bc.totalCount >= bc.maxCount {
+					bc.endTime = time.Now()
+					fmt.Println(fmt.Sprintf("Summary :"))
+					fmt.Println(fmt.Sprintf("Concurrency :%d", bc.threadNumber))
+					fmt.Println(fmt.Sprintf("Size :%d", bc.size))
+					fmt.Println(fmt.Sprintf("Time taken for tests :%v seconds", bc.endTime.Sub(bc.startTime).Seconds()))
+					fmt.Println(fmt.Sprintf("Complete requests :%d", bc.totalCount))
+					fmt.Println(fmt.Sprintf("Total transferred :%d bytes", bc.totalCount*bc.size))
+					fmt.Println(fmt.Sprintf("Requests per second :%d [#/sec]", bc.totalCount/int(bc.endTime.Sub(bc.startTime).Seconds())))
+					fmt.Println(fmt.Sprintf("Transfer rate :%d [Kbytes/sec]", bc.totalCount*bc.size/1024/int(bc.endTime.Sub(bc.startTime).Seconds())))
+					*(bc.signal) <- syscall.SIGQUIT
+					return
+				}
+			} else {
+				currentCount = 0
+				bc.readCountMap.Range(func(k, v interface{}) bool {
+					currentCount += v.(int)
+					return true
+				})
+				ops := currentCount - lastCount
+				lastCount = currentCount
+				bandwidth := bc.size * ops / 1024
+				fmt.Println(fmt.Sprintf("Current Ops:%d/s  BandWidth:%dK/s TotalCount:%d", ops, bandwidth, currentCount))
+			}
+
 		case <-bc.stop:
 			return
 		}
@@ -532,6 +608,10 @@ func (bc *benchControl) worker(threadId int) {
 				return
 			default:
 				bc.lock.Lock()
+				if bc.totalCount >= bc.maxCount {
+					bc.lock.Unlock()
+					return
+				}
 				newId := bc.totalCount + 1
 				bc.totalCount = newId
 				bc.lock.Unlock()
@@ -557,8 +637,35 @@ func (bc *benchControl) worker(threadId int) {
 				bc.log.Printf("finish put kv of %v, cost %v s", key, time.Now().Sub(tm).Seconds())
 			}
 		}
+	} else {
+		readCount := 0
+		for {
+			select {
+			case <-bc.stop:
+				fmt.Println("terminal worker", threadId)
+				return
+			default:
+				id := rand.Intn(bc.maxCount)
+				key := bc.generateObjectKey(id)
+				bc.log.Printf("try get lay out of %v", key)
+				tm := time.Now()
+				result, err := getObjectLayout(bc.pool, key)
+				if err != nil {
+					fmt.Println("get object layout error: ", err)
+					panic("")
+				}
+				bc.log.Printf("got lay out of %v, cost %v s", key, time.Now().Sub(tm).Seconds())
+				err = readObjectToBuf(result.PgName, result.Osds[0].Addr, []byte(key))
+				if err != nil {
+					fmt.Println("Error put object err:", err, result.PgName, result.Osds[0].Addr, []byte(key))
+					panic("")
+				}
+				bc.log.Printf("finish put kv of %v, cost %v s", key, time.Now().Sub(tm).Seconds())
+				readCount++
+				bc.readCountMap.Store(threadId, readCount)
+			}
+		}
 	}
-
 }
 
 func (bc *benchControl) run() {
@@ -594,6 +701,7 @@ func benchHandle() {
 		bc.stop = make(chan struct{})
 		bc.startTime = time.Now()
 		bc.size = *bSize
+		bc.maxCount = *bCount
 		bc.threadNumber = *bThread
 		bc.pool = *pool
 		bc.buffer = helper.GenerateRandomIdByLength(bc.size)
@@ -606,6 +714,9 @@ func benchHandle() {
 		bc.stop = make(chan struct{})
 		bc.startTime = time.Now()
 		bc.threadNumber = *bThread
+		bc.pool = *pool
+		bc.runName = *bRunName
+		bc.maxCount = *bCount
 	default:
 		fmt.Println("unsupport bench command, [write/read/clear] is allowed")
 		return
@@ -618,6 +729,7 @@ func benchHandle() {
 	signalQueue := make(chan os.Signal)
 	signal.Notify(signalQueue, syscall.SIGINT, syscall.SIGTERM,
 		syscall.SIGQUIT, syscall.SIGHUP, syscall.SIGUSR1)
+	bc.signal = &signalQueue
 	for {
 		s := <-signalQueue
 		switch s {
