@@ -645,7 +645,7 @@ func (bc *benchControl) worker(threadId int) {
 				fmt.Println("terminal worker", threadId)
 				return
 			default:
-				id := rand.Intn(bc.maxCount)
+				id := rand.Intn(bc.maxCount-1) + 1
 				key := bc.generateObjectKey(id)
 				bc.log.Printf("try get lay out of %v", key)
 				tm := time.Now()

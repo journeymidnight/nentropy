@@ -30,7 +30,9 @@ func (r *Replica) linearizableReadLoop() {
 		r.readNotifier = nextnr
 		r.readMu.Unlock()
 
+		r.raftMu.Lock()
 		r.mu.internalRaftGroup.ReadIndex(ctx)
+		r.raftMu.Unlock()
 
 		var (
 			timeout bool
