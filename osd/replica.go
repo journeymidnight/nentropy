@@ -583,23 +583,11 @@ func (r *Replica) handleRaftReadyRaftMuLocked(
 	r.applyWait.Trigger(r.mu.state.RaftAppliedIndex)
 	r.mu.Unlock()
 
-	errCh := make(chan error, 1)
-	ticker := time.NewTicker(8 * time.Second)
-	defer ticker.Stop()
-	go func() {
-		err := batch.Commit()
-		errCh <- err
-	}()
-	select {
-	case err = <-errCh:
-		if err != nil {
-			helper.Println(5, "Failed to commit! err:", err)
-			const expl = "while committing batch"
-			return stats, expl, errors.Wrap(err, expl)
-		}
-	case <-ticker.C:
-		helper.Println(5, "Timeout for commit raftready!")
-		helper.StackTrace("Handle Raft timeout", true)
+	err = batch.Commit()
+	if err != nil {
+		helper.Println(5, "Failed to commit! err:", err)
+		const expl = "while committing batch"
+		return stats, expl, errors.Wrap(err, expl)
 	}
 
 	for _, proposal := range committedProposals {

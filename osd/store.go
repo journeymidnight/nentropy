@@ -882,7 +882,7 @@ func newRaftConfig(
 		// quiesced ranges, so we want to switch to it once we've worked
 		// out the bugs.
 		PreVote:     false,
-		CheckQuorum: false,
+		CheckQuorum: true,
 
 		// MaxSizePerMsg controls how many Raft log entries the leader will send to
 		// followers in a single MsgApp.
@@ -895,7 +895,7 @@ func newRaftConfig(
 		// ~1024 commands that might be executed in the handling of a single
 		// raft.Ready operation.
 		MaxInflightMsgs: 64,
-		//ReadOnlyOption:  raft.ReadOnlyLeaseBased,
+		ReadOnlyOption:  raft.ReadOnlyLeaseBased,
 	}
 }
 
