@@ -617,24 +617,6 @@ func (s *OsdServer) saveReplicasLocally(reps []protos.PgReplica, pgId string) er
 	return nil
 }
 
-func PrintPgStatusMap() {
-	Server.pgStatusLock.Lock()
-	defer Server.pgStatusLock.Unlock()
-	f := func(key, value interface{}) bool {
-		pgId := key.(string)
-		pgStatus := value.(*protos.PgStatus)
-
-		helper.Printf(5, " GroupID: %s ", pgId)
-		helper.Printf(5, "Member replica ")
-		for _, rep := range pgStatus.Replicas.Members {
-			helper.Printf(5, " %d:%d ", rep.OsdId, rep.ReplicaIndex)
-		}
-		helper.Printf(5, "\n")
-		return true
-	}
-	Server.leaderPgStatusMap.Range(f)
-}
-
 func (s *OsdServer) GetPgMember(pgId string) ([]protos.PgReplica, error) {
 	var reps []protos.PgReplica
 	pgStatus, err := s.GetPGStatus(multiraftbase.GroupID(pgId))
@@ -696,6 +678,7 @@ func UpdatePgStatusReplicas(pgId string, replicas protos.PgMembers) {
 		pgStatus.Status = protos.PG_STATE_UNINITIAL
 		pgStatus.MigratedCnt = 0
 		pgStatus.LeaderNodeId = 0
+		pgStatus.Replicas = replicas
 	}
 
 	Server.leaderPgStatusMap.Store(pgId, pgStatus)
@@ -821,7 +804,7 @@ func GetPgReplicas(pgId string) ([]protos.PgReplica, bool) {
 }
 
 func SaveReplicasLocallyCallback(reps []protos.PgReplica, pgId string, leader bool) {
-	helper.Println(5, "SaveReplicasLocallyCallback: group:", pgId, "del rep:", reps)
+	helper.Println(5, "SaveReplicasLocallyCallback: group:", pgId, "total replicas:", reps)
 	go func() {
 		if leader {
 			replicas := protos.PgMembers{Members: reps}

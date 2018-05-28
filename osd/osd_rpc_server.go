@@ -55,7 +55,6 @@ func (s *OsdServer) createOrRemoveReplica(pgMaps *protos.PgMaps) {
 		return
 	}
 
-	PrintPgStatusMap()
 	for poolId, pgMap := range s.pgMaps.Pgmaps {
 		for pgId, pg := range pgMap.Pgmap {
 			groupID := multiraftbase.GroupID(fmt.Sprintf("%d.%d", poolId, pgId))
@@ -68,6 +67,11 @@ func (s *OsdServer) createOrRemoveReplica(pgMaps *protos.PgMaps) {
 			if replicas == nil {
 				replicas = make([]protos.PgReplica, 0)
 			}
+			helper.Println(5, "Before merge:", " groupID:", groupID)
+			for _, replica := range replicas {
+				helper.Printf(5, " replica: %s  ", replica.String())
+			}
+
 			if !isExist(int32(s.cfg.NodeID), pg.Replicas) && !isExist(int32(s.cfg.NodeID), replicas) {
 				continue
 			}
@@ -84,6 +88,10 @@ func (s *OsdServer) createOrRemoveReplica(pgMaps *protos.PgMaps) {
 					replicas = append(replicas, rep)
 					newReplicas = append(newReplicas, rep)
 				}
+			}
+			helper.Println(5, "After merge:", " groupID:", groupID)
+			for _, replica := range replicas {
+				helper.Printf(5, " replica: %s  ", replica.String())
 			}
 
 			rep, err := s.store.GetReplica(multiraftbase.GroupID(fmt.Sprintf("%d.%d", poolId, pgId)))
@@ -103,7 +111,6 @@ func (s *OsdServer) createOrRemoveReplica(pgMaps *protos.PgMaps) {
 			groupDes.PgId = int64(pgId)
 			groupDes.GroupID = groupID
 			for _, subReplica := range replicas {
-				helper.Println(5, " osdId:", subReplica.OsdId, " replica:", subReplica.ReplicaIndex)
 				nodeId := fmt.Sprintf("osd.%d", subReplica.OsdId)
 				groupDes.Replicas = append(groupDes.Replicas, multiraftbase.ReplicaDescriptor{multiraftbase.NodeID(nodeId), 0, multiraftbase.ReplicaID(subReplica.ReplicaIndex)})
 			}
@@ -112,7 +119,6 @@ func (s *OsdServer) createOrRemoveReplica(pgMaps *protos.PgMaps) {
 			helper.Println(5, fmt.Sprintf("try start a new replica :%d.%d", poolId, pgId))
 		}
 	}
-	PrintPgStatusMap()
 
 	s.lastPgMapsEpoch = s.pgMaps.Epoch
 	return
