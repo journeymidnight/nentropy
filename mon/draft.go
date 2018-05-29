@@ -176,7 +176,7 @@ func newNode(id uint64, myAddr string) *node {
 			Storage:         store,
 			MaxSizePerMsg:   256 << 10,
 			MaxInflightMsgs: 256,
-			Logger:          log.NewRaftLogger(helper.Logger),
+			Logger:          log.NewRaftLogger("monitor", helper.Logger),
 		},
 		applyCh:     make(chan raftpb.Entry, numPendingMutations),
 		props:       props,

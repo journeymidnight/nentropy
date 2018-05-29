@@ -1023,7 +1023,7 @@ func (r *Replica) withRaftGroupLocked(
 			uint64(r.mu.replicaID),
 			r.mu.state.RaftAppliedIndex,
 			r.store.cfg,
-			log.NewRaftLogger(helper.Logger),
+			log.NewRaftLogger(string(r.GroupID), helper.Logger),
 		), nil)
 		if err != nil {
 			return err
