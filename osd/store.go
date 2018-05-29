@@ -37,7 +37,7 @@ const (
 )
 
 var storeSchedulerConcurrency = envutil.EnvOrDefaultInt(
-	"NENTROPY_SCHEDULER_CONCURRENCY", 8)
+	"NENTROPY_SCHEDULER_CONCURRENCY", 16)
 
 var enablePreVote = envutil.EnvOrDefaultBool(
 	"NENTROPY_ENABLE_PREVOTE", false)

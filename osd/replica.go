@@ -1435,7 +1435,7 @@ func (r *Replica) executeReadOnlyBatch(
 	req := ba.Request.GetValue().(multiraftbase.Request)
 	if req.Method() == multiraftbase.Get {
 		getReq := req.(*multiraftbase.GetRequest)
-		r.store.enqueueRaftUpdateCheck(r.GroupID)
+		//r.store.enqueueRaftUpdateCheck(r.GroupID)
 		r.linearizableReadNotify(ctx)
 		//eng := r.store.LoadGroupEngine(r.Desc().GroupID)
 		//data, err := eng.Get(getReq.Key)

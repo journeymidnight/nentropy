@@ -32,6 +32,7 @@ func (r *Replica) linearizableReadLoop() {
 
 		r.raftMu.Lock()
 		r.mu.internalRaftGroup.ReadIndex(ctx)
+		r.store.enqueueRaftUpdateCheck(r.GroupID)
 		r.raftMu.Unlock()
 
 		var (
