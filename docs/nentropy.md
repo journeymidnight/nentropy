@@ -107,7 +107,8 @@ Read. 选择Lease read, 即使有可能存在时钟漂移, 出现stale read, 在
 
 # 性能测试
 
-##4k随机写
+
+## 4k随机写
 
 节点数：3
 
@@ -127,8 +128,9 @@ raid卡：PM8060-DefaultValue3
 	Total transferred :4096000000 bytes
 	Requests per second :5555 [#/sec]
 	Transfer rate :22222 [Kbytes/sec]
-	
-##4k随机读
+
+
+## 4k随机读
 
 	Start Bench Test!!!
 	Method:read    Thread:16    Size:4096    RunName:1779185060412984
