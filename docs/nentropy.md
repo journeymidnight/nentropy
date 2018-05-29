@@ -106,3 +106,40 @@ Read. 选择Lease read, 即使有可能存在时钟漂移, 出现stale read, 在
 # 与其他分布式系统对比
 
 # 性能测试
+
+##4k随机写
+
+节点数：3
+
+cpu: Intel(R) Xeon(R) CPU E5-2620 v4 @ 2.10GHz
+
+raid卡：PM8060-DefaultValue3
+
+硬盘：普通SATA 6T*1
+
+
+
+	Summary :
+	Concurrency :16
+	Size :4096
+	Time taken for tests :180.001305199 seconds
+	Complete requests :1000000
+	Total transferred :4096000000 bytes
+	Requests per second :5555 [#/sec]
+	Transfer rate :22222 [Kbytes/sec]
+	
+##4k随机读
+
+	Start Bench Test!!!
+	Method:read    Thread:16    Size:4096    RunName:1779185060412984
+	Current Ops:8092/s  BandWidth:32368K/s TotalCount:8092
+	Current Ops:8578/s  BandWidth:34312K/s TotalCount:16670
+	Current Ops:8640/s  BandWidth:34560K/s TotalCount:25310
+	Current Ops:8540/s  BandWidth:34160K/s TotalCount:33850
+	Current Ops:8438/s  BandWidth:33752K/s TotalCount:42288
+	Current Ops:8617/s  BandWidth:34468K/s TotalCount:50905
+	Current Ops:8444/s  BandWidth:33776K/s TotalCount:59349
+	Current Ops:8437/s  BandWidth:33748K/s TotalCount:67786
+	Current Ops:8508/s  BandWidth:34032K/s TotalCount:76294
+	Current Ops:8452/s  BandWidth:33808K/s TotalCount:84746
+	Current Ops:8627/s  BandWidth:34508K/s TotalCount:93373
