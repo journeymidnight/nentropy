@@ -105,6 +105,18 @@ Read. 选择Lease read, 即使有可能存在时钟漂移, 出现stale read, 在
 
 # 与其他分布式系统对比
 
+## 与CEPH对比
+
+由于ceph现在的广泛应用，nentropy借鉴了很多ceph概念，比如pool，monitor，osd，pg，以及pg的状态等等，我们的目标是做一个针对小文件的优化的分布式KV，与ceph的主要区别在于：
+
+1. pg到osd的映射，ceph采用crush算法，nentropy使用的是一致性hash，crush的问题在于pg数目比较小的时候，容易出现各个osd上落的pg数目不一致，需要反复的去reweight，而一致性hash由于虚节点的引入，会好很多，而且便于理解和实现。
+
+2. ceph自己实现了一套数据的多副本实现方式，和复杂的数据恢复流程，而nentropy借用raft来实现多副本的一致性。
+
+3. 数据恢复的速度，ceph是一个个对象去拷贝复制，而nentropy是对数据库文件的拷贝复制，相对快的多的多。
+
+4. ceph目前支持文件，块，对象接口，而nentropy目前仅仅支持kv的基本操作，暂时不具备对接上层应用的能力，后续可考虑参考seaweedfs，做成一个文件系统。
+
 # 性能测试
 
 
