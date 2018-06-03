@@ -823,6 +823,12 @@ func (s *Store) GetReplica(groupID multiraftbase.GroupID) (*Replica, error) {
 	return nil, multiraftbase.NewGroupNotFoundError(groupID)
 }
 
+// GetReplica fetches a replica by Range ID. Returns an error if no replica is found.
+func (s *Store) DelReplica(groupID multiraftbase.GroupID) error {
+	s.mu.replicas.Delete(groupID)
+	return nil
+}
+
 // AnnotateCtx is a convenience wrapper; see AmbientContext.
 func (s *Store) AnnotateCtx(ctx context.Context) context.Context {
 	return s.cfg.AmbientCtx.AnnotateCtx(ctx)
@@ -1048,7 +1054,7 @@ func (s *Store) addReplicaInternalLocked(repl *Replica) error {
 }
 
 func (s *Store) isExistReplicaWorkDir(groupID multiraftbase.GroupID) bool {
-	dir, err := helper.GetDataDir(s.cfg.BaseDir, uint64(s.cfg.NodeID), false, false)
+	dir, err := helper.GetDataDir(s.cfg.BaseDir, uint64(s.cfg.NodeID), false)
 	if err != nil {
 		helper.Fatal("Error creating data dir! err:", err)
 	}
@@ -1063,15 +1069,28 @@ func (s *Store) isExistReplicaWorkDir(groupID multiraftbase.GroupID) bool {
 }
 
 func (s *Store) getReplicaWorkDir(groupID multiraftbase.GroupID) (string, error) {
-	dir, err := helper.GetDataDir(s.cfg.BaseDir, uint64(s.cfg.NodeID), false, true)
+	dir, err := helper.GetAndCreateDataDir(s.cfg.BaseDir, uint64(s.cfg.NodeID), false)
 	if err != nil {
 		helper.Fatal("Error creating data dir! err:", err)
 	}
 	return dir + "/" + string(groupID), nil
 }
 
+func (s *Store) removeReplicaWorkDir(groupID multiraftbase.GroupID) error {
+	dir, err := helper.GetDataDir(s.cfg.BaseDir, uint64(s.cfg.NodeID), false)
+	if err != nil {
+		helper.Fatal("Error creating data dir! err:", err)
+	}
+	repDir := dir + "/" + string(groupID)
+	err = os.RemoveAll(repDir)
+	if err != nil {
+		helper.Check(err)
+	}
+	return nil
+}
+
 func (s *Store) getReplicaSnapDir(groupID multiraftbase.GroupID) (string, error) {
-	dir, err := helper.GetDataDir(s.cfg.BaseDir, uint64(s.cfg.NodeID), false, true)
+	dir, err := helper.GetAndCreateDataDir(s.cfg.BaseDir, uint64(s.cfg.NodeID), false)
 	if err != nil {
 		helper.Fatal("Error creating data dir! err:", err)
 	}
@@ -1100,6 +1119,18 @@ func (s *Store) GetGroupStore(groupId multiraftbase.GroupID) (engine.Engine, err
 	}
 	s.engines.Store(groupId, eng)
 	return eng, nil
+}
+
+func (s *Store) DelDBEngine(groupId multiraftbase.GroupID) error {
+	value, exist := s.engines.Load(groupId)
+	if exist {
+		eng, ok := value.(engine.Engine)
+		if ok {
+			eng.Close()
+			s.engines.Delete(groupId)
+		}
+	}
+	return nil
 }
 
 func (s *Store) BootstrapGroup(join bool, group *multiraftbase.GroupDescriptor) error {

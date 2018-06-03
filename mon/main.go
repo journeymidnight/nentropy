@@ -52,7 +52,7 @@ const (
 )
 
 func getMonDataDir() (string, error) {
-	dir, err := helper.GetDataDir(config.BaseDir, config.RaftId, true, true)
+	dir, err := helper.GetAndCreateDataDir(config.BaseDir, config.RaftId, true)
 	if err != nil {
 		return "", err
 	}

@@ -93,17 +93,36 @@ func (s *OsdServer) createOrRemoveReplica(pgMaps *protos.PgMaps) {
 			for _, replica := range replicas {
 				helper.Printf(5, " replica: %s  ", replica.String())
 			}
+			s.saveReplicasLocally(replicas, string(groupID))
 
-			rep, err := s.store.GetReplica(multiraftbase.GroupID(fmt.Sprintf("%d.%d", poolId, pgId)))
+			rep, err := s.store.GetReplica(groupID)
 			if err == nil {
 				//replica already existed
-				if rep.amLeader() {
-					err := proposeConfChange(multiraftbase.ConfType_ADD_REPLICA, groupID, newReplicas)
-					if err != nil {
-						helper.Check(err)
+				var exist bool
+				for _, subReplica := range replicas {
+					if subReplica.ReplicaIndex == int32(rep.mu.replicaID) {
+						exist = true
+						break
 					}
 				}
-				continue
+
+				if exist {
+					if rep.amLeader() {
+						err := proposeConfChange(multiraftbase.ConfType_ADD_REPLICA, groupID, newReplicas)
+						if err != nil {
+							helper.Check(err)
+						}
+					}
+					continue
+				} else {
+					// remove old replica from the pg
+					helper.Println(5, "Remove replica, group:", string(groupID), " replicaId:", rep.mu.replicaID)
+					if rep.mu.destroyed != nil {
+						s.store.DelReplica(groupID)
+						s.store.DelDBEngine(groupID)
+						s.store.removeReplicaWorkDir(groupID)
+					}
+				}
 			}
 
 			groupDes := multiraftbase.GroupDescriptor{}
@@ -115,8 +134,8 @@ func (s *OsdServer) createOrRemoveReplica(pgMaps *protos.PgMaps) {
 				groupDes.Replicas = append(groupDes.Replicas, multiraftbase.ReplicaDescriptor{multiraftbase.NodeID(nodeId), 0, multiraftbase.ReplicaID(subReplica.ReplicaIndex)})
 			}
 			groupDes.NextReplicaID = multiraftbase.ReplicaID(pg.NextReplicaId)
-			go s.store.BootstrapGroup(false, &groupDes)
 			helper.Println(5, fmt.Sprintf("try start a new replica :%d.%d", poolId, pgId))
+			go s.store.BootstrapGroup(false, &groupDes)
 		}
 	}
 

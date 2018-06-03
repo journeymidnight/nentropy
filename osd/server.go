@@ -95,7 +95,7 @@ func getPgMaps(epoch uint64) (*protos.PgMaps, error) {
 }
 
 func getOsdSysDataDir() (string, error) {
-	dir, err := helper.GetDataDir(config.BaseDir, uint64(config.NodeID), false, true)
+	dir, err := helper.GetAndCreateDataDir(config.BaseDir, uint64(config.NodeID), false)
 	if err != nil {
 		helper.Fatal("Error creating data dir! err:", err)
 	}
@@ -708,10 +708,6 @@ func (s *OsdServer) GetLocalPgMembers(pgId string) (*protos.PgMembers, error) {
 }
 
 func (s *OsdServer) SetLocalPgMembers(pgId string, member *protos.PgMembers) error {
-	ok := s.store.isExistReplicaWorkDir(multiraftbase.GroupID(pgId))
-	if !ok {
-		return nil
-	}
 	eng, err := s.store.GetGroupStore(multiraftbase.GroupID(pgId))
 	if err != nil {
 		helper.Fatalln("Can not new a badger db.")
@@ -810,7 +806,7 @@ func SaveReplicasLocallyCallback(reps []protos.PgReplica, pgId string, leader bo
 			replicas := protos.PgMembers{Members: reps}
 			UpdatePgStatusReplicas(pgId, replicas)
 		}
-		go Server.saveReplicasLocally(reps, pgId)
+		//go Server.saveReplicasLocally(reps, pgId)
 	}()
 }
 
