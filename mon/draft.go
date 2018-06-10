@@ -299,10 +299,8 @@ func (n *node) processApplyCh() {
 		if err := proposal.Unmarshal(e.Data); err != nil {
 			helper.Fatalf("Unable to unmarshal proposal: %v %q\n", err, e.Data)
 		}
-		var err error
-		if handleCommittedMsg != nil {
-			err = handleCommittedMsg(proposal.Data)
-		}
+
+		err := handleCommittedMsg(proposal.Data)
 		n.props.Done(proposal.Id, err)
 	}
 }
